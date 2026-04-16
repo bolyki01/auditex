@@ -1,0 +1,16 @@
+{
+  "@odata.type": "#microsoft.graph.windows10GeneralConfiguration",
+  "displayName": "Seed-Windows-11-Endpoint-Lockdown",
+  "description": "Endpoint hardening layer for Windows 11 devices in training tenant.",
+  "enterpriseCloudPrintDiscoveryEndpointUrl": "",
+  "enterpriseCloudPrintOAuthAuthority": "",
+  "azureADDeviceDefault": false,
+  "smartScreenBlockOverrideForFiles": true,
+  "smartScreenEnableInShell": true,
+  "passwordBlockSimple": true,
+  "passwordRequiredType": "alphanumeric",
+  "passwordMinimumLength": 14,
+  "passwordSecondsOfInactivityBeforeScreenTimeout": 300,
+  "disablePrivacySettings": true,
+  "windowsSpotlightBlockOnActionCenter": true
+}

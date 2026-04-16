@@ -1,0 +1,12 @@
+{
+  "@odata.type": "#microsoft.graph.androidCompliancePolicy",
+  "displayName": "Seed-Android-Compliance",
+  "description": "Baseline Android compliance policy for mobile pilot users.",
+  "passwordRequired": true,
+  "passwordMinimumLength": 6,
+  "storageRequireEncryption": true,
+  "securityBlockJailbrokenDevices": true,
+  "deviceThreatProtectionEnabled": true,
+  "deviceThreatProtectionRequiredSecurityLevel": "secured",
+  "osMinimumVersion": "13.0"
+}

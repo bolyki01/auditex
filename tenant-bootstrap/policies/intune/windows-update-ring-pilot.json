@@ -1,0 +1,11 @@
+{
+  "@odata.type": "#microsoft.graph.windowsUpdateForBusinessConfiguration",
+  "displayName": "Seed-Windows-UpdateRing-Pilot",
+  "description": "Pilot update ring for tighter Windows update validation.",
+  "automaticUpdateMode": "autoInstallAtMaintenanceTime",
+  "microsoftUpdateServiceAllowed": true,
+  "driversExcluded": false,
+  "qualityUpdatesDeferralPeriodInDays": 3,
+  "featureUpdatesDeferralPeriodInDays": 7,
+  "businessReadyUpdatesOnly": "all"
+}

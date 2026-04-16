@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Auditex Blocker",
+  "type": "object",
+  "required": ["collector", "status", "recommendations"],
+  "properties": {
+    "collector": { "type": "string" },
+    "status": { "type": "string" },
+    "endpoint": { "type": ["string", "null"] },
+    "error_class": { "type": ["string", "null"] },
+    "error": { "type": ["string", "null"] },
+    "recommendations": { "type": "object" }
+  }
+}

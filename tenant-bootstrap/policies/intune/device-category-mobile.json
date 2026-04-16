@@ -1,0 +1,5 @@
+{
+  "@odata.type": "#microsoft.graph.deviceCategory",
+  "displayName": "Seed-Mobile-Fleet",
+  "description": "Seeded mobile devices for iOS and Android pilots."
+}

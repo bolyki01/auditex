@@ -1,0 +1,22 @@
+{
+  "displayName": "CA-BreakGlass-NoBlock-ReportOnly",
+  "state": "reportOnly",
+  "conditions": {
+    "users": {
+      "includeGroups": ["{{BREAKGLASS_GROUP_ID}}", "{{REPORTING_GROUP_ID}}", "{{GROUP_GG_BREAKGLASS}}"],
+      "excludeGroups": []
+    },
+    "applications": {
+      "includeApplications": ["All"]
+    },
+    "platforms": {
+      "includePlatforms": ["all"]
+    },
+    "clientAppTypes": ["all"]
+  },
+  "grantControls": {
+    "operator": "OR",
+    "builtInControls": ["mfa", "compliantDevice"]
+  },
+  "sessionControls": {}
+}

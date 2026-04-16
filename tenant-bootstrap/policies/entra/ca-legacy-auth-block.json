@@ -1,0 +1,22 @@
+{
+  "displayName": "CA-Block-Legacy-Authentication",
+  "state": "enabled",
+  "conditions": {
+    "users": {
+      "includeUsers": ["All"],
+      "excludeGroups": ["{{BREAKGLASS_GROUP_ID}}"]
+    },
+    "applications": {
+      "includeApplications": ["All"]
+    },
+    "clientAppTypes": ["other"],
+    "platforms": {
+      "includePlatforms": ["all"]
+    }
+  },
+  "grantControls": {
+    "operator": "OR",
+    "builtInControls": ["block"]
+  },
+  "sessionControls": {}
+}

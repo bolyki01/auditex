@@ -1,0 +1,12 @@
+{
+  "name": "DEF-Sensitive-TransportRule-DataLeak",
+  "description": "Transport rule that flags suspicious subject/keywords and routes to review for audit visibility.",
+  "policyType": "TransportRule",
+  "state": "enabled",
+  "notes": "Apply carefully in production; this template is intentionally conservative for lab baseline.",
+  "commands": [
+    "m365 security dlp policy list --output json",
+    "New-TransportRule -Name DEF-Sensitive-TransportRule-DataLeak -Priority 0 -SentToScope NotInOrganization -HeaderContainsMessageHeaderName X-Custom-Pattern -HeaderContainsMessageHeaderValue \"sensitive\" -FromScope InOrganization -RedirectMessageTo \"compliance.review@tenant.domain\"",
+    "Get-TransportRule -Identity DEF-Sensitive-TransportRule-DataLeak"
+  ]
+}

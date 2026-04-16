@@ -1,0 +1,5 @@
+{
+  "@odata.type": "#microsoft.graph.deviceCategory",
+  "displayName": "Seed-Windows-Fleet",
+  "description": "Seeded Windows enterprise devices."
+}

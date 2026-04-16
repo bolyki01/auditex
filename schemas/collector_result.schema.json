@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Auditex Collector Result",
+  "type": "object",
+  "required": ["name", "status", "item_count"],
+  "properties": {
+    "name": { "type": "string" },
+    "status": { "type": "string" },
+    "item_count": { "type": "integer" },
+    "message": { "type": "string" },
+    "error": { "type": ["string", "null"] }
+  }
+}

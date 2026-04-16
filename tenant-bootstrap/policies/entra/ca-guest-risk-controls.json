@@ -1,0 +1,22 @@
+{
+  "displayName": "CA-Guest-Block-Attack-Like-Actions",
+  "state": "enabled",
+  "conditions": {
+    "users": {
+      "includeGroups": ["{{DG_GUEST_ACCOUNTS}}"],
+      "excludeGroups": ["{{BREAKGLASS_GROUP_ID}}"]
+    },
+    "applications": {
+      "includeApplications": ["All"]
+    },
+    "platforms": {
+      "includePlatforms": ["all"]
+    },
+    "clientAppTypes": ["all"]
+  },
+  "grantControls": {
+    "operator": "OR",
+    "builtInControls": ["mfa", "compliantDevice"]
+  },
+  "sessionControls": {}
+}

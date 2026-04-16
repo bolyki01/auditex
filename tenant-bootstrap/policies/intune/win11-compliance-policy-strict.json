@@ -1,0 +1,17 @@
+{
+  "@odata.type": "#microsoft.graph.windows10CompliancePolicy",
+  "displayName": "Seed-Windows-11-Compliance-Intense",
+  "description": "Stricter Windows 11 compliance baseline used for audit scenario variance.",
+  "passwordRequired": true,
+  "passwordBlockSimple": true,
+  "passwordRequiredType": "alphanumeric",
+  "passwordMinimumLength": 14,
+  "storageRequireEncryption": true,
+  "defenderEnabled": true,
+  "bitLockerEnabled": true,
+  "osMinimumVersion": "10.0.22621",
+  "osMinimumBuild": "22000",
+  "activeFirewallRequired": true,
+  "secureBootEnabled": true,
+  "tpmRequired": true
+}

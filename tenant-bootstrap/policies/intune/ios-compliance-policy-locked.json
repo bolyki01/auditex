@@ -1,0 +1,13 @@
+{
+  "@odata.type": "#microsoft.graph.iosCompliancePolicy",
+  "displayName": "Seed-iOS-Compliance-Locked",
+  "description": "iOS compliance baseline that forces stronger PIN and encryption.",
+  "passcodeBlockSimple": true,
+  "passcodeMinimumLength": 8,
+  "passcodeMinutesOfInactivityBeforeLock": 5,
+  "passcodeMinutesOfInactivityBeforeScreenTimeout": 2,
+  "managedEmailProfileRequired": true,
+  "osMinimumVersion": "16.0",
+  "storageRequireEncryption": true,
+  "deviceThreatProtectionEnabled": true
+}

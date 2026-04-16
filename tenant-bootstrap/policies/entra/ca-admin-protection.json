@@ -1,0 +1,22 @@
+{
+  "displayName": "CA-Admins-MFA-and-CompliantDevices",
+  "state": "enabled",
+  "conditions": {
+    "users": {
+      "includeGroups": ["{{ADMINS_GROUP_ID}}"],
+      "excludeGroups": ["{{BREAKGLASS_GROUP_ID}}"]
+    },
+    "applications": {
+      "includeApplications": ["All"]
+    },
+    "platforms": {
+      "includePlatforms": ["all"]
+    },
+    "clientAppTypes": ["browser", "mobileAppsAndDesktopClients"]
+  },
+  "grantControls": {
+    "operator": "AND",
+    "builtInControls": ["mfa", "compliantDevice"]
+  },
+  "sessionControls": {}
+}

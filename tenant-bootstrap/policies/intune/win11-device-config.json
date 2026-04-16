@@ -1,0 +1,16 @@
+{
+  "@odata.type": "#microsoft.graph.windows10GeneralConfiguration",
+  "displayName": "Seed-Windows-11-DeviceConfig",
+  "description": "Baseline Windows 11 device settings for lab workloads.",
+  "enterpriseCloudPrintDiscoveryEndpointUrl": "",
+  "enterpriseCloudPrintOAuthAuthority": "",
+  "azureADDeviceDefault" : false,
+  "smartScreenBlockOverrideForFiles": true,
+  "edgeSearchEngine": "bing",
+  "smartScreenEnableInShell": true,
+  "oneDriveDisableFileSync": false,
+  "enterpriseCloudPrintDefaultPrinter": "",
+  "passwordBlockSimple": true,
+  "passwordMinimumLength": 12,
+  "startBlockUnlicensedUsers": false
+}

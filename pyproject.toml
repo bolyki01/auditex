@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auditex"
+version = "0.2.0"
+description = "Portable AI-first Microsoft 365 audit toolkit for Codex-operated evidence collection"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31,<3",
+    "msal>=1.28,<2",
+]
+
+[project.optional-dependencies]
+mcp = [
+    "mcp>=1,<2",
+]
+
+[project.scripts]
+azure-tenant-audit = "azure_tenant_audit.cli:main"
+auditex = "auditex.cli:main"
+auditex-mcp = "auditex.mcp_server:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

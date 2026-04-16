@@ -1,0 +1,41 @@
+{
+  "identity": {
+    "value": [
+      {
+        "id": "sample-user-01",
+        "displayName": "Example User",
+        "userPrincipalName": "example@contoso.example",
+        "accountEnabled": true
+      }
+    ]
+  },
+  "security": {
+    "value": [
+      {
+        "id": "sample-alert-01",
+        "title": "Sample suspicious sign-in",
+        "severity": "low",
+        "status": "new"
+      }
+    ]
+  },
+  "intune": {
+    "value": [
+      {
+        "id": "sample-device-01",
+        "deviceName": "SampleLaptop",
+        "operatingSystem": "Windows",
+        "complianceState": "compliant"
+      }
+    ]
+  },
+  "teams": {
+    "value": [
+      {
+        "id": "sample-team-01",
+        "displayName": "Security Working Group",
+        "visibility": "Private"
+      }
+    ]
+  }
+}

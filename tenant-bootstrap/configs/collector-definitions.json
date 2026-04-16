@@ -1,0 +1,103 @@
+{
+  "collectors": {
+    "identity": {
+      "enabled": true,
+      "description": "Core tenant, user, groups, and application posture data from Microsoft Entra",
+      "required_permissions": [
+        "Directory.Read.All",
+        "User.Read.All",
+        "Group.Read.All",
+        "Application.Read.All"
+      ],
+      "query_plan": [
+        "organization",
+        "domains",
+        "users",
+        "groups",
+        "applications",
+        "servicePrincipals",
+        "roleDefinitions",
+        "roleAssignments"
+      ]
+    },
+    "security": {
+      "enabled": true,
+      "description": "Security posture and sign-in threat context available in Microsoft Graph",
+      "required_permissions": [
+        "SecurityEvents.Read.All",
+        "SecurityActions.Read.All",
+        "SecurityEvents.Read.All",
+        "AuditLog.Read.All",
+        "Policy.Read.All"
+      ],
+      "query_plan": [
+        "conditionalAccessPolicies",
+        "securityDefaults",
+        "namedLocations",
+        "securityAlerts",
+        "signIns",
+        "auditLogs"
+      ]
+    },
+    "intune": {
+      "enabled": true,
+      "description": "Intune/Endpoint Management posture and device state",
+      "required_permissions": [
+        "DeviceManagementManagedDevices.Read.All",
+        "DeviceManagementConfiguration.Read.All",
+        "DeviceManagementApps.Read.All",
+        "DeviceManagementServiceConfig.Read.All",
+        "CloudPC.Read.All",
+        "CloudPC.ReadWrite.All"
+      ],
+      "query_plan": [
+        "managedDevices",
+        "deviceCompliancePolicies",
+        "deviceConfigurationProfiles",
+        "deviceCategories",
+        "iosManagedAppProtections",
+        "androidManagedAppProtections",
+        "deviceEnrollmentConfigurations",
+        "windowsAutopilotDeploymentProfiles",
+        "cloudPCs",
+        "provisioningPolicies"
+      ]
+    },
+    "teams": {
+      "enabled": true,
+      "description": "Teams and channel configuration",
+      "required_permissions": [
+        "Team.ReadBasic.All",
+        "Channel.ReadBasic.All",
+        "Group.Read.All"
+      ],
+      "query_plan": [
+        "teamGroups",
+        "teamChannels",
+        "teamsByTeam"
+      ]
+    },
+    "exchange": {
+      "enabled": false,
+      "description": "Optional Exchange readiness checks not fully covered by Graph",
+      "required_permissions": [
+        "Exchange.ManageAsApp"
+      ],
+      "query_plan": [
+        "exchangeConnectivityCheck",
+        "mailboxCount"
+      ],
+      "command_collectors": [
+        {
+          "name": "exchangeConnectivityCheck",
+          "command": "m365 tenant info get --output json"
+        },
+        {
+          "name": "mailboxCount",
+          "command": "m365 outlook report mailboxusagemailboxcount --period D30 --output json"
+        }
+      ]
+    }
+  },
+  "default_order": ["identity", "security", "intune", "teams", "exchange"]
+}

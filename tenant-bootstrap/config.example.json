@@ -1,0 +1,183 @@
+{
+  "tenant": {
+    "tenantId": "03174e44-540d-43a6-9dc4-fdff48bd182d",
+    "tenantName": "Bolyki Solutions",
+    "tenantDomain": "bolyki.eu",
+    "timeZone": "Pacific Standard Time",
+    "usageLocation": "US"
+  },
+  "authentication": {
+    "mode": "azure_cli",
+    "app": {
+      "clientId": "",
+      "tenantId": "",
+      "certificateThumbprint": ""
+    },
+    "azureCli": {
+      "tenant": "organizations",
+      "resource": "https://graph.microsoft.com"
+    }
+  },
+  "actors": {
+    "dailyUser": "daily.user",
+    "namedAdmin": "admin.named",
+    "breakGlassUsers": [
+      "emergency.one",
+      "emergency.two"
+    ],
+    "teamOwnerUsers": [
+      "admin.named",
+      "daily.user"
+    ],
+    "copilotPilotUsers": [
+      "finance.01.staff",
+      "sales.01.staff",
+      "sales.02.staff",
+      "ops.01.staff",
+      "exec.01.staff"
+    ],
+    "reportingUsers": [
+      "finance.02.staff",
+      "finance.03.staff",
+      "exec.02.staff",
+      "it.01.staff",
+      "hr.01.staff"
+    ]
+  },
+  "counts": {
+    "targetEmployeeUsers": 32,
+    "targetGuests": 4,
+    "daysOfHistory": 75
+  },
+  "guestSeed": {
+    "domains": [
+      "partners.contoso.example",
+      "vendors.fabrikam.example"
+    ],
+    "inviteRedirectUrl": "https://myapplications.microsoft.com"
+  },
+  "departments": ["Exec", "IT", "Sales", "HR", "Finance", "Ops", "Support"],
+  "departmentDistribution": {
+    "Exec": 3,
+    "IT": 5,
+    "Sales": 5,
+    "HR": 3,
+    "Finance": 4,
+    "Ops": 4,
+    "Support": 4
+  },
+  "enterpriseScale": {
+    "enabled": true,
+    "profile": {
+      "departmentSecurityGroupsPerDepartment": 14,
+      "departmentM365GroupsPerDepartment": 1,
+      "departmentServiceGroupsPerDepartment": 2,
+      "functionGroupsPerFunction": 2,
+      "resourceOwnerGroups": 20,
+      "policyAndProgramGroups": 30,
+      "overshareSignalGroups": 10,
+      "geoRegionGroups": 8
+    },
+    "functionFamilies": [
+      "CloudOps",
+      "DataOps",
+      "Compliance",
+      "Identity",
+      "Finance",
+      "HR",
+      "Support",
+      "Legal",
+      "Procurement",
+      "Risk",
+      "Security",
+      "Dev",
+      "Engineering",
+      "Workforce",
+      "SalesEnablement",
+      "Incident",
+      "Operations",
+      "Governance"
+    ],
+    "geoCodes": ["NA", "EMEA", "APAC", "LATAM", "USC", "USE", "CAN", "IN", "AUS", "UK", "BR", "MEA"]
+  },
+  "groupNames": {
+    "allUsers": "GG-L0-AllUsers",
+    "admins": "GG-Admins-Named",
+    "breakGlass": "GG-BreakGlass",
+    "copilotPilot": "GG-Copilot-Pilot",
+    "reporting": "GG-PowerBI-Reporting",
+    "entraP2": "GG-EntraP2-Admins",
+    "itM365": "MG-IT-Collab",
+    "salesM365": "MG-Sales-Collab",
+    "financeM365": "MG-Finance-Collab"
+  },
+  "licenses": {
+    "base": "BUSINESS_PREMIUM",
+    "copilotPilot": "COPILOT",
+    "entraP2": "AAD_PREMIUM_P2",
+    "powerBi": "POWER_BI_PRO",
+    "cloudPcEnterprise": "CPC_E_2C_8GB_128GB",
+    "cloudPcBusiness": "CPC_B_2C_8RAM_128GB",
+    "cloudPcBusinessUser": "daily.user",
+    "mailboxSeed": "MICROSOFT_AGENT_365_TIER_3",
+    "mailboxSeedMaxUsers": 25,
+    "mailboxSeedExcludeAliases": ["emergency.one", "emergency.two"]
+  },
+  "windows365": {
+    "enabled": true,
+    "phase1PilotUser": "daily.user",
+    "joinType": "entraHosted",
+    "networkType": "microsoftHosted",
+    "allowBusinessEnrollment": false
+  },
+  "teamChannels": [
+    "General",
+    "Incidents",
+    "Projects",
+    "Operations",
+    "HR-Requests",
+    "Finance-Policy",
+    "Sales-Enablement"
+  ],
+  "sharePoint": {
+    "sites": [
+      {
+        "title": "Corporate Hub",
+        "urlSuffix": "corporate-hub",
+        "ownerAlias": "admin.named",
+        "description": "General org landing and policy artifacts."
+      },
+      {
+        "title": "Finance Hub",
+        "urlSuffix": "finance-hub",
+        "ownerAlias": "finance.01.staff",
+        "description": "Finance planning and reporting site."
+      },
+      {
+        "title": "IT Operations",
+        "urlSuffix": "it-ops",
+        "ownerAlias": "it.01.staff",
+        "description": "Operational runbooks and incident notes."
+      }
+    ],
+    "templateFiles": [
+      "templates/docs/proposal.md",
+      "templates/docs/incidents.md",
+      "templates/docs/sop.md"
+    ]
+  },
+  "devices": {
+    "windows11Seed": 12,
+    "macosSeed": 2,
+    "iosSeed": 2,
+    "androidSeed": 0,
+    "appleDeviceSerials": [
+      "SEED-iPad-1",
+      "SEED-macOS-1"
+    ],
+    "deviceSerialPrefix": "SEED-",
+    "managedTargetPhase1": 1,
+    "managedTargetPhase2": 10,
+    "managedTargetFinal": 25
+  }
+}

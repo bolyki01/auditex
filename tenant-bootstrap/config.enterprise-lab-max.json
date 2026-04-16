@@ -1,0 +1,178 @@
+{
+  "tenant": {
+    "tenantId": "03174e44-540d-43a6-9dc4-fdff48bd182d",
+    "tenantName": "Bolyki Solutions",
+    "tenantDomain": "bolyki.eu",
+    "timeZone": "Pacific Standard Time",
+    "usageLocation": "US"
+  },
+  "authentication": {
+    "mode": "azure_cli",
+    "app": {
+      "clientId": "",
+      "tenantId": "",
+      "certificateThumbprint": ""
+    },
+    "azureCli": {
+      "tenant": "organizations",
+      "resource": "https://graph.microsoft.com"
+    }
+  },
+  "actors": {
+    "dailyUser": "daily.user",
+    "namedAdmin": "admin.named",
+    "breakGlassUsers": ["emergency.one", "emergency.two"],
+    "teamOwnerUsers": ["admin.named", "daily.user"],
+    "copilotPilotUsers": ["finance.01.staff", "sales.01.staff", "sales.02.staff", "ops.01.staff", "exec.01.staff"],
+    "reportingUsers": ["finance.02.staff", "finance.03.staff", "exec.02.staff", "it.01.staff", "hr.01.staff"]
+  },
+  "counts": {
+    "targetEmployeeUsers": 96,
+    "targetGuests": 12,
+    "daysOfHistory": 180
+  },
+  "guestSeed": {
+    "domains": ["guest-partners.contoso.example", "external-vendors.fabrikam.example", "alliance.northwind.example"],
+    "inviteRedirectUrl": "https://myapplications.microsoft.com"
+  },
+  "departments": ["Exec", "IT", "Sales", "HR", "Finance", "Ops", "Support", "Engineering", "Legal", "Marketing", "Procurement", "Security", "CustomerSuccess"],
+  "departmentDistribution": {
+    "Exec": 6,
+    "IT": 10,
+    "Sales": 9,
+    "HR": 6,
+    "Finance": 8,
+    "Ops": 8,
+    "Support": 7,
+    "Engineering": 12,
+    "Legal": 5,
+    "Marketing": 6,
+    "Procurement": 5,
+    "Security": 6,
+    "CustomerSuccess": 4
+  },
+  "enterpriseScale": {
+    "enabled": true,
+    "profile": {
+      "departmentSecurityGroupsPerDepartment": 28,
+      "departmentM365GroupsPerDepartment": 3,
+      "departmentServiceGroupsPerDepartment": 4,
+      "functionGroupsPerFunction": 4,
+      "resourceOwnerGroups": 40,
+      "policyAndProgramGroups": 50,
+      "overshareSignalGroups": 24,
+      "geoRegionGroups": 30
+    },
+    "functionFamilies": ["CloudOps", "DataOps", "Compliance", "Identity", "Finance", "HR", "Support", "Legal", "Procurement", "Risk", "Security", "Dev", "Engineering", "Workforce", "SalesEnablement", "Incident", "Operations", "Governance", "Platform", "Endpoint", "Messaging", "Collaboration", "Privacy", "Records", "ThreatIntel", "Executive"],
+    "geoCodes": ["NA", "EMEA", "APAC", "LATAM", "USC", "USE", "CAN", "IN", "AUS", "UK", "BR", "MEA"],
+    "jobTitles": ["Director", "Manager", "Senior Analyst", "Specialist", "Security Lead", "Cloud Operator", "Engineer", "Compliance Analyst", "Support Specialist", "Account Executive", "Data Analyst", "SRE", "SOC Analyst", "Procurement Manager", "Legal Counsel", "HR Partner", "Finance Controller", "Product Manager", "Platform Engineer", "Executive Assistant", "Risk Officer", "Records Manager", "Endpoint Engineer", "Messaging Engineer", "Customer Success Manager", "Privacy Lead"],
+    "dynamicTitleRules": ["Manager", "Director", "Lead", "Analyst", "Specialist", "Architect", "Engineer", "Coordinator", "Advisor", "Officer", "Counsel", "Partner", "Controller", "SRE", "Assistant", "Operator", "Manager", "Product Manager", "Platform Engineer", "SOC Analyst", "Risk Officer", "Records Manager", "Privacy Lead", "Messaging Engineer", "Endpoint Engineer"],
+    "dynamicGroupRules": [
+      {"displayName": "DG-LICENSED-MAILBOX-USERS", "membershipRule": "user.mail -ne null"},
+      {"displayName": "DG-COPILOT-KNOWLEDGE-WORKERS", "membershipRule": "(user.department -eq \"Finance\") -or (user.department -eq \"Sales\") -or (user.department -eq \"Ops\")"},
+      {"displayName": "DG-FINANCE-HR-SENSITIVE", "membershipRule": "(user.department -eq \"Finance\") -or (user.department -eq \"HR\")"},
+      {"displayName": "DG-LEGAL-RECORDS-OWNERS", "membershipRule": "(user.department -eq \"Legal\") -or (user.jobTitle -eq \"Records Manager\")"},
+      {"displayName": "DG-SECURITY-OPERATIONS", "membershipRule": "(user.department -eq \"Security\") -or (user.jobTitle -eq \"SOC Analyst\")"},
+      {"displayName": "DG-ENDPOINT-PILOT-USERS", "membershipRule": "(user.department -eq \"IT\") -or (user.jobTitle -eq \"Endpoint Engineer\")"},
+      {"displayName": "DG-WINDOWS365-PILOT-USERS", "membershipRule": "user.jobTitle -eq \"Cloud Operator\""},
+      {"displayName": "DG-EXECUTIVE-STAFF", "membershipRule": "user.department -eq \"Exec\""},
+      {"displayName": "DG-REGULATED-DATA-OWNERS", "membershipRule": "(user.department -eq \"Finance\") -or (user.department -eq \"Legal\")"},
+      {"displayName": "DG-CUSTOMER-DATA-OWNERS", "membershipRule": "(user.department -eq \"Sales\") -or (user.department -eq \"CustomerSuccess\")"},
+      {"displayName": "DG-PRIVILEGED-APP-OWNERS", "membershipRule": "(user.department -eq \"IT\") -or (user.department -eq \"Security\")"},
+      {"displayName": "DG-DLP-PILOT-USERS", "membershipRule": "(user.department -eq \"Finance\") -or (user.department -eq \"Legal\")"},
+      {"displayName": "DG-DEFENDER-STRICT-PILOT", "membershipRule": "(user.department -eq \"Security\") -or (user.department -eq \"Exec\")"},
+      {"displayName": "DG-EXCHANGE-STRICT-PILOT", "membershipRule": "(user.department -eq \"Exec\") -or (user.department -eq \"Finance\")"},
+      {"displayName": "DG-TEAMS-GOVERNANCE-PILOT", "membershipRule": "(user.department -eq \"IT\") -or (user.department -eq \"HR\")"},
+      {"displayName": "DG-SHAREPOINT-OVERSHARE-WATCH", "membershipRule": "(user.department -eq \"Finance\") -or (user.department -eq \"HR\")"},
+      {"displayName": "DG-PURVIEW-RETENTION-PILOT", "membershipRule": "(user.department -eq \"Legal\") -or (user.department -eq \"Compliance\")"},
+      {"displayName": "DG-AUDIT-EVIDENCE-READERS", "membershipRule": "(user.department -eq \"Security\") -or (user.department -eq \"Legal\")"},
+      {"displayName": "DG-CA-REPORTONLY-RING1", "membershipRule": "user.department -eq \"IT\""},
+      {"displayName": "DG-CA-REPORTONLY-RING2", "membershipRule": "(user.department -eq \"Ops\") -or (user.department -eq \"Support\")"},
+      {"displayName": "DG-CA-ENFORCE-RING3", "membershipRule": "(user.department -eq \"Finance\") -or (user.department -eq \"HR\")"},
+      {"displayName": "DG-MFA-STRICT-PILOT", "membershipRule": "(user.department -eq \"Exec\") -or (user.department -eq \"Security\")"},
+      {"displayName": "DG-APP-CONSENT-REVIEW", "membershipRule": "(user.department -eq \"IT\") -or (user.department -eq \"Security\")"},
+      {"displayName": "DG-VENDOR-RISK-OWNERS", "membershipRule": "(user.department -eq \"Procurement\") -or (user.department -eq \"Legal\")"},
+      {"displayName": "DG-INCIDENT-COMMAND", "membershipRule": "(user.department -eq \"Security\") -or (user.department -eq \"Ops\")"},
+      {"displayName": "DG-CHANGE-ADVISORY", "membershipRule": "(user.department -eq \"IT\") -or (user.department -eq \"Engineering\")"},
+      {"displayName": "DG-DATA-CLASSIFICATION-OWNERS", "membershipRule": "(user.department -eq \"Legal\") -or (user.department -eq \"Finance\")"},
+      {"displayName": "DG-POWERBI-REPORT-CONSUMERS", "membershipRule": "(user.department -eq \"Finance\") -or (user.department -eq \"Exec\")"},
+      {"displayName": "DG-REMOTE-WORKERS", "membershipRule": "(user.department -eq \"Sales\") -or (user.department -eq \"CustomerSuccess\")"},
+      {"displayName": "DG-PRIVACY-REVIEWERS", "membershipRule": "(user.jobTitle -eq \"Privacy Lead\") -or (user.department -eq \"Legal\")"},
+      {"displayName": "DG-SERVICE-DESK-OPERATORS", "membershipRule": "(user.department -eq \"Support\") -or (user.department -eq \"IT\")"},
+      {"displayName": "DG-CLOUD-PLATFORM-USERS", "membershipRule": "(user.jobTitle -eq \"Platform Engineer\") -or (user.department -eq \"Engineering\")"},
+      {"displayName": "DG-BUSINESS-CRITICAL-USERS", "membershipRule": "(user.department -eq \"Exec\") -or (user.department -eq \"Finance\")"},
+      {"displayName": "DG-TRAINING-PHISHING-TARGETS", "membershipRule": "(user.department -eq \"Sales\") -or (user.department -eq \"Marketing\")"},
+      {"displayName": "DG-SENSITIVE-MAILBOX-OWNERS", "membershipRule": "(user.department -eq \"Exec\") -or (user.department -eq \"HR\")"},
+      {"displayName": "DG-CONTRACT-APPROVERS", "membershipRule": "(user.department -eq \"Legal\") -or (user.department -eq \"Procurement\")"},
+      {"displayName": "DG-MOBILE-MDM-PILOT", "membershipRule": "(user.department -eq \"Sales\") -or (user.department -eq \"CustomerSuccess\")"},
+      {"displayName": "DG-ENGINEERING-ADMIN-LIKE", "membershipRule": "(user.department -eq \"Engineering\") -and (user.jobTitle -eq \"Engineer\")"},
+      {"displayName": "DG-COMPLIANCE-REVIEW-BOARD", "membershipRule": "(user.department -eq \"Legal\") -or (user.department -eq \"Security\")"},
+      {"displayName": "DG-SEARCH-AND-COPILOT-RISK", "membershipRule": "(user.department -eq \"Finance\") -or (user.department -eq \"HR\")"}
+    ]
+  },
+  "groupNames": {
+    "allUsers": "GG-L0-AllUsers",
+    "admins": "GG-Admins-Named",
+    "breakGlass": "GG-BreakGlass",
+    "copilotPilot": "GG-Copilot-Pilot",
+    "reporting": "GG-PowerBI-Reporting",
+    "entraP2": "GG-EntraP2-Admins",
+    "itM365": "MG-IT-Collab",
+    "salesM365": "MG-Sales-Collab",
+    "financeM365": "MG-Finance-Collab"
+  },
+  "licenses": {
+    "base": "BUSINESS_PREMIUM",
+    "copilotPilot": "COPILOT",
+    "entraP2": "AAD_PREMIUM_P2",
+    "powerBi": "POWER_BI_PRO",
+    "cloudPcEnterprise": "CPC_E_2C_8GB_128GB",
+    "cloudPcBusiness": "CPC_B_2C_8RAM_128GB",
+    "cloudPcBusinessUser": "daily.user",
+    "mailboxSeed": "MICROSOFT_AGENT_365_TIER_3",
+    "mailboxSeedMaxUsers": 25,
+    "mailboxSeedExcludeAliases": ["emergency.one", "emergency.two"]
+  },
+  "windows365": {
+    "enabled": true,
+    "phase1PilotUser": "daily.user",
+    "joinType": "entraHosted",
+    "networkType": "microsoftHosted",
+    "allowBusinessEnrollment": false
+  },
+  "teamGroups": ["MG-IT-Collab", "MG-Sales-Collab", "MG-Finance-Collab", "MG-EXEC-COLLAB-01", "MG-HR-COLLAB-01", "MG-OPS-COLLAB-01", "MG-SUPPORT-COLLAB-01", "MG-ENGINEERING-COLLAB-01", "MG-LEGAL-COLLAB-01", "MG-MARKETING-COLLAB-01", "MG-PROCUREMENT-COLLAB-01", "MG-SECURITY-COLLAB-01", "MG-CUSTOMERSUCCESS-COLLAB-01", "MG-FUNC-INCIDENT-WORK-01", "MG-FUNC-GOVERNANCE-WORK-01", "MG-FUNC-COLLABORATION-WORK-01"],
+  "teamChannels": ["General", "Announcements", "Incidents", "Projects", "Runbooks", "Finance", "HR-Requests", "Customer-Escalations", "Security-Review", "Change-Advisory"],
+  "sharePoint": {
+    "sites": [
+      {"title": "Corporate Hub", "urlSuffix": "corporate-hub", "ownerAlias": "admin.named", "description": "General org landing and policy artifacts."},
+      {"title": "IT Operations", "urlSuffix": "it-ops", "ownerAlias": "it.01.staff", "description": "Operational runbooks and incident notes."},
+      {"title": "Security Operations", "urlSuffix": "security-ops", "ownerAlias": "security.01.staff", "description": "Security investigations and response."},
+      {"title": "Finance Hub", "urlSuffix": "finance-hub", "ownerAlias": "finance.01.staff", "description": "Finance planning and reporting site."},
+      {"title": "HR Hub", "urlSuffix": "hr-hub", "ownerAlias": "hr.01.staff", "description": "HR onboarding and policy center."},
+      {"title": "Legal Records", "urlSuffix": "legal-records", "ownerAlias": "legal.01.staff", "description": "Legal and records management."},
+      {"title": "Procurement", "urlSuffix": "procurement", "ownerAlias": "procurement.01.staff", "description": "Vendor risk and renewals."},
+      {"title": "Engineering", "urlSuffix": "engineering", "ownerAlias": "engineering.01.staff", "description": "Engineering delivery and platform docs."},
+      {"title": "Sales Enablement", "urlSuffix": "sales-enablement", "ownerAlias": "sales.01.staff", "description": "Sales content and proposals."},
+      {"title": "Customer Success", "urlSuffix": "customer-success", "ownerAlias": "customersuccess.01.staff", "description": "Customer lifecycle docs."},
+      {"title": "Executive Office", "urlSuffix": "executive-office", "ownerAlias": "exec.01.staff", "description": "Executive planning material."},
+      {"title": "Compliance Evidence", "urlSuffix": "compliance-evidence", "ownerAlias": "security.02.staff", "description": "Audit and compliance evidence."}
+    ],
+    "templateFiles": ["templates/docs/proposal.md", "templates/docs/incidents.md", "templates/docs/sop.md"]
+  },
+  "devices": {
+    "windows11Seed": 72,
+    "macosSeed": 10,
+    "iosSeed": 12,
+    "androidSeed": 6,
+    "appleDeviceSerials": ["SEED-MAC-001", "SEED-MAC-002", "SEED-MAC-003", "SEED-MAC-004", "SEED-MAC-005", "SEED-MAC-006", "SEED-MAC-007", "SEED-MAC-008", "SEED-MAC-009", "SEED-MAC-010"],
+    "deviceSerialPrefix": "SEED-",
+    "managedTargetPhase1": 1,
+    "managedTargetPhase2": 10,
+    "managedTargetFinal": 100
+  },
+  "scenarioEngine": {
+    "days": 180,
+    "eventsPerDay": 3,
+    "scenarios": ["Payroll data overshared", "Executive impersonation", "Vendor invoice fraud", "HR onboarding", "Security incident response", "Lost device", "Conditional Access rollout", "Finance close", "Customer escalation", "Procurement renewal", "Legal hold request", "Copilot oversharing discovery", "DLP near miss", "Malware attachment simulation", "Phishing report exercise"]
+  }
+}

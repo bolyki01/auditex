@@ -1,0 +1,11 @@
+{
+  "@odata.type": "#microsoft.graph.macOSCompliancePolicy",
+  "displayName": "Seed-macOS-Compliance",
+  "description": "Baseline macOS compliance policy for enterprise pilots.",
+  "passwordRequired": true,
+  "passwordMinimumLength": 12,
+  "passwordBlockSimple": true,
+  "storageRequireEncryption": true,
+  "systemIntegrityProtectionEnabled": true,
+  "osMinimumVersion": "14.0"
+}

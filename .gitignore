@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+audit-output/
+outputs/
+.secrets/
+*.tar.gz
+tenant-bootstrap/runs/
+tenant-bootstrap/.secrets/
+*.whl
+*.egg-info/

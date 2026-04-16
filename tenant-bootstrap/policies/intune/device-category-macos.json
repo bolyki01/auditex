@@ -1,0 +1,5 @@
+{
+  "@odata.type": "#microsoft.graph.deviceCategory",
+  "displayName": "Seed-macOS-Fleet",
+  "description": "Seeded macOS devices for corporate ownership tracking."
+}

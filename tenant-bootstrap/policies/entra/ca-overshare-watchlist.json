@@ -1,0 +1,33 @@
+{
+  "displayName": "CA-Overshare-Review-Program",
+  "state": "enabled",
+  "conditions": {
+    "users": {
+      "includeGroups": [
+        "{{GROUP_DG_GUEST_ACCOUNTS}}",
+        "{{GROUP_DG_HIGH_RISK_IT_ADMIN}}",
+        "{{GROUP_SG_RISK_OVERSHARE_01}}",
+        "{{GROUP_MG_RISK_MISSHARE_02}}"
+      ],
+      "excludeGroups": ["{{BREAKGLASS_GROUP_ID}}"]
+    },
+    "applications": {
+      "includeApplications": ["All"]
+    },
+    "platforms": {
+      "includePlatforms": ["all"]
+    },
+    "clientAppTypes": ["browser", "mobileAppsAndDesktopClients"]
+  },
+  "grantControls": {
+    "operator": "OR",
+    "builtInControls": ["mfa"]
+  },
+  "sessionControls": {
+    "signInFrequency": {
+      "isEnabled": true,
+      "value": 4,
+      "type": "hours"
+    }
+  }
+}

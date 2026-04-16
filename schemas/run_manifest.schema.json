@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Auditex Run Manifest",
+  "type": "object",
+  "required": ["tenant_name", "run_id", "overall_status", "mode", "auditor_profile", "selected_collectors"],
+  "properties": {
+    "tenant_name": { "type": "string" },
+    "run_id": { "type": "string" },
+    "overall_status": { "type": "string" },
+    "mode": { "type": "string" },
+    "auditor_profile": { "type": "string" },
+    "selected_collectors": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

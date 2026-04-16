@@ -1,0 +1,49 @@
+# Codex / AI Caller Prompt Pack
+
+Use this as a starting prompt when handing over a tenant for audit:
+
+```
+Use the Auditex product surface in this folder.
+First run offline validation:
+`auditex --offline --tenant-name <label> --sample examples/sample_audit_bundle/sample_result.json`.
+
+Codex-led flow:
+1. Authenticate the current Azure session.
+2. Capture the signed-in identity and directory roles.
+3. Run live collection.
+4. Return the audit bundle and blocked items.
+
+Then run live collection with provided credentials:
+`auditex --tenant-name <tenant-name> --tenant-id <tenant-id> --client-id <app-id> --client-secret <secret> --top 400`.
+
+If you prefer browser login with Global Reader/Admin:
+`auditex --tenant-name <tenant-name> --interactive --client-id <app-id> --browser-command firefox`.
+
+If no app is available, use the Azure CLI flow:
+`az login --tenant <tenant-id>` then
+`auditex --tenant-name <tenant-name> --tenant-id <tenant-id> --use-azure-cli-token --auditor-profile global-reader`.
+
+Collectors to run by default: identity, security, intune, teams, exchange.
+After run, open `<output>/<tenant-name>-<run-id>/summary.md` then inspect any raw/<collector>.json files with anomalies.
+
+Bootstrap workflow (no app required, Azure CLI token mode):
+`cd tenant-bootstrap && ./run-bootstrap-azurecli.sh --tenant-name <tenant-name> --dry-run`.
+
+For a live build:
+`cd tenant-bootstrap && ./run-bootstrap-azurecli.sh --tenant-name <tenant-name>`.
+
+If you want end-to-end bootstrap + collection in one step:
+`cd tenant-bootstrap && ./run-enterprise-audit.sh --tenant-name <tenant-name> --inspect`.
+
+Also hand over logs on request:
+- `audit-log.jsonl` for all command and Graph events
+- `run-manifest.json` for an evidence summary and artifact map
+- `bootstrap-shell.log` and `bootstrap-debug.log` for wrapper command-level logs (Azure CLI flow)
+- `identity-seed-az-log.jsonl` and `workload-seed-az-log.jsonl` for seed command streams
+```
+
+Preferred output handling:
+
+- Do not print secrets.
+- Summarize any blocked collectors (`status=partial`/`failed`) and the exact error.
+- Keep evidence paths in responses.

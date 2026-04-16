@@ -1,0 +1,12 @@
+{
+  "@odata.type": "#microsoft.graph.iosCompliancePolicy",
+  "displayName": "Seed-iOS-Compliance",
+  "description": "Basic iOS compliance baseline for seeding and testing.",
+  "passcodeBlockSimple": true,
+  "passcodeMinimumLength": 6,
+  "passcodeMinutesOfInactivityBeforeLock": 10,
+  "deviceThreatProtectionEnabled": false,
+  "managedEmailProfileRequired": true,
+  "osMinimumVersion": "15.0",
+  "storageRequireEncryption": true
+}

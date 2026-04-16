@@ -1,0 +1,81 @@
+{
+  "collector_permissions": {
+    "identity": {
+      "graph_scopes": [
+        "Directory.Read.All",
+        "User.Read.All",
+        "Group.Read.All",
+        "Application.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader",
+        "Security Reader"
+      ],
+      "notes": "Read-only endpoint set; requires at least directory read permissions in app registration."
+    },
+    "security": {
+      "graph_scopes": [
+        "SecurityEvents.Read.All",
+        "SecurityActions.Read.All",
+        "AuditLog.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Security Reader"
+      ],
+      "notes": "Sign-in and security alerts can require extra privileges in tightly governed environments."
+    },
+    "intune": {
+      "graph_scopes": [
+        "DeviceManagementManagedDevices.Read.All",
+        "DeviceManagementConfiguration.Read.All",
+        "DeviceManagementApps.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Intune Administrator",
+        "Security Reader"
+      ],
+      "notes": "Will return empty/unavailable datasets if tenant lacks Intune licensing."
+    },
+    "teams": {
+      "graph_scopes": [
+        "Team.ReadBasic.All",
+        "Channel.ReadBasic.All",
+        "Group.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Teams Service Administrator"
+      ],
+      "notes": "Teams endpoints are still readable in many read-only role patterns."
+    },
+    "exchange": {
+      "graph_scopes": [],
+      "minimum_role_hints": [
+        "Global Reader",
+        "Exchange Administrator"
+      ],
+      "notes": "Command-based collectors rely on Microsoft 365 CLI / Exchange tooling outside Graph.",
+      "command_tools": [
+        "m365"
+      ],
+      "optional_commands": [
+        "m365 status --output json",
+        "m365 tenant info get --output json",
+        "m365 tenant status",
+        "m365 outlook report mailboxusagemailboxcount --period D30 --output json",
+        "m365 outlook roomlist list --output json",
+        "m365 exo mailbox list --output json"
+      ]
+    }
+  },
+  "global_app_recommendation": [
+    "Directory.Read.All",
+    "User.Read.All",
+    "AuditLog.Read.All",
+    "SecurityEvents.Read.All",
+    "DeviceManagementManagedDevices.Read.All",
+    "DeviceManagementConfiguration.Read.All",
+    "Team.ReadBasic.All",
+    "Channel.ReadBasic.All",
+    "Group.Read.All"
+  ]
+}

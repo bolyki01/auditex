@@ -1,0 +1,12 @@
+{
+  "name": "DEF-Executive-Plus-Admin-Impersonation",
+  "description": "Impersonation block rule for critical executive and admin sender patterns.",
+  "policyType": "AntiPhish",
+  "state": "enabled",
+  "notes": "Keep high priority in audit environments to surface suspicious actor patterns.",
+  "commands": [
+    "m365 defender anti-phishing policy list --output json",
+    "New-AntiPhishPolicy -Name DEF-Executive-Plus-Admin-Impersonation -IsDefaultPolicy $false -EnableMailboxIntelligence $false",
+    "Set-AntiPhishPolicy -Identity DEF-Executive-Plus-Admin-Impersonation -EnableMailboxIntelligence $true"
+  ]
+}

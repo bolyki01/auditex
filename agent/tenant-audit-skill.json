@@ -1,0 +1,431 @@
+{
+  "skill_name": "microsoft_tenant_audit",
+  "version": "2.0.0",
+  "description": "Collect and summarize Microsoft 365 tenant posture into a local Auditex evidence bundle.",
+  "default_runtime": "python",
+  "entry": {
+    "module": "auditex",
+    "cli": "auditex"
+  },
+  "actions": [
+    {
+      "name": "tenant_audit.run_full_audit",
+      "description": "Run the full default collector set (identity, security, intune, teams).",
+      "arguments": {
+        "tenant_name": {
+          "type": "string",
+          "required": true
+        },
+        "tenant_id": {
+          "type": "string",
+          "required": false
+        },
+        "client_id": {
+          "type": "string",
+          "required": false
+        },
+        "client_secret": {
+          "type": "string",
+          "required": false
+        },
+        "out": {
+          "type": "string",
+          "required": false
+        },
+        "top": {
+          "type": "integer",
+          "required": false,
+          "default": 500
+        },
+        "run_name": {
+          "type": "string",
+          "required": false
+        },
+        "include_exchange": {
+          "type": "boolean",
+          "required": false,
+          "default": false
+        },
+        "auditor_profile": {
+          "type": "string",
+          "required": false,
+          "default": "auto"
+        }
+      },
+      "command_template": "auditex --tenant-name {tenant_name} --tenant-id {tenant_id} --client-id {client_id} --client-secret {client_secret} --out {out} --top {top} --auditor-profile {auditor_profile}"
+    },
+    {
+      "name": "tenant_audit.run_full_audit_interactive",
+      "description": "Run the full default collector set using browser sign-in.",
+      "arguments": {
+        "tenant_name": {
+          "type": "string",
+          "required": true
+        },
+        "tenant_id": {
+          "type": "string",
+          "required": false
+        },
+        "client_id": {
+          "type": "string",
+          "required": true
+        },
+        "out": {
+          "type": "string",
+          "required": false
+        },
+        "top": {
+          "type": "integer",
+          "required": false,
+          "default": 500
+        },
+        "run_name": {
+          "type": "string",
+          "required": false
+        },
+        "include_exchange": {
+          "type": "boolean",
+          "required": false,
+          "default": false
+        },
+        "browser_command": {
+          "type": "string",
+          "required": false,
+          "default": "firefox"
+        },
+        "scopes": {
+          "type": "string",
+          "required": false,
+          "default": ""
+        },
+        "auditor_profile": {
+          "type": "string",
+          "required": false,
+          "default": "auto"
+        }
+      },
+      "command_template": "auditex --tenant-name {tenant_name} --interactive --client-id {client_id} --tenant-id {tenant_id} --browser-command {browser_command} --out {out} --top {top} --scopes \"{scopes}\" --auditor-profile {auditor_profile}"
+    },
+    {
+      "name": "tenant_audit.run_full_audit_azure_cli",
+      "description": "Run the full default collector set using the current Azure CLI session token.",
+      "arguments": {
+        "tenant_name": {
+          "type": "string",
+          "required": true
+        },
+        "tenant_id": {
+          "type": "string",
+          "required": false
+        },
+        "out": {
+          "type": "string",
+          "required": false
+        },
+        "top": {
+          "type": "integer",
+          "required": false,
+          "default": 500
+        },
+        "run_name": {
+          "type": "string",
+          "required": false
+        },
+        "include_exchange": {
+          "type": "boolean",
+          "required": false,
+          "default": false
+        },
+        "auditor_profile": {
+          "type": "string",
+          "required": false,
+          "default": "auto"
+        }
+      },
+      "command_template": "auditex --tenant-name {tenant_name} --tenant-id {tenant_id} --use-azure-cli-token --out {out} --top {top} --auditor-profile {auditor_profile}"
+    },
+    {
+      "name": "tenant_audit.run_full_audit_from_token",
+      "description": "Run the full default collector set with a supplied Graph access token.",
+      "arguments": {
+        "tenant_name": {
+          "type": "string",
+          "required": true
+        },
+        "tenant_id": {
+          "type": "string",
+          "required": false
+        },
+        "access_token": {
+          "type": "string",
+          "required": true
+        },
+        "out": {
+          "type": "string",
+          "required": false
+        },
+        "top": {
+          "type": "integer",
+          "required": false,
+          "default": 500
+        },
+        "run_name": {
+          "type": "string",
+          "required": false
+        },
+        "include_exchange": {
+          "type": "boolean",
+          "required": false,
+          "default": false
+        },
+        "auditor_profile": {
+          "type": "string",
+          "required": false,
+          "default": "auto"
+        }
+      },
+      "command_template": "auditex --tenant-name {tenant_name} --tenant-id {tenant_id} --access-token {access_token} --out {out} --top {top} --auditor-profile {auditor_profile}"
+    },
+    {
+      "name": "tenant_audit.run_security_audit",
+      "description": "Run only identity/security collectors.",
+      "arguments": {
+        "tenant_name": {
+          "type": "string",
+          "required": true
+        },
+        "tenant_id": {
+          "type": "string",
+          "required": false
+        },
+        "client_id": {
+          "type": "string",
+          "required": false
+        },
+        "client_secret": {
+          "type": "string",
+          "required": false
+        },
+        "out": {
+          "type": "string",
+          "required": false
+        },
+        "top": {
+          "type": "integer",
+          "required": false,
+          "default": 500
+        },
+        "auditor_profile": {
+          "type": "string",
+          "required": false,
+          "default": "auto"
+        }
+      },
+      "command_template": "PYTHONPATH=tenant-bootstrap python3 -m azure_tenant_audit --tenant-name {tenant_name} --collectors identity,security --tenant-id {tenant_id} --client-id {client_id} --client-secret {client_secret} --out {out} --top {top} --auditor-profile {auditor_profile}"
+    },
+    {
+      "name": "tenant_audit.run_security_audit_interactive",
+      "description": "Run identity/security collectors using browser sign-in.",
+      "arguments": {
+        "tenant_name": {
+          "type": "string",
+          "required": true
+        },
+        "tenant_id": {
+          "type": "string",
+          "required": false
+        },
+        "client_id": {
+          "type": "string",
+          "required": true
+        },
+        "out": {
+          "type": "string",
+          "required": false
+        },
+        "top": {
+          "type": "integer",
+          "required": false,
+          "default": 500
+        },
+        "browser_command": {
+          "type": "string",
+          "required": false,
+          "default": "firefox"
+        },
+        "scopes": {
+          "type": "string",
+          "required": false,
+          "default": ""
+        },
+        "auditor_profile": {
+          "type": "string",
+          "required": false,
+          "default": "auto"
+        }
+      },
+      "command_template": "PYTHONPATH=tenant-bootstrap python3 -m azure_tenant_audit --tenant-name {tenant_name} --collectors identity,security --interactive --client-id {client_id} --tenant-id {tenant_id} --browser-command {browser_command} --out {out} --top {top} --scopes \"{scopes}\" --auditor-profile {auditor_profile}"
+    },
+    {
+      "name": "tenant_audit.run_sample_audit",
+      "description": "Run the offline sample pipeline for validation/testing.",
+      "arguments": {
+        "tenant_name": {
+          "type": "string",
+          "required": true
+        },
+        "sample": {
+          "type": "string",
+          "required": false,
+          "default": "examples/sample_audit_bundle/sample_result.json"
+        },
+        "out": {
+          "type": "string",
+          "required": false
+        }
+      },
+      "command_template": "PYTHONPATH=tenant-bootstrap python3 -m azure_tenant_audit --tenant-name {tenant_name} --offline --sample {sample} --out {out}"
+    },
+    {
+      "name": "tenant_audit.run_full_bootstrap_and_audit",
+      "description": "Run full Azure CLI bootstrap plus built-in audit collectors in one pass.",
+      "arguments": {
+        "tenant_name": {
+          "type": "string",
+          "required": true
+        },
+        "steps": {
+          "type": "string",
+          "required": false,
+          "default": "licenses,teams,intune,security,devices,exchange,sample"
+        },
+        "collectors": {
+          "type": "string",
+          "required": false,
+          "default": "identity,security,intune,teams,exchange"
+        },
+        "top": {
+          "type": "integer",
+          "required": false,
+          "default": 500
+        },
+        "out": {
+          "type": "string",
+          "required": false
+        },
+        "run_name": {
+          "type": "string",
+          "required": false
+        },
+        "config_path": {
+          "type": "string",
+          "required": false,
+          "default": "tenant-bootstrap/config.example.json"
+        }
+      },
+      "command_template": "cd tenant-bootstrap && ./run-bootstrap-azurecli.sh --tenant-name {tenant_name} --config {config_path} --steps {steps} --audit-collectors {collectors} --audit-top {top} --run-name {run_name}"
+    },
+    {
+      "name": "tenant_audit.run_enterprise_flow",
+      "description": "Run one-command bootstrap + audit flow and print summaries.",
+      "arguments": {
+        "tenant_name": {
+          "type": "string",
+          "required": true
+        },
+        "steps": {
+          "type": "string",
+          "required": false,
+          "default": "licenses,teams,intune,security,devices,exchange,sample"
+        },
+        "collectors": {
+          "type": "string",
+          "required": false,
+          "default": "identity,security,intune,teams,exchange"
+        },
+        "top": {
+          "type": "integer",
+          "required": false,
+          "default": 500
+        },
+        "run_name": {
+          "type": "string",
+          "required": false
+        },
+        "config_path": {
+          "type": "string",
+          "required": false,
+          "default": "tenant-bootstrap/config.example.json"
+        },
+        "browser_command": {
+          "type": "string",
+          "required": false,
+          "default": "firefox"
+        },
+        "auditor_profile": {
+          "type": "string",
+          "required": false,
+          "default": "auto"
+        }
+      },
+      "command_template": "cd tenant-bootstrap && ./run-enterprise-audit.sh --tenant-name {tenant_name} --config {config_path} --steps {steps} --collectors {collectors} --top {top} --run-name {run_name} --inspect --browser-command {browser_command} --auditor-profile {auditor_profile}"
+    },
+    {
+      "name": "tenant_audit.summarize_run",
+      "description": "Render a quick summary from a completed run manifest.",
+      "arguments": {
+        "run_dir": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "command_template": "ls {run_dir} && cat {run_dir}/summary.md"
+    },
+    {
+      "name": "tenant_audit.run_bootstrap_dry",
+      "description": "Run full Azure CLI bootstrap flow in dry-run mode (no tenant writes).",
+      "arguments": {
+        "tenant_name": {
+          "type": "string",
+          "required": true
+        },
+        "config_path": {
+          "type": "string",
+          "required": false,
+          "default": "tenant-bootstrap/config.example.json"
+        },
+        "steps": {
+          "type": "string",
+          "required": false,
+          "default": "licenses,teams,intune,security,devices,exchange,sample"
+        }
+      },
+      "command_template": "cd tenant-bootstrap && ./run-bootstrap-azurecli.sh --tenant-name {tenant_name} --config {config_path} --steps {steps} --dry-run"
+    },
+    {
+      "name": "tenant_audit.run_bootstrap_live",
+      "description": "Run full Azure CLI bootstrap flow (writes tenant objects using Azure CLI token auth).",
+      "arguments": {
+        "tenant_name": {
+          "type": "string",
+          "required": true
+        },
+        "config_path": {
+          "type": "string",
+          "required": false,
+          "default": "tenant-bootstrap/config.example.json"
+        },
+        "steps": {
+          "type": "string",
+          "required": false,
+          "default": "licenses,teams,intune,security,devices,exchange,sample"
+        }
+      },
+      "command_template": "cd tenant-bootstrap && ./run-bootstrap-azurecli.sh --tenant-name {tenant_name} --config {config_path} --steps {steps}"
+    }
+  ],
+  "notes": [
+    "Do not store credentials in source files.",
+    "Use environment variables from configs/tenant-audit.example.env for local runs."
+  ]
+}

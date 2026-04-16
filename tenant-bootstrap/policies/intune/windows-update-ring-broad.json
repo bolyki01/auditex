@@ -1,0 +1,11 @@
+{
+  "@odata.type": "#microsoft.graph.windowsUpdateForBusinessConfiguration",
+  "displayName": "Seed-Windows-UpdateRing-Broad",
+  "description": "Broad deployment update ring for seeded Windows 11 devices.",
+  "automaticUpdateMode": "autoInstallAndRebootAtMaintenanceTime",
+  "microsoftUpdateServiceAllowed": true,
+  "driversExcluded": true,
+  "qualityUpdatesDeferralPeriodInDays": 7,
+  "featureUpdatesDeferralPeriodInDays": 21,
+  "businessReadyUpdatesOnly": "all"
+}

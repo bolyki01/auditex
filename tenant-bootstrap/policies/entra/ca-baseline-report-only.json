@@ -1,0 +1,22 @@
+{
+  "displayName": "CA-ReportOnly-01-Legacy-First",
+  "state": "reportOnly",
+  "conditions": {
+    "users": {
+      "includeUsers": ["All"],
+      "excludeGroups": ["{{BREAKGLASS_GROUP_ID}}"]
+    },
+    "applications": {
+      "includeApplications": ["All"]
+    },
+    "platforms": {
+      "includePlatforms": ["all"]
+    },
+    "clientAppTypes": ["all"]
+  },
+  "grantControls": {
+    "operator": "OR",
+    "builtInControls": ["mfa"]
+  },
+  "sessionControls": {}
+}

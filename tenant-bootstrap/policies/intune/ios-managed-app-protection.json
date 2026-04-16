@@ -1,0 +1,33 @@
+{
+  "@odata.type": "#microsoft.graph.iosManagedAppProtection",
+  "displayName": "Seed-iOS-AppProtection",
+  "description": "iOS app protection baseline for MAM scenarios.",
+  "periodOfflineBeforeAccessCheck": "PT12H",
+  "periodOnlineBeforeAccessCheck": "PT30M",
+  "allowedInboundDataTransferSources": "managedApps",
+  "allowedOutboundDataTransferDestinations": "managedApps",
+  "organizationalCredentialsRequired": true,
+  "allowedOutboundClipboardSharingLevel": "managedAppsWithPasteIn",
+  "dataBackupBlocked": true,
+  "deviceComplianceRequired": false,
+  "managedBrowserToOpenLinksRequired": true,
+  "saveAsBlocked": true,
+  "periodOfflineBeforeWipeIsEnforced": "P30D",
+  "pinRequired": true,
+  "maximumPinRetries": 5,
+  "simplePinBlocked": true,
+  "minimumPinLength": 6,
+  "pinCharacterSet": "numeric",
+  "periodBeforePinReset": "P90D",
+  "allowedDataStorageLocations": [
+    "oneDriveForBusiness",
+    "sharePoint"
+  ],
+  "contactSyncBlocked": true,
+  "printBlocked": true,
+  "fingerprintBlocked": false,
+  "disableAppPinIfDevicePinIsSet": true,
+  "minimumRequiredOsVersion": "16.0",
+  "appActionIfDeviceComplianceRequired": "block",
+  "appActionIfMaximumPinRetriesExceeded": "wipe"
+}

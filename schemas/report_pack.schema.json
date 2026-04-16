@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Auditex Report Pack",
+  "type": "object",
+  "required": ["summary", "findings", "evidence_paths"],
+  "properties": {
+    "summary": { "type": "object" },
+    "findings": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "evidence_paths": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

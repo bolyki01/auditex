@@ -1,0 +1,18 @@
+{
+  "@odata.type": "#microsoft.graph.windows10CompliancePolicy",
+  "displayName": "Seed-Windows-11-Compliance-Strict",
+  "description": "Base compliance checks for seeded Windows 11 endpoints.",
+  "passwordRequired": true,
+  "passwordBlockSimple": true,
+  "passwordRequiredType": "alphanumeric",
+  "passwordMinimumLength": 12,
+  "storageRequireEncryption": true,
+  "defenderEnabled": true,
+  "bitLockerEnabled": true,
+  "osMinimumVersion": "10.0.19041",
+  "osMaximumVersion": "",
+  "osMinimumBuild": "19041",
+  "earlyLaunchAntimalwareDriverEnabled": true,
+  "mobileThreatDefenseEnabled": true,
+  "tpmRequired": true
+}

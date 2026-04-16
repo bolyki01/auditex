@@ -1,0 +1,12 @@
+{
+  "name": "DEF-Standard-SafeAttachment",
+  "description": "Safe Attachments policy in protect mode for high-risk inbound mail workflows.",
+  "policyType": "SafeAttachment",
+  "state": "enabled",
+  "notes": "Artifacts include command equivalents for Exchange Online hardening.",
+  "commands": [
+    "m365 defender safeattachment policy list --output json",
+    "New-SafeAttachmentPolicy -Name DEF-Standard-SafeAttachment -Enabled $true -Action Protect -EnableForInternalSenders $true",
+    "Set-SafeAttachmentPolicy -Identity DEF-Standard-SafeAttachment -Action DynamicDelivery"
+  ]
+}

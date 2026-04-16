@@ -1,0 +1,22 @@
+{
+  "displayName": "CA-HighRisk-ITAdmin-CompliantDevice-MFA",
+  "state": "enabled",
+  "conditions": {
+    "users": {
+      "includeGroups": ["{{DG_HIGH_RISK_IT_ADMIN}}"],
+      "excludeGroups": ["{{BREAKGLASS_GROUP_ID}}"]
+    },
+    "applications": {
+      "includeApplications": ["All"]
+    },
+    "platforms": {
+      "includePlatforms": ["all"]
+    },
+    "clientAppTypes": ["browser", "mobileAppsAndDesktopClients"]
+  },
+  "grantControls": {
+    "operator": "AND",
+    "builtInControls": ["mfa", "compliantDevice"]
+  },
+  "sessionControls": {}
+}

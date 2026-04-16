@@ -1,0 +1,62 @@
+{
+  "appDisplayName": "Bolyki Lab Tenant Populator",
+  "applicationPermissions": [
+    "Application.ReadWrite.All",
+    "Calendars.ReadWrite",
+    "Channel.Create",
+    "Channel.ReadBasic.All",
+    "CloudPC.Read.All",
+    "CloudPC.ReadWrite.All",
+    "Contacts.ReadWrite",
+    "DeviceManagementApps.ReadWrite.All",
+    "DeviceManagementConfiguration.Read.All",
+    "DeviceManagementConfiguration.ReadWrite.All",
+    "DeviceManagementManagedDevices.Read.All",
+    "DeviceManagementManagedDevices.ReadWrite.All",
+    "DeviceManagementServiceConfig.ReadWrite.All",
+    "Device.ReadWrite.All",
+    "Directory.ReadWrite.All",
+    "Files.ReadWrite.All",
+    "Group.ReadWrite.All",
+    "Mail.ReadWrite",
+    "Mail.Send",
+    "Policy.Read.All",
+    "Policy.ReadWrite.ConditionalAccess",
+    "Policy.ReadWrite.SecurityDefaults",
+    "Sites.ReadWrite.All",
+    "Team.Create",
+    "Team.ReadBasic.All",
+    "User.Invite.All",
+    "User.ReadWrite.All"
+  ],
+  "delegatedPermissions": [
+    "Channel.Create",
+    "Channel.ReadBasic.All",
+    "ChannelMessage.Send",
+    "CloudPC.Read.All",
+    "CloudPC.ReadWrite.All",
+    "DeviceManagementConfiguration.Read.All",
+    "DeviceManagementConfiguration.ReadWrite.All",
+    "DeviceManagementManagedDevices.Read.All",
+    "DeviceManagementManagedDevices.ReadWrite.All",
+    "DeviceManagementServiceConfig.ReadWrite.All",
+    "Directory.AccessAsUser.All",
+    "Directory.ReadWrite.All",
+    "Files.ReadWrite.All",
+    "Policy.ReadWrite.ConditionalAccess",
+    "Policy.ReadWrite.SecurityDefaults",
+    "Sites.ReadWrite.All",
+    "Team.Create",
+    "Team.ReadBasic.All",
+    "User.Invite.All",
+    "User.Read"
+  ],
+  "notes": [
+    "Lab-only broad permission set for tenant population.",
+    "Do not use this permission profile for customer Global Reader audits."
+  ],
+  "redirectUris": [
+    "http://localhost"
+  ],
+  "secretStorage": ".secrets/lab-populator-app.json"
+}

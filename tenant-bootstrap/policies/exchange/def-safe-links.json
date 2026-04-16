@@ -1,0 +1,12 @@
+{
+  "name": "DEF-Standard-SafeLinks",
+  "description": "Safe Links preset configured for real-time protection with click notification and URL rewriting.",
+  "policyType": "SafeLinks",
+  "state": "enabled",
+  "notes": "Artifact mirrors the Exchange Online Safe Links policy posture used in production pilots.",
+  "commands": [
+    "m365 defender safelinks policy list --output json",
+    "New-SafeLinksPolicy -Name DEF-Standard-SafeLinks -IsEnabled $true -TrackClicks $true -ScanUrls $true -DoNotAllowClickThrough $true",
+    "Set-SafeLinksPolicy -Identity DEF-Standard-SafeLinks -DoNotTrackUserClicks $false"
+  ]
+}

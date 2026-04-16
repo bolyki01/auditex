@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+set -euo pipefail
+CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "${CURRENT_DIR}/.." && pwd)"
+
+usage() {
+  cat <<'USAGE'
+Usage: tenant-audit-full [--tenant-id TENANT_ID] [--tenant-name TENANT_NAME] [--collectors LIST] [--top N] [--include-exchange] [--run-name NAME] [--out PATH] [--dry-run] [--reauth] [--m365-app-id APP_ID]
+
+Defaults:
+  TENANT_ID: organizations
+  TENANT_NAME: tenant_id
+  COLLECTORS: identity,security,intune,teams
+  TOP: 500
+  OUTPUT: ./audit-output
+  
+The --include-exchange flag triggers Microsoft 365 CLI login (m365) and optional command collectors.
+
+Examples:
+  tenant-audit-full --tenant-id bolyki.eu --tenant-name BOLYKI --include-exchange
+  tenant-audit-full --tenant-id 00000000-0000-0000-0000-000000000000 --collectors identity,security --top 250
+  tenant-audit-full --tenant-id bolyki.eu --tenant-name BOLYKI --include-exchange --reauth
+  tenant-audit-full --tenant-id bolyki.eu --tenant-name BOLYKI --include-exchange --m365-app-id <app-id>
+USAGE
+}
+
+TENANT_ID="organizations"
+TENANT_NAME=""
+COLLECTORS="identity,security,intune,teams"
+TOP="500"
+OUT_DIR="./audit-output"
+RUN_NAME=""
+INCLUDE_EXCHANGE=0
+DRY_RUN=0
+FORCE_LOGIN=0
+BROWSER_COMMAND="firefox"
+M365_APP_ID="${M365_CLI_APP_ID:-${M365_CLI_CLIENT_ID:-}}"
+
+ensure_m365_cli_login() {
+  if ! command -v m365 >/dev/null 2>&1; then
+    echo "Exchange checks requested but m365 CLI is not installed."
+    echo "Install with: npm install -g @pnp/cli-microsoft365@latest"
+    return 1
+  fi
+
+  local status
+  status="$(m365 status 2>&1 || true)"
+  if [[ "${FORCE_LOGIN}" -eq 1 ]] || echo "${status}" | grep -qi "logged out"; then
+    if [[ -n "${BROWSER_COMMAND}" ]]; then
+      export BROWSER="${BROWSER_COMMAND}"
+    fi
+    echo "Starting Microsoft 365 CLI login in ${BROWSER_COMMAND}..."
+    if [[ -n "${M365_APP_ID}" ]]; then
+      export M365_CLI_APP_ID="${M365_APP_ID}"
+    fi
+    m365_login_cmd=(
+      m365
+      login
+      --authType
+      browser
+      --tenant
+      "${TENANT_ID}"
+      --output
+      text
+    )
+    if [[ -n "${M365_APP_ID}" ]]; then
+      m365_login_cmd+=(--appId "${M365_APP_ID}")
+    fi
+    if ! "${m365_login_cmd[@]}"; then
+      if [[ -z "${M365_APP_ID}" ]]; then
+        echo "Exchange flow requires a Microsoft 365 CLI appId."
+        echo "Provide --m365-app-id or set M365_CLI_APP_ID / M365_CLI_CLIENT_ID."
+        echo "If this is a one-off environment, run 'm365 setup --scripting' first, then retry."
+      fi
+      return 1
+    fi
+  fi
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --tenant-id)
+      TENANT_ID="$2"
+      shift 2
+      ;;
+    --tenant-name)
+      TENANT_NAME="$2"
+      shift 2
+      ;;
+    --collectors)
+      COLLECTORS="$2"
+      shift 2
+      ;;
+    --top)
+      TOP="$2"
+      shift 2
+      ;;
+    --out)
+      OUT_DIR="$2"
+      shift 2
+      ;;
+    --run-name)
+      RUN_NAME="$2"
+      shift 2
+      ;;
+  --include-exchange)
+      INCLUDE_EXCHANGE=1
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --reauth)
+      FORCE_LOGIN=1
+      shift
+      ;;
+    --m365-app-id)
+      M365_APP_ID="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1"
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "${TENANT_NAME}" ]]; then
+  if [[ "${TENANT_ID}" == "organizations" ]]; then
+    TENANT_NAME="tenant"
+  else
+    TENANT_NAME="${TENANT_ID}"
+  fi
+fi
+
+CMD=(
+  env
+  "PYTHONPATH=${ROOT}/src"
+  python3
+  -m
+  azure_tenant_audit
+  --tenant-name
+  "${TENANT_NAME}"
+  --tenant-id
+  "${TENANT_ID}"
+  --use-azure-cli-token
+  --collectors
+  "${COLLECTORS}"
+  --top
+  "${TOP}"
+  --out
+  "${OUT_DIR}"
+)
+
+if [[ "${INCLUDE_EXCHANGE}" -eq 1 ]]; then
+  CMD+=(--include-exchange)
+fi
+
+if [[ -n "${RUN_NAME}" ]]; then
+  CMD+=(--run-name "${RUN_NAME}")
+fi
+
+if [[ "${DRY_RUN}" -eq 1 ]]; then
+  echo "Dry run command:"
+  printf '  %q ' "${CMD[@]}"
+  echo
+  exit 0
+fi
+
+if ! command -v az >/dev/null 2>&1; then
+  echo "Azure CLI is required and not installed."
+  echo "  brew install azure-cli"
+  exit 2
+fi
+
+if [[ "${FORCE_LOGIN}" -eq 1 ]] || ! az account show >/dev/null 2>&1; then
+  echo "Starting browser login in ${BROWSER_COMMAND}..."
+  BROWSER="${BROWSER_COMMAND}" az login --tenant "${TENANT_ID}"
+fi
+
+if [[ "${INCLUDE_EXCHANGE}" -eq 1 ]]; then
+  ensure_m365_cli_login
+fi
+
+printf 'Running tenant audit: '
+printf '  %q ' "${CMD[@]}"
+echo
+
+"${CMD[@]}"
+STATUS=$?
+if [[ ${STATUS} -eq 0 ]]; then
+  echo "Audit completed successfully."
+else
+  echo "Audit finished with issues (non-zero status ${STATUS}). Review diagnostics and permissions artifacts."
+fi
+exit ${STATUS}
