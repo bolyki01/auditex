@@ -18,10 +18,15 @@ def _now_iso() -> str:
 class AuditLogger:
     """Persistent event logger for a run."""
 
+    _command_events = frozenset({"command.started", "command.completed", "command.failed"})
+
     def __init__(self, run_dir: Path) -> None:
         self.jsonl_path = run_dir / "audit-log.jsonl"
+        self.command_log_path = run_dir / "audit-command-log.jsonl"
         self.debug_path = run_dir / "audit-debug.log"
-        # Create the files lazily when first write occurs.
+        self.jsonl_path.touch(exist_ok=True)
+        self.command_log_path.touch(exist_ok=True)
+        self.debug_path.touch(exist_ok=True)
 
     def log(self, event: str, message: str, details: Optional[dict[str, Any]] = None) -> None:
         payload = {
@@ -33,6 +38,9 @@ class AuditLogger:
         line = json.dumps(payload, default=str, ensure_ascii=False)
         with self.jsonl_path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
+        if event in self._command_events:
+            with self.command_log_path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
         with self.debug_path.open("a", encoding="utf-8") as handle:
             handle.write(f"[{payload['ts_utc']}] {payload['event']}: {payload['message']} {payload['details']}\n")
         LOG.debug("%s: %s", payload["event"], payload["message"])
@@ -60,6 +68,7 @@ class AuditWriter:
             "artifacts": [
                 "raw/",
                 "audit-log.jsonl",
+                "audit-command-log.jsonl",
                 "audit-debug.log",
             ],
         }
@@ -107,6 +116,7 @@ class AuditWriter:
         self._manifest["command_line"] = metadata.get("command_line", [])
         self._manifest["run_dir"] = str(self.run_dir)
         self._manifest["audit_log_path"] = "audit-log.jsonl"
+        self._manifest["audit_command_log_path"] = "audit-command-log.jsonl"
         self._manifest["debug_log_path"] = "audit-debug.log"
         if self._manifest.get("session_context"):
             auth_context_path = self.run_dir / "auth-context.json"

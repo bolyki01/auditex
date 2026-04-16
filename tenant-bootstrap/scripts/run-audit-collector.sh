@@ -146,12 +146,12 @@ if [[ -n "${TOKEN_ENV_PATH:-}" ]]; then
 fi
 
 HAS_FULL_AUDIT=0
-if [[ -f "${TENANT_BOOTSTRAP_ROOT}/azure_tenant_audit/cli.py" && -f "${TENANT_BOOTSTRAP_ROOT}/configs/collector-definitions.json" && -f "${TENANT_BOOTSTRAP_ROOT}/configs/collector-permissions.json" ]]; then
-  HAS_FULL_AUDIT=1
-  FULL_AUDIT_ROOT="${TENANT_BOOTSTRAP_ROOT}"
-elif [[ -f "${REPO_ROOT}/src/azure_tenant_audit/cli.py" && -f "${REPO_ROOT}/configs/collector-definitions.json" && -f "${REPO_ROOT}/configs/collector-permissions.json" ]]; then
+if [[ -f "${REPO_ROOT}/src/azure_tenant_audit/cli.py" && -f "${REPO_ROOT}/configs/collector-definitions.json" && -f "${REPO_ROOT}/configs/collector-permissions.json" ]]; then
   HAS_FULL_AUDIT=1
   FULL_AUDIT_ROOT="${REPO_ROOT}/src"
+elif [[ -f "${TENANT_BOOTSTRAP_ROOT}/azure_tenant_audit/cli.py" && -f "${TENANT_BOOTSTRAP_ROOT}/configs/collector-definitions.json" && -f "${TENANT_BOOTSTRAP_ROOT}/configs/collector-permissions.json" ]]; then
+  HAS_FULL_AUDIT=1
+  FULL_AUDIT_ROOT="${TENANT_BOOTSTRAP_ROOT}"
 fi
 
 ARGS=(

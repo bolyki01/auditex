@@ -38,6 +38,7 @@ def test_writer(tmp_path: Path):
     assert (writer.run_dir / "run-manifest.json").exists()
     assert (writer.run_dir / "summary.json").exists()
     assert (writer.run_dir / "audit-log.jsonl").exists()
+    assert (writer.run_dir / "audit-command-log.jsonl").exists()
     assert (writer.run_dir / "audit-debug.log").exists()
     assert (writer.run_dir / "coverage.json").exists()
     assert (writer.run_dir / "index" / "coverage.jsonl").exists()

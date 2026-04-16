@@ -39,11 +39,11 @@ All audit collection now runs through a single entry wrapper:
 
 - `tenant-bootstrap/scripts/run-audit-collector.sh`
 
-It will prefer a bundled full audit package when available, with local fallback to
-the legacy fallback collector if not. In practice the folder now ships the full
-audit package inside `tenant-bootstrap/azure_tenant_audit` and collector
-definitions in `tenant-bootstrap/configs`, so this folder can run on another host
-without the parent repository.
+It prefers the canonical package in the parent repo at `src/azure_tenant_audit`
+when that exists, and falls back to the bundled compatibility copy inside
+`tenant-bootstrap/azure_tenant_audit` only when the repo root is not available.
+That keeps normal development and audits on one runtime while preserving folder
+portability when this bootstrap kit is carried to another host by itself.
 
 Authentication for audit runs follows this order:
 
