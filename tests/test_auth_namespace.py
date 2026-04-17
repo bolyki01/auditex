@@ -59,3 +59,11 @@ def test_auth_use_command_switches_connection(monkeypatch, capsys) -> None:
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["connectionName"] == "bolyki-lab-user"
+
+
+def test_response_list_actions_command_prints_json(capsys) -> None:
+    rc = auditex_cli.main(["response", "list-actions"])
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert "message_trace" in payload["actions"]

@@ -43,7 +43,7 @@ def test_build_normalized_snapshot_extracts_core_objects() -> None:
             },
             "deviceCompliancePolicies": {"value": [{"id": "policy-1", "displayName": "Windows Compliance"}]},
         },
-        "security": {
+        "conditional_access": {
             "conditionalAccessPolicies": {
                 "value": [
                     {
@@ -69,7 +69,7 @@ def test_build_normalized_snapshot_extracts_core_objects() -> None:
     diagnostics = [
         {
             "collector": "security",
-            "item": "securityAlerts",
+            "item": "directoryAudits",
             "status": "failed",
             "error_class": "insufficient_permissions",
         }
@@ -127,8 +127,8 @@ def test_build_ai_safe_summary_uses_normalized_snapshot_counts() -> None:
 
 def test_build_normalized_snapshot_extracts_security_incidents_scores_and_exchange_mailboxes() -> None:
     collector_payloads = {
-        "security": {
-            "securityIncidents": {
+        "defender": {
+            "defenderIncidents": {
                 "value": [
                     {
                         "id": "incident-1",
@@ -175,3 +175,114 @@ def test_build_normalized_snapshot_extracts_security_incidents_scores_and_exchan
     assert normalized["incidents"]["records"][0]["severity"] == "high"
     assert normalized["security_scores"]["records"][0]["current_score"] == 41.5
     assert normalized["mailboxes"]["records"][0]["primary_smtp_address"] == "alice@example.com"
+
+
+def _make_large_identity_payload(*, users: int, groups: int, applications: int) -> dict:
+    return {
+        "users": {"value": [{"id": f"user-{idx}", "displayName": f"User {idx}"} for idx in range(users)]},
+        "groups": {
+            "value": [
+                {
+                    "id": f"group-{idx}",
+                    "displayName": f"Group-{idx}" if idx != 0 else "Emergency-Response",
+                    "groupTypes": [],
+                }
+                for idx in range(groups)
+            ]
+        },
+        "applications": {
+            "value": [
+                {"id": f"app-{idx}", "displayName": f"App {idx}", "appId": f"app-id-{idx}"}
+                for idx in range(applications)
+            ]
+        },
+        "roleDefinitions": {
+            "value": [
+                {"id": "role-admin", "displayName": "Global Administrator"},
+            ]
+        },
+        "roleAssignments": {
+            "value": [
+                {"id": "role-admin-assignment", "roleDefinitionId": "role-admin", "principalId": "user-0"},
+            ]
+        },
+    }
+
+
+def test_conditional_access_graph_scales_with_large_identity_and_multiple_policies() -> None:
+    user_count = 2000
+    group_count = 180
+    app_count = 120
+    location_count = 16
+    auth_strength_count = 8
+    policy_count = 600
+
+    identities = _make_large_identity_payload(users=user_count, groups=group_count, applications=app_count)
+    conditional_access = {
+        "conditionalAccessPolicies": {
+            "value": [
+                {
+                    "id": f"ca-{idx}",
+                    "displayName": f"Policy {idx}",
+                    "state": "enabled",
+                    "conditions": {
+                        "users": {
+                            "includeUsers": [f"user-{idx % user_count}"],
+                            "excludeUsers": [f"user-{(idx + 1) % user_count}"],
+                            "includeGroups": [f"group-{idx % group_count}"],
+                            "excludeGroups": [f"group-{(idx + 1) % group_count}"],
+                        },
+                        "applications": {
+                            "includeApplications": [f"app-{idx % app_count}"],
+                            "excludeApplications": [f"app-{(idx + 1) % app_count}"],
+                        },
+                        "locations": {
+                            "includeLocations": [f"loc-{idx % location_count}"],
+                            "excludeLocations": [f"loc-{(idx + 1) % location_count}"],
+                        },
+                        "authenticationStrength": {"includePolicies": [f"as-{idx % auth_strength_count}"]},
+                    },
+                    "grantControls": {"builtInControls": ["mfa"], "operator": "AND"},
+                }
+                for idx in range(policy_count)
+            ]
+        },
+        "namedLocations": {
+            "value": [{"id": f"loc-{idx}", "displayName": f"loc-{idx}"} for idx in range(location_count)]
+        },
+        "authenticationStrengthPolicies": {
+            "value": [{"id": f"as-{idx}", "displayName": f"auth-strength-{idx}"} for idx in range(auth_strength_count)]
+        },
+        "authenticationContextClassReferences": {"value": []},
+    }
+
+    first = build_normalized_snapshot(
+        tenant_name="acme",
+        run_id="run-large-1",
+        collector_payloads={
+            "identity": identities,
+            "conditional_access": conditional_access,
+            "auth_methods": {"userRegistrationDetails": {"value": [{"isMfaRegistered": True}, {"isMfaRegistered": False}]}},
+        },
+    )
+
+    second = build_normalized_snapshot(
+        tenant_name="acme",
+        run_id="run-large-1",
+        collector_payloads={
+            "identity": identities,
+            "conditional_access": conditional_access,
+            "auth_methods": {"userRegistrationDetails": {"value": [{"isMfaRegistered": True}, {"isMfaRegistered": False}]}},
+        },
+    )
+
+    assert first["snapshot"]["object_counts"]["users"] == user_count
+    assert first["snapshot"]["object_counts"]["groups"] == group_count
+    assert first["snapshot"]["object_counts"]["conditional_access_graph"] == policy_count
+    assert first["snapshot"]["object_counts"]["relationships"] == policy_count * 9
+    assert first["snapshot"]["object_counts"]["ca_findings"] >= 1
+    assert first["conditional_access_graph"]["records"][0]["enabled_for_reporting"] is False
+    assert first["conditional_access_graph"]["records"][0]["relationships"]
+    assert first["snapshot"]["object_counts"]["ca_findings"] == len(first["ca_findings"]["records"])
+    assert second["conditional_access_graph"]["records"] == first["conditional_access_graph"]["records"]
+    assert second["relationships"]["records"] == first["relationships"]["records"]

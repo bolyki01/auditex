@@ -22,22 +22,42 @@
     },
     "security": {
       "enabled": true,
-      "description": "Security posture and sign-in threat context available in Microsoft Graph",
+      "description": "Sign-in and directory audit signals from Microsoft Graph",
       "required_permissions": [
-        "SecurityEvents.Read.All",
-        "SecurityActions.Read.All",
-        "SecurityIncident.Read.All",
         "AuditLog.Read.All"
+      ],
+      "query_plan": [
+        "directoryAudits",
+        "signIns"
+      ]
+    },
+    "conditional_access": {
+      "enabled": true,
+      "description": "Conditional Access policy targeting and advanced policy dependency surfaces.",
+      "required_permissions": [
+        "Policy.Read.All",
+        "Directory.Read.All"
       ],
       "query_plan": [
         "conditionalAccessPolicies",
         "namedLocations",
-        "directoryAudits",
+        "authenticationStrengthPolicies",
+        "authenticationContextClassReferences"
+      ]
+    },
+    "defender": {
+      "enabled": true,
+      "description": "Defender alerts, incidents, and security score posture.",
+      "required_permissions": [
+        "SecurityEvents.Read.All",
+        "SecurityIncident.Read.All",
+        "SecurityActions.Read.All"
+      ],
+      "query_plan": [
         "securityAlerts",
         "defenderIncidents",
         "secureScores",
-        "defenderRecommendations",
-        "signIns"
+        "secureScoreControlProfiles"
       ]
     },
     "auth_methods": {
@@ -89,6 +109,136 @@
         "teamGroups",
         "teamChannels",
         "teamsByTeam"
+      ]
+    },
+    "purview": {
+      "enabled": false,
+      "description": "Purview posture and export readiness (adapter-backed, optional on inventory)",
+      "required_permissions": [
+        "AuditLog.Read.All"
+      ],
+      "query_plan": [
+        "purviewReadiness",
+        "retentionLabels",
+        "retentionPolicies",
+        "dlpPolicies",
+        "auditLogJobs",
+        "auditLogExports"
+      ],
+      "command_collectors": [
+        {
+          "name": "purviewReadiness",
+          "category": "readiness",
+          "commands": [
+            "m365 purview auditlog list --output json --help",
+            "m365 purview"
+          ]
+        },
+        {
+          "name": "retentionLabels",
+          "category": "policy",
+          "commands": [
+            "m365 purview retentionlabel list --output json",
+            "m365 purview retention label list --output json"
+          ]
+        },
+        {
+          "name": "retentionPolicies",
+          "category": "policy",
+          "commands": [
+            "m365 purview retentionpolicy list --output json",
+            "m365 purview retention policy list --output json"
+          ]
+        },
+        {
+          "name": "dlpPolicies",
+          "category": "policy",
+          "commands": [
+            "m365 purview dlp policy list --output json",
+            "m365 purview dlppolicy list --output json"
+          ]
+        },
+        {
+          "name": "auditLogJobs",
+          "category": "export",
+          "plane": "export",
+          "commands": [
+            "m365 purview auditlog list --output json",
+            "m365 purview audit-log search --output json"
+          ]
+        },
+        {
+          "name": "auditLogExports",
+          "category": "export",
+          "plane": "export",
+          "commands": [
+            "m365 purview auditlog export create --output json --help",
+            "m365 purview auditlog list --output json --top 100"
+          ]
+        }
+      ]
+    },
+    "ediscovery": {
+      "enabled": false,
+      "description": "eDiscovery case/search/operation inventory and export metadata (adapter + graph)",
+      "required_permissions": [
+        "eDiscovery.Read.All",
+        "SecurityIncident.Read.All"
+      ],
+      "query_plan": [
+        "cases",
+        "holdPackages",
+        "searches",
+        "operations",
+        "caseOverview",
+        "searchList",
+        "exportJobs",
+        "reviewSets",
+        "holdList"
+      ],
+      "command_collectors": [
+        {
+          "name": "caseOverview",
+          "category": "inventory",
+          "commands": [
+            "m365 purview ediscoverycase list --output json",
+            "m365 purview ediscovery case list --output json"
+          ]
+        },
+        {
+          "name": "searchList",
+          "category": "inventory",
+          "commands": [
+            "m365 purview ediscoverysearch list --output json",
+            "m365 purview ediscovery search list --output json"
+          ]
+        },
+        {
+          "name": "exportJobs",
+          "category": "export",
+          "plane": "export",
+          "commands": [
+            "m365 purview ediscoveryexport list --output json",
+            "m365 purview ediscovery export list --output json"
+          ]
+        },
+        {
+          "name": "reviewSets",
+          "category": "export",
+          "plane": "export",
+          "commands": [
+            "m365 purview reviewset list --output json",
+            "m365 purview ediscovery reviewset list --output json"
+          ]
+        },
+        {
+          "name": "holdList",
+          "category": "inventory",
+          "commands": [
+            "m365 purview hold list --output json",
+            "m365 purview legal hold list --output json"
+          ]
+        }
       ]
     },
     "exchange": {
@@ -165,5 +315,17 @@
       ]
     }
   },
-  "default_order": ["identity", "security", "auth_methods", "intune", "sharepoint", "teams", "exchange"]
+    "default_order": [
+      "identity",
+      "security",
+      "conditional_access",
+      "defender",
+      "auth_methods",
+      "intune",
+      "sharepoint",
+      "teams",
+      "purview",
+      "ediscovery",
+      "exchange"
+    ]
 }

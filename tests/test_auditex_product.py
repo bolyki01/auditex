@@ -5,7 +5,16 @@ from pathlib import Path
 
 import pytest
 
-from auditex.mcp_server import build_cli_command, build_probe_command, summarize_run, tool_specs
+from auditex.mcp_server import (
+    build_cli_command,
+    build_response_command,
+    build_probe_command,
+    list_adapters,
+    list_collectors,
+    list_response_actions,
+    summarize_run,
+    tool_specs,
+)
 from azure_tenant_audit.cli import build_parser, run_offline
 from azure_tenant_audit.profiles import get_profile, profile_choices
 
@@ -76,7 +85,27 @@ def test_mcp_tool_specs_present() -> None:
     assert "auditex_diff_runs" in names
     assert "auditex_probe_live" in names
     assert "auditex_probe_summarize" in names
+    assert "auditex_list_collectors" in names
+    assert "auditex_list_adapters" in names
     assert "auditex_list_blockers" in names
+    assert "auditex_list_response_actions" in names
+    assert "auditex_run_response_action" in names
+
+
+def test_list_collectors_tool_shape_matches_definitions() -> None:
+    result = list_collectors()
+    assert result["path"].endswith("configs/collector-definitions.json")
+    assert isinstance(result["collectors"], list)
+    collector_names = {item["name"] for item in result["collectors"]}
+    assert {"identity", "security", "conditional_access", "defender"}.issubset(collector_names)
+
+
+def test_list_adapters_tool_shape() -> None:
+    result = list_adapters()
+    assert result["count"] >= 1
+    assert isinstance(result["adapters"], list)
+    adapter_names = {item["name"] for item in result["adapters"]}
+    assert {"m365_cli", "m365dsc", "powershell_graph"}.issubset(adapter_names)
 
 
 def test_build_cli_command_uses_profile_and_cli_token() -> None:
@@ -145,6 +174,31 @@ def test_build_probe_command_includes_app_credentials() -> None:
     assert "app-id" in command
     assert "--client-secret" in command
     assert "app-secret" in command
+
+
+def test_list_response_actions_shape() -> None:
+    result = list_response_actions()
+    assert result["count"] >= 1
+    assert "message_trace" in result["actions"]
+
+
+def test_build_response_command_uses_guarded_namespace() -> None:
+    command = build_response_command(
+        tenant_name="ACME",
+        out_dir="outputs/response",
+        action="message_trace",
+        tenant_id="contoso.onmicrosoft.com",
+        auditor_profile="exchange-reader",
+        target="user@contoso.com",
+        intent="triage mail flow",
+    )
+    assert command[:3] == [command[0], "-m", "auditex"]
+    assert "response" in command
+    assert "run" in command
+    assert "--action" in command
+    assert "message_trace" in command
+    assert "--intent" in command
+    assert "triage mail flow" in command
 
 
 def test_summarize_run_reads_manifest(tmp_path: Path) -> None:

@@ -152,9 +152,45 @@ class AuditWriter:
 
         existing_state = self._safe_load_json(self.checkpoint_state_path)
         if isinstance(existing_state, dict):
-            state = existing_state.get("collectors")
-            if isinstance(state, dict):
-                self._checkpoint_state = {str(k): v for k, v in state.items() if isinstance(v, dict)}
+            self._checkpoint_state = self._normalize_checkpoint_payload(existing_state)
+
+    @staticmethod
+    def _normalize_checkpoint_payload(payload: Any) -> dict[str, dict[str, Any]]:
+        if not isinstance(payload, dict):
+            return {"collectors": {}, "operations": {}}
+
+        raw_collectors = payload.get("collectors")
+        raw_operations = payload.get("operations")
+        collectors: dict[str, dict[str, Any]] = {}
+        operations: dict[str, dict[str, Any]] = {}
+
+        if isinstance(raw_collectors, dict):
+            for key, value in raw_collectors.items():
+                if isinstance(value, dict):
+                    collectors[str(key)] = value
+
+        if isinstance(raw_operations, dict):
+            for collector_name, collector_ops in raw_operations.items():
+                if not isinstance(collector_ops, dict):
+                    continue
+                normalized_ops: dict[str, Any] = {}
+                for op_name, op_state in collector_ops.items():
+                    if isinstance(op_state, dict):
+                        normalized_ops[str(op_name)] = op_state
+                if normalized_ops:
+                    operations[str(collector_name)] = normalized_ops
+
+        # Backward compatibility for older payloads that only store collector rows at root.
+        if not collectors and not operations and all(
+            isinstance(key, str) and isinstance(value, dict) and "status" in value for key, value in payload.items()
+        ):
+            collectors = {
+                str(key): value
+                for key, value in payload.items()
+                if isinstance(value, dict) and "status" in value
+            }
+
+        return {"collectors": collectors, "operations": operations}
 
     def _record_artifact(self, target: Path) -> None:
         relative = str(target.relative_to(self.run_dir))
@@ -163,24 +199,68 @@ class AuditWriter:
 
     def _load_checkpoint_state(self) -> dict[str, dict[str, Any]]:
         if not self.checkpoint_state_path.exists():
-            return {}
+            return {"collectors": {}, "operations": {}}
         try:
             payload = json.loads(self.checkpoint_state_path.read_text(encoding="utf-8"))
-            if not isinstance(payload, dict):
-                return {}
-            state = payload.get("collectors")
-            if isinstance(state, dict):
-                return {str(k): v for k, v in state.items() if isinstance(v, dict)}
-            return {}
+            return self._normalize_checkpoint_payload(payload)
         except (OSError, json.JSONDecodeError, ValueError):
-            return {}
+            return {"collectors": {}, "operations": {}}
 
     def load_checkpoint_state(self) -> dict[str, dict[str, Any]]:
         return self._checkpoint_state
 
+    def load_collector_checkpoint_state(self) -> dict[str, dict[str, Any]]:
+        return dict(self._checkpoint_state.get("collectors", {}))
+
+    def load_operation_checkpoint_state(self) -> dict[str, dict[str, Any]]:
+        return dict(self._checkpoint_state.get("operations", {}))
+
+    def write_export_checkpoint(
+        self,
+        collector_name: str,
+        operation: str,
+        status: str,
+        item_count: int,
+        message: str,
+        error: str | None = None,
+        error_class: str | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> Path:
+        state = self.load_checkpoint_state()
+        collectors = state.setdefault("collectors", {})
+        operations = state.setdefault("operations", {})
+        operations.setdefault(str(collector_name), {})
+        operations[str(collector_name)][str(operation)] = {
+            "status": status,
+            "item_count": item_count,
+            "message": message,
+            "error": error,
+            "error_class": error_class,
+            "ts_utc": _now_iso(),
+        }
+        if extra:
+            operations[str(collector_name)][str(operation)].update(extra)
+        self._checkpoint_state = {
+            "collectors": collectors,
+            "operations": operations,
+        }
+        checkpoint_payload = {
+            "run_dir": str(self.run_dir),
+            "run_id": self.run_id,
+            "collectors": collectors,
+            "operations": operations,
+        }
+        path = self.checkpoint_state_path
+        path.write_text(json.dumps(checkpoint_payload, indent=2), encoding="utf-8")
+        self._record_artifact(path)
+        self._manifest["checkpoint_state_path"] = str(path.relative_to(self.run_dir))
+        return path
+
     def write_checkpoint(self, collector_name: str, payload: dict[str, Any]) -> Path:
         state = self.load_checkpoint_state()
-        state[collector_name] = {
+        collectors = state.setdefault("collectors", {})
+        operations = state.setdefault("operations", {})
+        collectors[str(collector_name)] = {
             "status": payload.get("status"),
             "item_count": payload.get("item_count"),
             "message": payload.get("message"),
@@ -188,11 +268,12 @@ class AuditWriter:
             "error_class": payload.get("error_class"),
             "ts_utc": _now_iso(),
         }
-        self._checkpoint_state = state
+        self._checkpoint_state = {"collectors": collectors, "operations": operations}
         checkpoint_payload = {
             "run_dir": str(self.run_dir),
             "run_id": self.run_id,
             "collectors": state,
+            "operations": operations,
         }
         path = self.checkpoint_state_path
         path.write_text(json.dumps(checkpoint_payload, indent=2), encoding="utf-8")
@@ -209,6 +290,7 @@ class AuditWriter:
 
     def write_raw(self, name: str, payload: dict[str, Any]) -> Path:
         target = self.raw_dir / f"{name}.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         self._record_artifact(target)
         return target
@@ -231,6 +313,35 @@ class AuditWriter:
             meta_path = collector_dir / f"{name}-{page_number:05d}.meta.json"
             meta_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
             self._record_artifact(meta_path)
+        self._record_artifact(target)
+        return target
+
+    def write_export_records(
+        self,
+        collector: str,
+        operation: str,
+        page_number: int,
+        records: list[dict[str, Any]],
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> Path:
+        section_dir = self.raw_dir / collector / operation
+        section_dir.mkdir(parents=True, exist_ok=True)
+        target = section_dir / f"part-{page_number:05d}.jsonl"
+        with target.open("w", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record, default=str) + "\n")
+        if metadata:
+            meta_path = section_dir / f"part-{page_number:05d}.meta.json"
+            meta_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+            self._record_artifact(meta_path)
+        self._record_artifact(target)
+        return target
+
+    def write_export_summary(self, collector: str, operation: str, payload: dict[str, Any]) -> Path:
+        section_dir = self.raw_dir / collector / operation
+        section_dir.mkdir(parents=True, exist_ok=True)
+        target = section_dir / "summary.json"
+        target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         self._record_artifact(target)
         return target
 
@@ -295,7 +406,9 @@ class AuditWriter:
 
     def write_bundle(self, metadata: dict[str, Any]) -> None:
         self._manifest["executed_by"] = metadata.get("executed_by")
-        self._manifest["selected_collectors"] = metadata.get("collectors", [])
+        selected_collectors = metadata.get("collectors", [])
+        self._manifest["selected_collectors"] = selected_collectors
+        self._manifest["collectors"] = selected_collectors
         self._manifest["overall_status"] = metadata.get("overall_status", "partial")
         self._manifest["duration_seconds"] = metadata.get("duration_seconds", 0)
         self._manifest["mode"] = metadata.get("mode", "live")

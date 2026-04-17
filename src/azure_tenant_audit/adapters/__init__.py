@@ -14,3 +14,18 @@ ADAPTERS: dict[str, Adapter] = {
 
 def get_adapter(name: str) -> Adapter:
     return ADAPTERS[name]
+
+
+def list_adapters() -> list[dict[str, object]]:
+    """Return lightweight metadata for all configured adapters."""
+
+    return [
+        {
+            "name": adapter.name,
+            "class": adapter.__class__.__name__,
+            "auth_requirements": list(adapter.auth_requirements),
+            "tool_dependencies": list(adapter.tool_dependencies),
+            "dependency_available": bool(adapter.dependency_check()),
+        }
+        for adapter in ADAPTERS.values()
+    ]

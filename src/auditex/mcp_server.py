@@ -5,17 +5,78 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+from azure_tenant_audit.config import CollectorConfig
 
 from . import auth as auditex_auth
 from azure_tenant_audit.diffing import diff_run_directories
 from azure_tenant_audit.profiles import PROFILES
-
-SUPPORTED_PLANES = ("inventory", "full")
+from azure_tenant_audit.adapters import ADAPTERS, list_adapters as _list_adapters
+from azure_tenant_audit.response import response_actions
+SUPPORTED_PLANES = ("inventory", "full", "export")
 SUPPORTED_PROBE_MODES = ("delegated", "app", "response")
+
+
+def list_collectors(config_path: str = "configs/collector-definitions.json") -> dict[str, Any]:
+    path = Path(config_path)
+    if not path.exists():
+        return {"error": "collector definitions file not found", "path": str(path)}
+    try:
+        config = CollectorConfig.from_path(path)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc), "path": str(path)}
+
+    collectors = [
+        {
+            "name": name,
+            "description": definition.description,
+            "enabled": definition.enabled,
+            "required_permissions": list(definition.required_permissions),
+            "query_plan": list(definition.query_plan),
+            "command_collectors": list(definition.command_collectors or []),
+            "position": position,
+        }
+        for position, (name, definition) in enumerate(config.collectors.items())
+    ]
+    return {
+        "path": str(path),
+        "collectors": collectors,
+        "default_order": config.default_order,
+    }
+
+
+def list_adapters() -> dict[str, Any]:
+    adapters = _list_adapters()
+    return {
+        "adapters": adapters,
+        "count": len(adapters),
+    }
+
+
+def list_response_actions() -> dict[str, Any]:
+    actions = response_actions()
+    return {
+        "actions": actions,
+        "count": len(actions),
+    }
 
 
 def tool_specs() -> list[dict[str, Any]]:
     return [
+        {
+            "name": "auditex_list_collectors",
+            "description": "List collector IDs, required permissions, and query plans from the active definitions file.",
+            "readOnlyHint": True,
+        },
+        {
+            "name": "auditex_list_adapters",
+            "description": "List configured adapters and their dependency requirements.",
+            "readOnlyHint": True,
+        },
+        {
+            "name": "auditex_list_response_actions",
+            "description": "List guarded response actions exposed by the response plane.",
+            "readOnlyHint": True,
+        },
         {
             "name": "auditex_list_profiles",
             "description": "List built-in delegated and app-readonly audit profiles.",
@@ -71,6 +132,11 @@ def tool_specs() -> list[dict[str, Any]]:
             "description": "Read blocker artifacts from a completed audit or probe run.",
             "readOnlyHint": True,
         },
+        {
+            "name": "auditex_run_response_action",
+            "description": "Run a guarded response action in a separate response bundle.",
+            "readOnlyHint": False,
+        },
     ]
 
 
@@ -84,7 +150,7 @@ def build_cli_command(
     use_azure_cli_token: bool = True,
     access_token: str | None = None,
     include_exchange: bool = False,
-    collectors: str | None = None,
+    collectors: str | list[str] | None = None,
     since: str | None = None,
     until: str | None = None,
     offline: bool = False,
@@ -100,7 +166,12 @@ def build_cli_command(
     if include_exchange:
         command.append("--include-exchange")
     if collectors:
-        command.extend(["--collectors", collectors])
+        if isinstance(collectors, str):
+            selected_collectors = collectors
+        else:
+            selected_collectors = ",".join(collectors)
+        if selected_collectors:
+            command.extend(["--collectors", selected_collectors])
     if since:
         command.extend(["--since", since])
     if until:
@@ -151,6 +222,53 @@ def build_probe_command(
         command.extend(["--client-id", client_id])
     if client_secret:
         command.extend(["--client-secret", client_secret])
+    return command
+
+
+def build_response_command(
+    *,
+    tenant_name: str,
+    out_dir: str,
+    action: str,
+    tenant_id: str | None = None,
+    auditor_profile: str = "exchange-reader",
+    target: str | None = None,
+    intent: str = "",
+    since: str | None = None,
+    until: str | None = None,
+    run_name: str | None = None,
+    execute: bool = False,
+    allow_write: bool = False,
+    allow_lab_response: bool = False,
+    adapter_override: str | None = None,
+    command_override: str | None = None,
+) -> list[str]:
+    supported_actions = response_actions()
+    if action not in supported_actions:
+        raise ValueError(f"Unsupported response action '{action}'. Supported actions: {', '.join(supported_actions)}")
+    command = [sys.executable, "-m", "auditex", "response", "run", "--tenant-name", tenant_name, "--out", out_dir, "--action", action, "--intent", intent]
+    if tenant_id:
+        command.extend(["--tenant-id", tenant_id])
+    if auditor_profile:
+        command.extend(["--auditor-profile", auditor_profile])
+    if target:
+        command.extend(["--target", target])
+    if since:
+        command.extend(["--since", since])
+    if until:
+        command.extend(["--until", until])
+    if run_name:
+        command.extend(["--run-name", run_name])
+    if execute:
+        command.append("--execute")
+    if allow_write:
+        command.append("--allow-write")
+    if allow_lab_response:
+        command.append("--allow-lab-response")
+    if adapter_override:
+        command.extend(["--adapter-override", adapter_override])
+    if command_override:
+        command.extend(["--command-override", command_override])
     return command
 
 
@@ -220,6 +338,18 @@ def main() -> int:
     @server.tool
     def auditex_list_profiles() -> dict[str, Any]:
         return {"profiles": [profile.__dict__ for profile in PROFILES.values()]}
+
+    @server.tool
+    def auditex_list_collectors(config_path: str = "configs/collector-definitions.json") -> dict[str, Any]:
+        return list_collectors(config_path=config_path)
+
+    @server.tool
+    def auditex_list_adapters() -> dict[str, Any]:
+        return list_adapters()
+
+    @server.tool
+    def auditex_list_response_actions() -> dict[str, Any]:
+        return list_response_actions()
 
     @server.tool
     def auditex_auth_status() -> dict[str, Any]:
@@ -318,6 +448,43 @@ def main() -> int:
     @server.tool
     def auditex_list_blockers(run_dir: str) -> dict[str, Any]:
         return list_blockers(run_dir)
+
+    @server.tool
+    def auditex_run_response_action(
+        tenant_name: str,
+        action: str,
+        tenant_id: str = "organizations",
+        out_dir: str = "outputs/response",
+        auditor_profile: str = "exchange-reader",
+        target: str = "",
+        intent: str = "",
+        since: str = "",
+        until: str = "",
+        run_name: str = "",
+        execute: bool = False,
+        allow_write: bool = False,
+        allow_lab_response: bool = False,
+        adapter_override: str = "",
+        command_override: str = "",
+    ) -> dict[str, Any]:
+        command = build_response_command(
+            tenant_name=tenant_name,
+            out_dir=out_dir,
+            action=action,
+            tenant_id=tenant_id,
+            auditor_profile=auditor_profile,
+            target=target or None,
+            intent=intent,
+            since=since or None,
+            until=until or None,
+            run_name=run_name or None,
+            execute=execute,
+            allow_write=allow_write,
+            allow_lab_response=allow_lab_response,
+            adapter_override=adapter_override or None,
+            command_override=command_override or None,
+        )
+        return run_cli_command(command)
 
     server.run()
     return 0

@@ -15,15 +15,81 @@
     },
     "security": {
       "graph_scopes": [
-        "SecurityEvents.Read.All",
-        "SecurityActions.Read.All",
-        "SecurityIncident.Read.All",
         "AuditLog.Read.All"
       ],
       "minimum_role_hints": [
         "Security Reader"
       ],
-      "notes": "Sign-in, Defender incidents, secure score, and security alerts can require extra privileges in tightly governed environments."
+      "notes": "Sign-in and directory audit data is typically available for read-only security roles with audit permissions."
+    },
+    "conditional_access": {
+      "graph_scopes": [
+        "Policy.Read.All",
+        "Directory.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader",
+        "Identity Governance Administrator",
+        "Security Reader"
+      ],
+      "notes": "Conditional Access policy graph endpoints are policy-scoped and may require policy admin or equivalent directory read roles."
+    },
+    "defender": {
+      "graph_scopes": [
+        "SecurityEvents.Read.All",
+        "SecurityIncident.Read.All",
+        "SecurityActions.Read.All",
+        "AuditLog.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Security Reader",
+        "Global Reader"
+      ],
+      "notes": "Defender alert/incidence and secure score APIs are covered by Security Reader in most environments."
+    },
+    "purview": {
+      "graph_scopes": [
+        "AuditLog.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Security Reader",
+        "Global Reader",
+        "Compliance Administrator"
+      ],
+      "notes": "Most collector commands are CLI-driven and require authenticated M365 CLI session plus app-level Purview/eDiscovery permissions.",
+      "command_tools": [
+        "m365"
+      ],
+      "optional_commands": [
+        "m365 purview auditlog list --output json",
+        "m365 purview retentionlabel list --output json",
+        "m365 purview retentionpolicy list --output json",
+        "m365 purview dlp policy list --output json",
+        "m365 purview auditlog export create --output json --help",
+        "m365 purview auditlog list --output json"
+      ]
+    },
+    "ediscovery": {
+      "graph_scopes": [
+        "eDiscovery.Read.All",
+        "SecurityIncident.Read.All"
+      ],
+      "minimum_role_hints": [
+        "eDiscovery Reader",
+        "Compliance Administrator",
+        "Global Reader"
+      ],
+      "notes": "Export and hold operations may be CLI-driven and require additional compliance/eDiscovery tenant permissions.",
+      "command_tools": [
+        "m365"
+      ],
+      "optional_commands": [
+        "m365 purview ediscovery case list --output json",
+        "m365 purview ediscovery search list --output json",
+        "m365 purview ediscoveryexport list --output json",
+        "m365 purview ediscovery reviewset list --output json",
+        "m365 purview hold list --output json"
+      ]
     },
     "auth_methods": {
       "graph_scopes": [

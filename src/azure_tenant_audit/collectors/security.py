@@ -8,11 +8,8 @@ from .base import Collector, CollectorResult, run_graph_endpoints
 
 class SecurityCollector(Collector):
     name = "security"
-    description = "Security and sign-in risk posture."
+    description = "Sign-in and directory audit signals from Microsoft Graph."
     required_permissions = [
-        "SecurityEvents.Read.All",
-        "SecurityActions.Read.All",
-        "SecurityIncident.Read.All",
         "AuditLog.Read.All",
     ]
 
@@ -28,7 +25,6 @@ class SecurityCollector(Collector):
         if until:
             filter_clauses.append(f"createdDateTime le {until}")
         sign_in_params = {"$filter": " and ".join(filter_clauses)} if filter_clauses else {}
-        incident_params = {"$filter": " and ".join(filter_clauses)} if filter_clauses else {}
         directory_filter_clauses: list[str] = []
         if since:
             directory_filter_clauses.append(f"activityDateTime ge {since}")
@@ -36,14 +32,6 @@ class SecurityCollector(Collector):
             directory_filter_clauses.append(f"activityDateTime le {until}")
         directory_audit_params = {"$filter": " and ".join(directory_filter_clauses)} if directory_filter_clauses else {}
         queries = {
-            "conditionalAccessPolicies": {
-                "endpoint": "/identity/conditionalAccess/policies",
-                "params": {},
-            },
-            "namedLocations": {
-                "endpoint": "/identity/conditionalAccess/namedLocations",
-                "params": {},
-            },
             "signIns": {
                 "endpoint": "/auditLogs/signIns",
                 "params": sign_in_params,
@@ -51,22 +39,6 @@ class SecurityCollector(Collector):
             "directoryAudits": {
                 "endpoint": "/auditLogs/directoryAudits",
                 "params": directory_audit_params,
-            },
-            "securityAlerts": {
-                "endpoint": "/security/alerts",
-                "params": {},
-            },
-            "defenderIncidents": {
-                "endpoint": "/security/incidents",
-                "params": incident_params,
-            },
-            "secureScores": {
-                "endpoint": "/security/secureScores",
-                "params": {},
-            },
-            "defenderRecommendations": {
-                "endpoint": "/security/secureScoreControlProfiles",
-                "params": {},
             },
         }
         payload, coverage = run_graph_endpoints(

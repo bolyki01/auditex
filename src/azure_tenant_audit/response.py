@@ -1,0 +1,489 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from .adapters import get_adapter
+from .output import AuditWriter
+from .profiles import get_profile
+
+
+LAB_TENANT_ENV = "AUDITEX_LAB_TENANT_IDS"
+DEFAULT_LAB_TENANT_IDS = ("03174e44-540d-43a6-9dc4-fdff48bd182d",)
+
+
+@dataclass(frozen=True)
+class ResponseAction:
+    name: str
+    description: str
+    adapter: str
+    commands: tuple[str, ...]
+    required_fields: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ResponseConfig:
+    tenant_name: str
+    out_dir: Path
+    action: str
+    tenant_id: str | None = None
+    target: str | None = None
+    intent: str = ""
+    since: str | None = None
+    until: str | None = None
+    auditor_profile: str = "exchange-reader"
+    run_name: str | None = None
+    execute: bool = False
+    allow_write: bool = False
+    allow_lab_response: bool = False
+    adapter_override: str | None = None
+    command_override: str | None = None
+
+
+RESPONSE_ACTIONS: dict[str, ResponseAction] = {
+    "message_trace": ResponseAction(
+        name="message_trace",
+        description="Collect message trace evidence for one recipient over a time window.",
+        adapter="powershell_graph",
+        commands=(
+            'Get-MessageTrace -RecipientAddress "{target}" -StartDate "{since}" -EndDate "{until}"',
+            'Get-MessageTrace -RecipientAddress "{target}"',
+        ),
+        required_fields=("target",),
+    ),
+    "user_audit_history": ResponseAction(
+        name="user_audit_history",
+        description="Collect unified audit entries for a target user.",
+        adapter="powershell_graph",
+        commands=(
+            'Search-UnifiedAuditLog -UserIds "{target}" -StartDate "{since}" -EndDate "{until}"',
+            'Search-UnifiedAuditLog -UserIds "{target}"',
+        ),
+        required_fields=("target",),
+    ),
+    "purview_audit_export": ResponseAction(
+        name="purview_audit_export",
+        description="Export Purview audit records for a bounded time window.",
+        adapter="m365_cli",
+        commands=(
+            "m365 purview auditlog list --output json",
+            "m365 purview audit log list --output json",
+        ),
+        required_fields=("since", "until"),
+    ),
+}
+
+
+def response_actions() -> list[str]:
+    return sorted(RESPONSE_ACTIONS.keys())
+
+
+def _lab_tenant_ids() -> set[str]:
+    configured = os.environ.get(LAB_TENANT_ENV, "")
+    values = [value.strip() for value in configured.split(",") if value.strip()]
+    return set(values or DEFAULT_LAB_TENANT_IDS)
+
+
+def _scrub_command_line(command_line: list[str]) -> list[str]:
+    scrubbed: list[str] = []
+    skip_next = False
+    for item in command_line:
+        if skip_next:
+            scrubbed.append("***redacted***")
+            skip_next = False
+            continue
+        if item in {"--command-override", "--adapter-override"}:
+            scrubbed.append(item)
+            skip_next = True
+            continue
+        if item.startswith("--command-override="):
+            scrubbed.append("--command-override=***redacted***")
+            continue
+        if item.startswith("--adapter-override="):
+            scrubbed.append("--adapter-override=***redacted***")
+            continue
+        scrubbed.append(item)
+    if skip_next:
+        scrubbed.append("***redacted***")
+    return scrubbed
+
+
+def _build_context(config: ResponseConfig) -> dict[str, str]:
+    return {
+        "target": config.target or "",
+        "since": config.since or "",
+        "until": config.until or "",
+        "tenant_id": config.tenant_id or "organizations",
+        "intent": config.intent,
+        "action": config.action,
+    }
+
+
+def _resolve_action(name: str) -> ResponseAction | None:
+    return RESPONSE_ACTIONS.get(name)
+
+
+def _planned_commands(action: ResponseAction, config: ResponseConfig) -> list[str]:
+    if config.command_override:
+        return [config.command_override]
+    context = _build_context(config)
+    return [template.format(**context) for template in action.commands]
+
+
+def run_response(config: ResponseConfig, command_line: list[str] | None = None) -> int:
+    writer = AuditWriter(config.out_dir.expanduser().resolve(), tenant_name=config.tenant_name, run_name=config.run_name)
+    command_line = _scrub_command_line(list(command_line or []))
+
+    profile = get_profile(config.auditor_profile)
+    blockers: list[dict[str, Any]] = []
+    coverage: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    data_handling_events: list[dict[str, Any]] = []
+
+    writer.log_event(
+        "response.run.started",
+        "Response run started",
+        {
+            "action": config.action,
+            "tenant_id": config.tenant_id or "organizations",
+            "auditor_profile": config.auditor_profile,
+            "execute": config.execute,
+            "intent": config.intent,
+            "command_line": command_line,
+        },
+    )
+
+    if not config.intent:
+        blockers.append(
+            {
+                "collector": "response",
+                "item": "response.intent",
+                "status": "failed",
+                "error_class": "missing_intent",
+                "error": "Response action requires explicit --intent text.",
+                "recommendations": {"notes": "Provide a short intent before rerunning the response action."},
+            }
+        )
+
+    if not profile.response_allowed:
+        blockers.append(
+            {
+                "collector": "response",
+                "item": "response.profile_guard",
+                "status": "failed",
+                "error_class": "profile_not_allowed",
+                "error": f"Profile '{config.auditor_profile}' is not response-capable.",
+                "recommendations": {"notes": "Use a response-capable profile such as exchange-reader."},
+            }
+        )
+
+    tenant_id = config.tenant_id or "organizations"
+    if not config.allow_lab_response and tenant_id not in _lab_tenant_ids():
+        blockers.append(
+            {
+                "collector": "response",
+                "item": "response.lab_guard",
+                "status": "failed",
+                "error_class": "lab_guard",
+                "error": "Response plane is restricted to explicitly configured lab tenant IDs.",
+                "recommendations": {
+                    "notes": "Pass --allow-lab-response and target a tenant in AUDITEX_LAB_TENANT_IDS."
+                },
+            }
+        )
+
+    action = _resolve_action(config.action)
+    if action is None:
+        blockers.append(
+            {
+                "collector": "response",
+                "item": "response.action",
+                "status": "failed",
+                "error_class": "unknown_action",
+                "error": f"Unsupported response action '{config.action}'.",
+                "recommendations": {"notes": f"Use one of: {', '.join(response_actions())}"},
+            }
+        )
+
+    adapter = None
+    adapter_name = config.adapter_override or (action.adapter if action else "")
+    if action is not None:
+        try:
+            adapter = get_adapter(adapter_name or action.adapter)
+        except KeyError:
+            blockers.append(
+                {
+                    "collector": "response",
+                    "item": f"response.adapter:{adapter_name or action.adapter}",
+                    "status": "failed",
+                    "error_class": "toolchain_unavailable",
+                    "error": f"Required adapter '{adapter_name or action.adapter}' is not available.",
+                    "recommendations": {
+                        "notes": "Install the required local tooling before rerunning the response action."
+                    },
+                }
+            )
+        else:
+            if not adapter.dependency_check():
+                blockers.append(
+                    {
+                        "collector": "response",
+                        "item": f"response.adapter:{adapter.name}",
+                        "status": "failed",
+                        "error_class": "toolchain_unavailable",
+                        "error": f"Required adapter '{adapter.name}' is not available.",
+                        "recommendations": {
+                            "notes": "Install and authenticate the required tooling before rerunning the response action."
+                        },
+                    }
+                )
+
+    if action and not blockers:
+        missing = [field for field in action.required_fields if not getattr(config, field, None)]
+        if missing:
+            blockers.append(
+                {
+                    "collector": "response",
+                    "item": "response.arguments",
+                    "status": "failed",
+                    "error_class": "missing_argument",
+                    "error": f"Missing required arguments for action '{config.action}': {', '.join(missing)}.",
+                    "recommendations": {"notes": "Provide the required fields and rerun the response action."},
+                }
+            )
+
+    if action and adapter and not blockers:
+        planned_commands = _planned_commands(action, config)
+        if not config.execute:
+            for index, command in enumerate(planned_commands, start=1):
+                row = {
+                    "collector": "response",
+                    "type": "action-plan",
+                    "name": f"{action.name}:{index}",
+                    "adapter": adapter.name,
+                    "status": "skipped",
+                    "item_count": 0,
+                    "command": command,
+                    "message": "Dry run command plan",
+                    "rank": index,
+                }
+                coverage.append(row)
+                writer.write_summary(
+                    {
+                        "name": action.name,
+                        "status": "skipped",
+                        "item_count": 0,
+                        "message": "Dry run plan only.",
+                        "command": command,
+                        "rank": index,
+                        "variant_count": len(planned_commands),
+                    }
+                )
+            writer.write_index_records(coverage)
+            writer.write_raw(
+                f"response/{action.name}/plan",
+                {
+                    "action": action.name,
+                    "adapter": adapter.name,
+                    "intent": config.intent,
+                    "planned_commands": planned_commands,
+                    "execute": False,
+                },
+            )
+            data_handling_events.append(
+                {
+                    "action": action.name,
+                    "event": "planned",
+                    "reason": config.intent,
+                    "target": config.target,
+                    "run_mode": "dry_run",
+                }
+            )
+            writer.write_normalized(
+                "response",
+                {
+                    "response": {
+                        "action": action.name,
+                        "intent": config.intent,
+                        "adapter": adapter.name,
+                        "planned_commands": planned_commands,
+                        "dry_run": True,
+                    }
+                },
+            )
+        else:
+            last_failure: dict[str, Any] | None = None
+            for index, command in enumerate(planned_commands, start=1):
+                command_payload = adapter.run(command, log_event=writer.log_event)
+                command_payload.setdefault("command", command)
+                command_payload.setdefault("plan_position", index)
+                executed = command_payload.get("error") is None
+                command_payload.setdefault("status", "ok" if executed else "failed")
+                coverage_row = {
+                    "collector": "response",
+                    "type": "action",
+                    "name": action.name,
+                    "adapter": adapter.name,
+                    "command": command,
+                    "status": command_payload.get("status"),
+                    "item_count": len(command_payload.get("value", [])) if isinstance(command_payload.get("value"), list) else 0,
+                    "duration_ms": command_payload.get("duration_ms", 0),
+                    "error_class": command_payload.get("error_class"),
+                    "error": command_payload.get("error"),
+                }
+                coverage.append(coverage_row)
+                writer.write_index_records([coverage_row])
+                writer.write_raw(
+                    f"response/{action.name}/attempt-{index}",
+                    {
+                        "action": action.name,
+                        "command": command,
+                        "intent": config.intent,
+                        "response_payload": command_payload,
+                        "executed": True,
+                    },
+                )
+                data_handling_events.append(
+                    {
+                        "action": action.name,
+                        "event": "executed",
+                        "reason": config.intent,
+                        "target": config.target,
+                        "run_mode": "execute",
+                        "command": command,
+                        "error_class": command_payload.get("error_class"),
+                    }
+                )
+                if executed:
+                    writer.write_normalized(
+                        "response",
+                        {
+                            "response": {
+                                "action": action.name,
+                                "intent": config.intent,
+                                "adapter": adapter.name,
+                                "command": command,
+                                "ran": True,
+                                "payload": command_payload,
+                            }
+                        },
+                    )
+                    break
+                last_failure = {
+                    "collector": "response",
+                    "item": action.name,
+                    "status": "failed",
+                    "error_class": command_payload.get("error_class", "command_error"),
+                    "error": command_payload.get("error", "command failed"),
+                    "recommendations": {
+                        "notes": "Check toolchain auth and command prerequisites. Retry with the dry-run plan first."
+                    },
+                }
+            else:
+                if last_failure is not None:
+                    blockers.append(last_failure)
+
+    if blockers:
+        writer.write_diagnostics(blockers)
+        writer.write_blockers(blockers)
+        findings = [
+            {
+                "id": f"response:{config.action}:{item.get('error_class', 'blocked')}",
+                "severity": "medium",
+                "message": item.get("error") or "Response action blocked",
+                "details": item,
+            }
+            for item in blockers
+        ]
+        writer.write_findings(findings)
+
+    status = "partial" if blockers else "ok"
+    writer.write_ai_safe(
+        "response_summary",
+        {
+            "tenant_name": config.tenant_name,
+            "action": config.action,
+            "status": status,
+            "item_count": len(coverage),
+            "target": config.target,
+            "execute": config.execute,
+            "blocked": len(blockers),
+        },
+    )
+    writer.write_json_artifact(
+        "toolchain-readiness.json",
+        {
+            "adapter": adapter.name if adapter else adapter_name,
+            "dependency_available": bool(adapter and adapter.dependency_check()),
+        },
+    )
+    writer.write_report_pack(
+        {
+            "tenant_name": config.tenant_name,
+            "action": config.action,
+            "status": status,
+            "findings": findings,
+            "evidence_paths": [
+                "run-manifest.json",
+                "summary.json",
+                "summary.md",
+                "audit-log.jsonl",
+                "audit-command-log.jsonl",
+                "audit-debug.log",
+                "toolchain-readiness.json",
+                "normalized/response.json",
+                "ai_safe/response_summary.json",
+                "raw/response/",
+            ]
+            + (["blockers/blockers.json"] if blockers else [])
+            + (["findings/findings.json"] if findings else []),
+            "blocker_count": len(blockers),
+            "command_count": len(coverage),
+            "intent": config.intent,
+            "time_window": {"since": config.since, "until": config.until},
+        }
+    )
+    writer.write_bundle(
+        {
+            "executed_by": "auditex_response",
+            "collectors": [f"response:{config.action}"],
+            "overall_status": status,
+            "duration_seconds": 0,
+            "mode": "response",
+            "auditor_profile": config.auditor_profile,
+            "plane": "response",
+            "since": config.since,
+            "until": config.until,
+            "session_context": {
+                "tenant_id": config.tenant_id,
+                "auditor_profile": config.auditor_profile,
+                "action": config.action,
+                "intent": config.intent,
+                "target": config.target,
+                "run_name": config.run_name,
+                "allow_write": config.allow_write,
+                "allow_lab_response": config.allow_lab_response,
+            },
+            "command_line": command_line,
+            "data_handling_events": data_handling_events,
+            "response_action": config.action,
+            "response_target": config.target,
+            "response_execute": config.execute,
+            "response_adapter": adapter.name if adapter else adapter_name,
+            "response_allow_write": config.allow_write,
+            "response_allow_lab_response": config.allow_lab_response,
+        }
+    )
+    writer.log_event(
+        "response.run.completed",
+        "Response run completed",
+        {
+            "action": config.action,
+            "status": status,
+            "blockers": len(blockers),
+            "dry_run": not config.execute,
+        },
+    )
+    return 1 if blockers else 0

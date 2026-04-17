@@ -8,30 +8,30 @@ from azure_tenant_audit.cli import _build_diagnostics, _load_permission_hints
 
 def test_security_defender_posture_config_and_blocker_mapping() -> None:
     definitions = json.loads(Path("configs/collector-definitions.json").read_text(encoding="utf-8"))
-    security_definition = definitions["collectors"]["security"]
+    defender_definition = definitions["collectors"]["defender"]
 
-    assert security_definition["required_permissions"].count("SecurityEvents.Read.All") == 1
-    assert "SecurityIncident.Read.All" in security_definition["required_permissions"]
-    assert "defenderIncidents" in security_definition["query_plan"]
-    assert "secureScores" in security_definition["query_plan"]
-    assert "defenderRecommendations" in security_definition["query_plan"]
+    assert defender_definition["required_permissions"].count("SecurityEvents.Read.All") == 1
+    assert "SecurityIncident.Read.All" in defender_definition["required_permissions"]
+    assert "defenderIncidents" in defender_definition["query_plan"]
+    assert "secureScores" in defender_definition["query_plan"]
+    assert "secureScoreControlProfiles" in defender_definition["query_plan"]
 
     permissions = json.loads(Path("configs/collector-permissions.json").read_text(encoding="utf-8"))
-    security_permissions = permissions["collector_permissions"]["security"]
-    assert "SecurityIncident.Read.All" in security_permissions["graph_scopes"]
+    defender_permissions = permissions["collector_permissions"]["defender"]
+    assert "SecurityIncident.Read.All" in defender_permissions["graph_scopes"]
     assert "SecurityIncident.Read.All" in permissions["global_app_recommendation"]
 
     diagnostics = _build_diagnostics(
         result_rows=[
             {
-                "name": "security",
+                "name": "defender",
                 "status": "partial",
-                "message": "security collector completed with partial errors",
+                "message": "defender collector completed with partial errors",
             }
         ],
         coverage_rows=[
             {
-                "collector": "security",
+                "collector": "defender",
                 "type": "graph",
                 "name": "defenderIncidents",
                 "endpoint": "/security/incidents",

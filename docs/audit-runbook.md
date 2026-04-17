@@ -98,6 +98,23 @@ Use the same `run-name` to align quarterly/daily baselines.
 python3 -m azure_tenant_audit --tenant-name "ACME" --run-name "2026Q2" --collectors identity,security
 ```
 
+## 7) Guarded response plane
+
+The response plane is separate from the default audit run:
+
+```bash
+auditex response list-actions
+auditex response run \
+  --tenant-name "ACME" \
+  --tenant-id "organizations" \
+  --action message_trace \
+  --target "user@contoso.com" \
+  --intent "triage suspected delivery issue" \
+  --out outputs/response
+```
+
+Add `--execute` only when the response is explicitly authorized. The default mode is dry-run and records the planned command trace, blockers, and response bundle.
+
 ## Troubleshooting common login failures
 
 - `AADSTS500113: No reply address is registered for the application.`  

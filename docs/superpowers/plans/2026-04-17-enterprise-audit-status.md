@@ -68,6 +68,6 @@
 
 ## Remaining enterprise targets (post-MVP)
 
-- Defender, Purview, and eDiscovery depth
-- full Conditional Access policy graphing and CA report reconciliation
-- large-tenant response orchestration path (still intentionally separated from read-only audit plane)
+- deeper Defender, Purview, and eDiscovery action coverage
+- large-tenant validation against a real customer matrix
+- additional guarded response adapters beyond the current `auditex response` scaffold

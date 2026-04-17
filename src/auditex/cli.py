@@ -9,6 +9,7 @@ from . import auth as auditex_auth
 from azure_tenant_audit.cli import main as tenant_audit_main
 from azure_tenant_audit.diffing import diff_run_directories
 from azure_tenant_audit.probe import ProbeConfig, probe_mode_choices, run_live_probe
+from azure_tenant_audit.response import ResponseConfig, response_actions, run_response
 
 from .mcp_server import list_blockers, summarize_run
 
@@ -66,6 +67,36 @@ def _build_auth_parser() -> argparse.ArgumentParser:
     login.add_argument("--auth-type", default=None)
     login.add_argument("--app-id", default=None)
     login.add_argument("--client-secret", default=None)
+    return parser
+
+
+def _build_response_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="auditex response", description="Run guarded response actions.")
+    subparsers = parser.add_subparsers(dest="response_command", required=True)
+
+    run = subparsers.add_parser("run", help="Plan or execute a guarded response action.")
+    run.add_argument("--tenant-name", required=True, help="Label for the response output folder.")
+    run.add_argument("--tenant-id", default=None, help="Entra tenant ID.")
+    run.add_argument(
+        "--auditor-profile",
+        default="exchange-reader",
+        choices=("exchange-reader", "app-readonly-full", "global-reader", "security-reader", "auto"),
+        help="Response profile gate.",
+    )
+    run.add_argument("--action", choices=response_actions(), required=True, help="Response action to plan or execute.")
+    run.add_argument("--target", default=None, help="Target recipient, user, or object depending on action.")
+    run.add_argument("--intent", required=True, help="Explicit intent text for the response action.")
+    run.add_argument("--since", default=None, help="Optional ISO8601 lower bound for time-windowed actions.")
+    run.add_argument("--until", default=None, help="Optional ISO8601 upper bound for time-windowed actions.")
+    run.add_argument("--out", default="outputs/response", help="Base output directory.")
+    run.add_argument("--run-name", default=None, help="Optional run name.")
+    run.add_argument("--execute", action="store_true", help="Execute the command plan instead of dry-running it.")
+    run.add_argument("--allow-write", action="store_true", help="Allow destructive actions when a response action is classified as write-capable.")
+    run.add_argument("--allow-lab-response", action="store_true", help="Allow the response plane for configured lab tenants only.")
+    run.add_argument("--adapter-override", default=None, help="Override the adapter used for the response action.")
+    run.add_argument("--command-override", default=None, help="Override the command template used for the response action.")
+
+    subparsers.add_parser("list-actions", help="List available guarded response actions.")
     return parser
 
 
@@ -153,4 +184,30 @@ def main(argv: list[str] | None = None) -> int:
             permission_hints_path=Path(args.permission_hints),
         )
         return run_live_probe(cfg)
+    if argv[0] == "response":
+        parser = _build_response_parser()
+        args = parser.parse_args(argv[1:])
+        if args.response_command == "list-actions":
+            print(json.dumps({"actions": response_actions()}, indent=2))
+            return 0
+        if args.response_command != "run":
+            return 2
+        cfg = ResponseConfig(
+            tenant_name=args.tenant_name,
+            out_dir=Path(args.out),
+            action=args.action,
+            tenant_id=args.tenant_id,
+            target=args.target,
+            intent=args.intent,
+            since=args.since,
+            until=args.until,
+            auditor_profile=args.auditor_profile,
+            run_name=args.run_name,
+            execute=args.execute,
+            allow_write=args.allow_write,
+            allow_lab_response=args.allow_lab_response,
+            adapter_override=args.adapter_override,
+            command_override=args.command_override,
+        )
+        return run_response(cfg, command_line=argv)
     return tenant_audit_main(argv)

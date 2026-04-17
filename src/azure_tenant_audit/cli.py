@@ -24,7 +24,7 @@ from .utils import load_env_file, parse_csv_list
 LOG = logging.getLogger("azure_tenant_audit")
 
 SENSITIVE_CLI_ARGS = {"--client-secret", "--access-token"}
-PLANE_CHOICES = ("inventory", "full")
+PLANE_CHOICES = ("inventory", "full", "export")
 
 
 def _scrub_command_line(command_line: list[str]) -> list[str]:
@@ -86,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--plane",
         default="inventory",
         choices=PLANE_CHOICES,
-        help="Run plane: inventory (default) or full export-oriented audit.",
+        help="Run plane: inventory (default), full, or export. Full and export both run export collectors.",
     )
     parser.add_argument("--since", default=None, help="Optional ISO8601 lower bound for time-windowed collectors.")
     parser.add_argument("--until", default=None, help="Optional ISO8601 upper bound for time-windowed collectors.")
@@ -422,8 +422,14 @@ def run_live(args: argparse.Namespace) -> int:
 
     config = CollectorConfig.from_path(Path(args.config))
     permission_hints = _load_permission_hints(Path(args.permission_hints))
+    profile = get_profile(args.auditor_profile)
     selected_collector_names = parse_csv_list(args.collectors)
     exclude_collector_names = parse_csv_list(args.exclude)
+    if args.include_exchange:
+        merged_collectors = list(selected_collector_names or profile.default_collectors)
+        if "exchange" not in merged_collectors:
+            merged_collectors.append("exchange")
+        selected_collector_names = merged_collectors
 
     run_cfg = RunConfig(
         tenant_name=args.tenant_name,
@@ -437,27 +443,21 @@ def run_live(args: argparse.Namespace) -> int:
         top_items=args.top,
         page_size=args.page_size,
         auditor_profile=args.auditor_profile,
+        default_collectors=profile.default_collectors,
         plane=args.plane,
         since=args.since,
         until=args.until,
     )
 
-    available = [name for name in config.default_order if config.collectors[name].enabled]
-    if args.include_exchange and config.collectors.get("exchange"):
-        if "exchange" not in available:
-            available.append("exchange")
-            available = sorted(set(available), key=lambda name: config.default_order.index(name))
+    available = [name for name in config.default_order if name in config.collectors]
     selected = run_cfg.selected_collectors(available)
     if not selected:
         LOG.error("No collectors selected.")
         return 2
-    profile = get_profile(run_cfg.auditor_profile)
     if run_cfg.plane not in profile.supported_planes:
         LOG.error("Audit profile '%s' does not support plane '%s'.", run_cfg.auditor_profile, run_cfg.plane)
         return 2
-    if run_cfg.plane == "response":
-        LOG.error("The response plane is not implemented yet in the canonical runtime.")
-        return 2
+    execution_plane = "export" if run_cfg.plane in {"full", "export"} else "inventory"
 
     auth_scopes = parse_csv_list(args.scopes)
     if args.interactive and not auth_scopes:
@@ -475,16 +475,18 @@ def run_live(args: argparse.Namespace) -> int:
     completed_state = writer.load_checkpoint_state() if resume_from else {}
     completed_collectors = {
         name
-        for name, state in completed_state.items()
+        for name, state in completed_state.get("collectors", {}).items()
         if state.get("status") in {"ok", "partial", "skipped"}
     }
+    collector_checkpoint_state = writer.load_collector_checkpoint_state() if resume_from else {}
+    operation_checkpoint_state = writer.load_operation_checkpoint_state() if resume_from else {}
     if resume_from:
         writer.log_event(
             "run.resume",
             "Resuming from existing run state",
             {
                 "resume_from": str(resume_from),
-                "checkpoint_entries": len(completed_state),
+                "checkpoint_entries": len(completed_state.get("collectors", {})),
                 "completed_collectors": sorted(completed_collectors),
             },
         )
@@ -578,8 +580,6 @@ def run_live(args: argparse.Namespace) -> int:
         if collector is None:
             LOG.warning("Unknown collector requested: %s", name)
             continue
-        if name == "exchange" and not args.include_exchange:
-            continue
 
         if resume_from and name in completed_collectors:
             skipped_row: dict[str, object] = {
@@ -603,9 +603,24 @@ def run_live(args: argparse.Namespace) -> int:
                     "client": client,
                     "top": run_cfg.top_items,
                     "page_size": run_cfg.page_size,
-                    "plane": run_cfg.plane,
+                    "plane": execution_plane,
                     "since": run_cfg.since,
                     "until": run_cfg.until,
+                    "collector_checkpoint_state": collector_checkpoint_state.get(name, {}),
+                    "operation_checkpoint_state": operation_checkpoint_state.get(name, {}),
+                    "write_export_checkpoint": writer.write_export_checkpoint,
+                    "write_export_records": lambda collector_name, operation_name, page_number, records, metadata=None: str(
+                        writer.write_export_records(
+                            collector_name,
+                            operation_name,
+                            page_number,
+                            records,
+                            metadata,
+                        ).relative_to(writer.run_dir)
+                    ),
+                    "write_export_summary": lambda collector_name, operation_name, payload: str(
+                        writer.write_export_summary(collector_name, operation_name, payload).relative_to(writer.run_dir)
+                    ),
                     "chunk_writer": lambda collector_name, endpoint_name, page_number, records, metadata=None: str(
                         writer.write_chunk_records(collector_name, endpoint_name, page_number, records, metadata).relative_to(
                             writer.run_dir

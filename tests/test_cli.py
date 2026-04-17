@@ -446,8 +446,61 @@ def test_run_live_resume_skips_completed_collectors(tmp_path: Path, monkeypatch)
 
     output_dirs = list(tmp_path.glob("acme-*"))
     assert output_dirs
+
+
+def test_run_live_exchange_can_be_explicitly_selected_without_include_flag(tmp_path: Path, monkeypatch) -> None:
+    class _FakeCollector:
+        name = "exchange"
+
+        def __init__(self):
+            self.run_calls = 0
+
+        def run(self, context):
+            self.run_calls += 1
+            return CollectorResult(
+                name=self.name,
+                status="ok",
+                item_count=0,
+                message="ok",
+                payload={},
+            )
+
+    exchange_collector = _FakeCollector()
+
+    class _FakeClient:
+        def __init__(self, auth, audit_event=None):
+            self.auth = auth
+
+    monkeypatch.setattr(cli, "GraphClient", lambda auth, **kwargs: _FakeClient(auth, **kwargs))
+    monkeypatch.setattr(cli, "REGISTRY", {"exchange": exchange_collector})
+
+    args = cli.build_parser().parse_args(
+        [
+            "--tenant-name",
+            "acme",
+            "--tenant-id",
+            "t-123",
+            "--client-id",
+            "app-id",
+            "--client-secret",
+            "secret",
+            "--collectors",
+            "exchange",
+            "--out",
+            str(tmp_path),
+        ]
+    )
+
+    rc = cli.run_live(args)
+    assert rc == 0
+    assert exchange_collector.run_calls == 1
+
+    output_dirs = list(tmp_path.glob("acme-*"))
+    assert output_dirs
     manifest = json.loads((output_dirs[0] / "run-manifest.json").read_text(encoding="utf-8"))
-    assert manifest["mode"] == "azure_cli"
+    assert "exchange" in manifest["selected_collectors"]
+    manifest = json.loads((output_dirs[0] / "run-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["mode"] == "app"
 
 
 def test_command_line_redaction_in_manifest_when_access_token_is_on_command_line(tmp_path: Path, monkeypatch) -> None:

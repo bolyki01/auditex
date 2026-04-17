@@ -10,6 +10,7 @@ The operating model is:
 - raw tenant data stays local
 - AI reads `ai_safe` artifacts by default
 - optional customer-local read-only app consent can unlock deeper second-pass collection
+- guarded response actions live in a separate `auditex response` namespace and are dry-run by default
 
 ## Product shape
 
@@ -158,9 +159,22 @@ Current MCP tools:
 - `auditex_probe_live`
 - `auditex_probe_summarize`
 - `auditex_list_blockers`
+- `auditex_list_response_actions`
+- `auditex_run_response_action`
 - `auditex_auth_status`
 - `auditex_auth_list`
 - `auditex_auth_use`
+
+## Response
+
+Guarded response actions are isolated from the default audit plane:
+
+```bash
+auditex response list-actions
+auditex response run --tenant-name ACME --action message_trace --target user@contoso.com --intent "triage mail flow" --tenant-id organizations
+```
+
+By default the response command writes a dry-run bundle. Execution requires `--execute`, explicit intent, a response-capable profile, and lab-tenant gating.
 
 ## Privacy and auditability
 

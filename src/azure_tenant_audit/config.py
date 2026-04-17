@@ -32,6 +32,7 @@ class RunConfig:
     top_items: int = 500
     page_size: int = 100
     auditor_profile: str = "auto"
+    default_collectors: tuple[str, ...] = ()
     plane: str = "inventory"
     since: Optional[str] = None
     until: Optional[str] = None
@@ -40,14 +41,14 @@ class RunConfig:
         requested = set(self.collectors or [])
         excluded = set(self.excluded_collectors or [])
         explicit_request = self.collectors is not None
+        if not explicit_request:
+            requested = set(self.default_collectors)
 
         ordered = []
         for name in available:
             if name in excluded:
                 continue
-            if explicit_request and name not in requested:
-                continue
-            if name == "exchange" and not self.include_exchange:
+            if requested and name not in requested:
                 continue
             ordered.append(name)
         return ordered

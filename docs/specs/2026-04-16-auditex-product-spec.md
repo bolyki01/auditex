@@ -88,6 +88,8 @@ The local MCP server exposes orchestration, not tenant-specific hidden state:
 - probe live toolchain readiness
 - list blockers for a completed run
 - auth status/list/use helpers
+- list guarded response actions
+- run guarded response actions in a separate bundle
 
 ## Skills surface
 
@@ -105,9 +107,9 @@ Local skills exist to teach Codex:
 
 Current enterprise gap list remains:
 
-- Defender posture depth
-- Purview/eDiscovery export
-- full Conditional Access resolution and policy graphing
+- deeper Defender, Purview, and eDiscovery action depth
+- large-tenant validation against a real customer matrix
+- more response adapters beyond the current guarded scaffold
 
 This spec accepts those facts and moves the public surface toward a coherent product without rewriting the homelab history.
 
