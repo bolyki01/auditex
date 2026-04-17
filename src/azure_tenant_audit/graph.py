@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Iterator, Optional
 
 import requests
 from requests.exceptions import RequestException
@@ -263,15 +263,34 @@ class GraphClient:
             raise GraphError(reason, status=response.status_code, request=response.url, error_code=error_code)
         return response.json()
 
-    def get_all(self, path: str, params: Optional[Dict[str, Any]] = None) -> list[Dict[str, Any]]:
-        rows: list[Dict[str, Any]] = []
+    def iter_pages(self, path: str, params: Optional[Dict[str, Any]] = None) -> Iterator[Dict[str, Any]]:
         page_url: Optional[str] = path if path.startswith("http") else f"{GRAPH_ROOT}{path}"
         current_params = params
         while page_url:
             payload = self.get_json(page_url, params=current_params, full_url=page_url.startswith("http"))
             if not isinstance(payload, dict):
                 raise GraphError(f"Non-dict response from {page_url}", request=page_url)
-            rows.extend(payload.get("value", []))
+            yield payload
             page_url = payload.get("@odata.nextLink")
             current_params = None
-        return rows
+
+    def iter_items(
+        self,
+        path: str,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        result_limit: int | None = None,
+    ) -> Iterator[Dict[str, Any]]:
+        yielded = 0
+        for payload in self.iter_pages(path, params=params):
+            values = payload.get("value", [])
+            if not isinstance(values, list):
+                raise GraphError(f"Non-list page payload from {path}", request=path)
+            for row in values:
+                if result_limit is not None and yielded >= result_limit:
+                    return
+                yield row
+                yielded += 1
+
+    def get_all(self, path: str, params: Optional[Dict[str, Any]] = None) -> list[Dict[str, Any]]:
+        return list(self.iter_items(path, params=params))

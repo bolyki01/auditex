@@ -24,6 +24,18 @@
       ],
       "notes": "Sign-in and security alerts can require extra privileges in tightly governed environments."
     },
+    "auth_methods": {
+      "graph_scopes": [
+        "Policy.Read.All",
+        "Reports.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader",
+        "Authentication Policy Administrator",
+        "Security Reader"
+      ],
+      "notes": "Authentication method policy and registration reports can require report-reading access."
+    },
     "intune": {
       "graph_scopes": [
         "DeviceManagementManagedDevices.Read.All",
@@ -35,6 +47,16 @@
         "Security Reader"
       ],
       "notes": "Will return empty/unavailable datasets if tenant lacks Intune licensing."
+    },
+    "sharepoint": {
+      "graph_scopes": [
+        "Sites.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader",
+        "SharePoint Administrator"
+      ],
+      "notes": "SharePoint tenant settings and site inventory can vary by role and service readiness."
     },
     "teams": {
       "graph_scopes": [

@@ -48,6 +48,9 @@ python3 -m azure_tenant_audit --tenant-name "ACME" --collectors identity,securit
 python3 -m azure_tenant_audit --tenant-name "ACME" --collectors identity,security,intune,teams,exchange --include-exchange
 ```
 
+The live runtime now writes chunked page exports for paged Graph collectors under `chunks/` and keeps smaller summary payloads in `raw/`.
+Use `--page-size` to control request page size independently from `--top`, which is now the per-endpoint result limit.
+
 Exchange command collection notes:
 
 - The exchange collector now checks `m365 status --output json` and then `m365 tenant info get --output json` and falls back if needed.
@@ -66,8 +69,10 @@ Or run guided CLI session flow:
 - Open `summary.md` for triage.
 - Inspect `run-manifest.json` for status and command execution context.
 - For deeper investigation, open `raw/<collector>.json`.
+- For large paged collectors, inspect `chunks/<collector>/`.
 - For full command/Graph evidence, open `audit-log.jsonl` (machine-readable event trail) and `audit-debug.log` (compact text view).
-- Use `diagnostics.json` for immediate remediation guidance when collectors return partial/failed.
+- Use `diagnostics.json` and `blockers/blockers.json` for immediate remediation guidance when collectors return partial/failed.
+- Review `ai_safe/run_summary.json`, `normalized/collector-summary.json`, `findings/findings.json`, and `reports/report-pack.json` for the first-pass normalized/reporting artifacts.
 - Exchange command collectors are opt-in and require `m365` CLI; if you see `command_not_found:m365`, install `m365` and rerun with `--include-exchange`.
 
 ## 6) Repeatability

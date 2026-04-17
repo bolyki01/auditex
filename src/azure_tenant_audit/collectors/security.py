@@ -18,6 +18,21 @@ class SecurityCollector(Collector):
     def run(self, context: dict[str, Any]) -> CollectorResult:
         client: GraphClient = context["client"]
         top = context.get("top", 500)
+        page_size = context.get("page_size")
+        since = context.get("since")
+        until = context.get("until")
+        filter_clauses: list[str] = []
+        if since:
+            filter_clauses.append(f"createdDateTime ge {since}")
+        if until:
+            filter_clauses.append(f"createdDateTime le {until}")
+        sign_in_params = {"$filter": " and ".join(filter_clauses)} if filter_clauses else {}
+        directory_filter_clauses: list[str] = []
+        if since:
+            directory_filter_clauses.append(f"activityDateTime ge {since}")
+        if until:
+            directory_filter_clauses.append(f"activityDateTime le {until}")
+        directory_audit_params = {"$filter": " and ".join(directory_filter_clauses)} if directory_filter_clauses else {}
         queries = {
             "conditionalAccessPolicies": {
                 "endpoint": "/identity/conditionalAccess/policies",
@@ -29,7 +44,11 @@ class SecurityCollector(Collector):
             },
             "signIns": {
                 "endpoint": "/auditLogs/signIns",
-                "params": {},
+                "params": sign_in_params,
+            },
+            "directoryAudits": {
+                "endpoint": "/auditLogs/directoryAudits",
+                "params": directory_audit_params,
             },
             "securityAlerts": {
                 "endpoint": "/security/alerts",
@@ -41,6 +60,8 @@ class SecurityCollector(Collector):
             client,
             queries,
             top=top,
+            page_size=page_size,
+            chunk_writer=context.get("chunk_writer"),
             log_event=context.get("audit_logger"),
         )
         total = sum(item.get("item_count", 0) for item in coverage)

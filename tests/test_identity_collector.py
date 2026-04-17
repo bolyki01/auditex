@@ -41,3 +41,4 @@ def test_identity_collector_skips_top_for_role_definitions() -> None:
 
     assert result.status == "ok"
     assert result.payload["roleDefinitions"]["value"][0]["id"] == "rd-1"
+    assert result.payload["users"]["value"][0]["id"] == "user-1"

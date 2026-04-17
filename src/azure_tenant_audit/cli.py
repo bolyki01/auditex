@@ -14,7 +14,9 @@ from pathlib import Path
 from .collectors import REGISTRY
 from .collectors.base import CollectorResult
 from .config import AuthConfig, CollectorConfig, RunConfig
+from .findings import build_findings, build_report_pack
 from .graph import GraphClient
+from .normalize import build_ai_safe_summary, build_normalized_snapshot
 from .output import AuditWriter
 from .profiles import get_profile, profile_choices
 from .utils import load_env_file, parse_csv_list
@@ -22,6 +24,7 @@ from .utils import load_env_file, parse_csv_list
 LOG = logging.getLogger("azure_tenant_audit")
 
 SENSITIVE_CLI_ARGS = {"--client-secret", "--access-token"}
+PLANE_CHOICES = ("inventory", "full")
 
 
 def _scrub_command_line(command_line: list[str]) -> list[str]:
@@ -71,8 +74,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--collectors", default=None, help="Comma-separated collectors to run.")
     parser.add_argument("--exclude", default=None, help="Comma-separated collectors to skip.")
     parser.add_argument("--include-exchange", action="store_true", help="Enable optional exchange collectors.")
-    parser.add_argument("--top", type=int, default=500, help="Per-endpoint row cap.")
+    parser.add_argument("--top", type=int, default=500, help="Per-endpoint result limit.")
+    parser.add_argument("--page-size", type=int, default=100, help="Per-request page size for paged Graph endpoints.")
     parser.add_argument("--run-name", default=None, help="Optional run subfolder identifier.")
+    parser.add_argument(
+        "--plane",
+        default="inventory",
+        choices=PLANE_CHOICES,
+        help="Run plane: inventory (default) or full export-oriented audit.",
+    )
+    parser.add_argument("--since", default=None, help="Optional ISO8601 lower bound for time-windowed collectors.")
+    parser.add_argument("--until", default=None, help="Optional ISO8601 upper bound for time-windowed collectors.")
     parser.add_argument(
         "--auditor-profile",
         default="auto",
@@ -228,7 +240,17 @@ def _capture_signed_in_context(
     return context
 
 
-def run_offline(sample_path: Path, out: Path, tenant_name: str, run_name: str | None) -> int:
+def run_offline(
+    sample_path: Path,
+    out: Path,
+    tenant_name: str,
+    run_name: str | None,
+    *,
+    auditor_profile: str = "auto",
+    plane: str = "inventory",
+    since: str | None = None,
+    until: str | None = None,
+) -> int:
     if not sample_path.exists():
         LOG.error("Sample file not found: %s", sample_path)
         return 2
@@ -239,7 +261,18 @@ def run_offline(sample_path: Path, out: Path, tenant_name: str, run_name: str | 
         return 2
 
     writer = AuditWriter(out, tenant_name=tenant_name, run_name=run_name)
-    writer.log_event("run.started", "Offline run started", {"mode": "offline", "sample": str(sample_path)})
+    writer.log_event(
+        "run.started",
+        "Offline run started",
+        {
+            "mode": "offline",
+            "sample": str(sample_path),
+            "auditor_profile": auditor_profile,
+            "plane": plane,
+            "since": since,
+            "until": until,
+        },
+    )
 
     (writer.raw_dir / "sample_input.json").write_text(
         json.dumps(sample, indent=2),
@@ -261,6 +294,10 @@ def run_offline(sample_path: Path, out: Path, tenant_name: str, run_name: str | 
             "overall_status": "ok",
             "duration_seconds": 0,
             "mode": "offline",
+            "auditor_profile": auditor_profile,
+            "plane": plane,
+            "since": since,
+            "until": until,
             "command_line": [],
         }
     )
@@ -393,7 +430,11 @@ def run_live(args: argparse.Namespace) -> int:
         sample_path=Path(args.sample),
         run_name=args.run_name,
         top_items=args.top,
+        page_size=args.page_size,
         auditor_profile=args.auditor_profile,
+        plane=args.plane,
+        since=args.since,
+        until=args.until,
     )
 
     available = [name for name in config.default_order if config.collectors[name].enabled]
@@ -404,6 +445,13 @@ def run_live(args: argparse.Namespace) -> int:
     selected = run_cfg.selected_collectors(available)
     if not selected:
         LOG.error("No collectors selected.")
+        return 2
+    profile = get_profile(run_cfg.auditor_profile)
+    if run_cfg.plane not in profile.supported_planes:
+        LOG.error("Audit profile '%s' does not support plane '%s'.", run_cfg.auditor_profile, run_cfg.plane)
+        return 2
+    if run_cfg.plane == "response":
+        LOG.error("The response plane is not implemented yet in the canonical runtime.")
         return 2
 
     auth_scopes = parse_csv_list(args.scopes)
@@ -481,9 +529,13 @@ def run_live(args: argparse.Namespace) -> int:
             "tenant_id": args.tenant_id,
             "collectors": selected,
             "top": run_cfg.top_items,
+            "page_size": run_cfg.page_size,
             "include_exchange": args.include_exchange,
             "mode": auth_mode,
             "auditor_profile": run_cfg.auditor_profile,
+            "plane": run_cfg.plane,
+            "since": run_cfg.since,
+            "until": run_cfg.until,
             "session_context": session_context,
             "command_line": command_line,
         },
@@ -492,6 +544,7 @@ def run_live(args: argparse.Namespace) -> int:
     result_rows: list[dict[str, object]] = []
     failures = 0
     coverage_rows: list[dict[str, Any]] = []
+    collector_payloads: dict[str, dict[str, Any]] = {}
 
     for name in selected:
         collector = REGISTRY.get(name)
@@ -504,7 +557,20 @@ def run_live(args: argparse.Namespace) -> int:
         try:
             writer.log_event("collector.started", "Collector started", {"collector": name})
             result: CollectorResult = collector.run(
-                {"client": client, "top": run_cfg.top_items, "audit_logger": writer.log_event}
+                {
+                    "client": client,
+                    "top": run_cfg.top_items,
+                    "page_size": run_cfg.page_size,
+                    "plane": run_cfg.plane,
+                    "since": run_cfg.since,
+                    "until": run_cfg.until,
+                    "chunk_writer": lambda collector_name, endpoint_name, page_number, records, metadata=None: str(
+                        writer.write_chunk_records(collector_name, endpoint_name, page_number, records, metadata).relative_to(
+                            writer.run_dir
+                        )
+                    ),
+                    "audit_logger": writer.log_event,
+                }
             )
             collector_coverage = result.coverage or []
             if collector_coverage:
@@ -527,6 +593,7 @@ def run_live(args: argparse.Namespace) -> int:
                 failures += 1
             if result.error:
                 LOG.warning("%s collector error: %s", name, result.error)
+            collector_payloads[name] = result.payload
             result_rows.append(
                 {
                     "name": result.name,
@@ -567,11 +634,43 @@ def run_live(args: argparse.Namespace) -> int:
     )
     if diagnostics:
         writer.write_diagnostics(diagnostics)
+        writer.write_blockers(diagnostics)
         writer.log_event(
             "run.diagnostics.generated",
             "Failure diagnostics generated",
             {"count": len(diagnostics)},
         )
+    findings = build_findings(diagnostics)
+    normalized_snapshot = build_normalized_snapshot(
+        tenant_name=run_cfg.tenant_name,
+        run_id=writer.run_id,
+        collector_payloads=collector_payloads,
+        diagnostics=diagnostics,
+        result_rows=result_rows,
+        coverage_rows=coverage_rows,
+    )
+    if findings:
+        writer.write_findings(findings)
+    for name, payload in normalized_snapshot.items():
+        writer.write_normalized(name, payload)
+    writer.write_ai_safe("run_summary", build_ai_safe_summary(normalized_snapshot, findings=findings))
+    evidence_paths = ["run-manifest.json", "summary.json"]
+    if coverage_rows:
+        evidence_paths.append("coverage.json")
+    if diagnostics:
+        evidence_paths.append("blockers/blockers.json")
+    if findings:
+        evidence_paths.append("findings/findings.json")
+    evidence_paths.extend(f"normalized/{name}.json" for name in normalized_snapshot)
+    writer.write_report_pack(
+        build_report_pack(
+            tenant_name=run_cfg.tenant_name,
+            overall_status="partial" if failures else "ok",
+            findings=findings,
+            evidence_paths=evidence_paths,
+            blocker_count=len(diagnostics),
+        )
+    )
     writer.log_event(
         "run.complete",
         "Live run completed",
@@ -585,6 +684,9 @@ def run_live(args: argparse.Namespace) -> int:
             "duration_seconds": duration,
             "mode": auth_mode,
             "auditor_profile": run_cfg.auditor_profile,
+            "plane": run_cfg.plane,
+            "since": run_cfg.since,
+            "until": run_cfg.until,
             "session_context": session_context,
             "command_line": command_line,
             "coverage_count": len(coverage_rows),
@@ -630,6 +732,10 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.out),
             args.tenant_name,
             args.run_name,
+            auditor_profile=args.auditor_profile,
+            plane=args.plane,
+            since=args.since,
+            until=args.until,
         )
     return run_live(args)
 

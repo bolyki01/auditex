@@ -30,7 +30,11 @@ class RunConfig:
     sample_path: Optional[Path] = None
     run_name: Optional[str] = None
     top_items: int = 500
+    page_size: int = 100
     auditor_profile: str = "auto"
+    plane: str = "inventory"
+    since: Optional[str] = None
+    until: Optional[str] = None
 
     def selected_collectors(self, available: Iterable[str]) -> list[str]:
         requested = set(self.collectors or [])

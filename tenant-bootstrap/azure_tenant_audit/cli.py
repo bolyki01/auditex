@@ -286,7 +286,7 @@ def run_offline(sample_path: Path, out: Path, tenant_name: str, run_name: str | 
             "overall_status": "ok",
             "duration_seconds": 0,
             "mode": "offline",
-            "auditor_profile": AUDITOR_PROFILE_GLOBAL_READER,
+            "auditor_profile": "auto",
             "command_line": [],
         }
     )

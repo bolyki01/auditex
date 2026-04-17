@@ -312,13 +312,13 @@ class ExchangeCollector(Collector):
                 if isinstance(user, dict) and user.get("mail")
             ]
             return {
-                "command": "graph /users local-mail-filter",
+                "command": "graph /users?filter=mail ne null",
                 "value": mail_enabled_users,
                 "error_class": None,
             }
         except GraphError as exc:
             return {
-                "command": "graph /users local-mail-filter",
+                "command": "graph /users?filter=mail ne null",
                 "error": str(exc),
                 "error_class": "insufficient_permissions",
             }

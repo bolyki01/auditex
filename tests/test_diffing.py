@@ -1,0 +1,69 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from auditex.mcp_server import diff_runs
+from azure_tenant_audit.diffing import diff_run_directories
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def test_diff_run_directories_reports_added_removed_and_changed(tmp_path: Path) -> None:
+    run_a = tmp_path / "run-a"
+    run_b = tmp_path / "run-b"
+
+    _write_json(
+        run_a / "normalized" / "users.json",
+        {
+            "kind": "users",
+            "records": [
+                {"key": "user:user-1", "display_name": "Alice", "department": "Sales"},
+                {"key": "user:user-2", "display_name": "Bob", "department": "IT"},
+            ],
+        },
+    )
+    _write_json(
+        run_b / "normalized" / "users.json",
+        {
+            "kind": "users",
+            "records": [
+                {"key": "user:user-1", "display_name": "Alice", "department": "Finance"},
+                {"key": "user:user-3", "display_name": "Charlie", "department": "IT"},
+            ],
+        },
+    )
+    _write_json(
+        run_a / "normalized" / "policies.json",
+        {"kind": "policies", "records": [{"key": "policy:conditionalAccessPolicies:ca-1", "display_name": "Require MFA"}]},
+    )
+    _write_json(
+        run_b / "normalized" / "policies.json",
+        {"kind": "policies", "records": [{"key": "policy:conditionalAccessPolicies:ca-1", "display_name": "Require MFA"}]},
+    )
+
+    diff = diff_run_directories(run_a, run_b)
+
+    assert diff["summary"]["added"] == 1
+    assert diff["summary"]["removed"] == 1
+    assert diff["summary"]["changed"] == 1
+    assert diff["changes"]["users"]["added"][0]["key"] == "user:user-3"
+    assert diff["changes"]["users"]["removed"][0]["key"] == "user:user-2"
+    assert diff["changes"]["users"]["changed"][0]["before"]["department"] == "Sales"
+    assert diff["changes"]["users"]["changed"][0]["after"]["department"] == "Finance"
+
+
+def test_mcp_diff_runs_returns_summary_and_compared_files(tmp_path: Path) -> None:
+    run_a = tmp_path / "run-a"
+    run_b = tmp_path / "run-b"
+    _write_json(run_a / "normalized" / "devices.json", {"kind": "devices", "records": [{"key": "device:d1", "platform": "Windows"}]})
+    _write_json(run_b / "normalized" / "devices.json", {"kind": "devices", "records": [{"key": "device:d1", "platform": "Windows 11"}]})
+
+    result = diff_runs(str(run_a), str(run_b))
+
+    assert result["summary"]["changed"] == 1
+    assert "devices.json" in result["compared_files"]
+    assert result["changes"]["devices"]["changed"][0]["key"] == "device:d1"

@@ -54,8 +54,24 @@ class AuditWriter:
         self.run_dir = base_dir / f"{tenant_name}-{self.run_id}"
         self.raw_dir = self.run_dir / "raw"
         self.raw_dir.mkdir(parents=True, exist_ok=True)
+        self.chunks_dir = self.run_dir / "chunks"
+        self.chunks_dir.mkdir(parents=True, exist_ok=True)
         self.index_dir = self.run_dir / "index"
         self.index_dir.mkdir(parents=True, exist_ok=True)
+        self.logs_dir = self.run_dir / "logs"
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.blockers_dir = self.run_dir / "blockers"
+        self.blockers_dir.mkdir(parents=True, exist_ok=True)
+        self.normalized_dir = self.run_dir / "normalized"
+        self.normalized_dir.mkdir(parents=True, exist_ok=True)
+        self.ai_safe_dir = self.run_dir / "ai_safe"
+        self.ai_safe_dir.mkdir(parents=True, exist_ok=True)
+        self.findings_dir = self.run_dir / "findings"
+        self.findings_dir.mkdir(parents=True, exist_ok=True)
+        self.reports_dir = self.run_dir / "reports"
+        self.reports_dir.mkdir(parents=True, exist_ok=True)
+        self.checkpoints_dir = self.run_dir / "checkpoints"
+        self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
         self.coverage_index_path = self.index_dir / "coverage.jsonl"
         self.summary: dict[str, Any] = {"collectors": []}
         self.coverage: list[dict[str, Any]] = []
@@ -67,16 +83,49 @@ class AuditWriter:
             "collectors": [],
             "artifacts": [
                 "raw/",
+                "chunks/",
+                "blockers/",
+                "normalized/",
+                "ai_safe/",
+                "findings/",
+                "reports/",
+                "checkpoints/",
                 "audit-log.jsonl",
                 "audit-command-log.jsonl",
                 "audit-debug.log",
             ],
         }
 
+    def _record_artifact(self, target: Path) -> None:
+        relative = str(target.relative_to(self.run_dir))
+        if relative not in self._manifest["artifacts"]:
+            self._manifest["artifacts"].append(relative)
+
     def write_raw(self, name: str, payload: dict[str, Any]) -> Path:
         target = self.raw_dir / f"{name}.json"
         target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        self._manifest["artifacts"].append(str(target.relative_to(self.run_dir)))
+        self._record_artifact(target)
+        return target
+
+    def write_chunk_records(
+        self,
+        collector: str,
+        name: str,
+        page_number: int,
+        records: list[dict[str, Any]],
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> Path:
+        collector_dir = self.chunks_dir / collector
+        collector_dir.mkdir(parents=True, exist_ok=True)
+        target = collector_dir / f"{name}-{page_number:05d}.jsonl"
+        with target.open("w", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record, default=str) + "\n")
+        if metadata:
+            meta_path = collector_dir / f"{name}-{page_number:05d}.meta.json"
+            meta_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+            self._record_artifact(meta_path)
+        self._record_artifact(target)
         return target
 
     def write_index_records(self, records: list[dict[str, Any]], filename: str = "coverage.jsonl") -> None:
@@ -87,8 +136,7 @@ class AuditWriter:
             for record in records:
                 self.coverage.append(record)
                 handle.write(json.dumps(record, default=str) + "\n")
-        if str(index_path.relative_to(self.run_dir)) not in self._manifest["artifacts"]:
-            self._manifest["artifacts"].append(str(index_path.relative_to(self.run_dir)))
+        self._record_artifact(index_path)
 
     def log_event(self, event: str, message: str, details: Optional[dict[str, Any]] = None) -> None:
         self.audit.log(event, message, details=details)
@@ -96,10 +144,44 @@ class AuditWriter:
     def write_diagnostics(self, diagnostics: list[dict[str, Any]]) -> Path:
         path = self.run_dir / "diagnostics.json"
         path.write_text(json.dumps(diagnostics, indent=2), encoding="utf-8")
-        if "diagnostics.json" not in self._manifest["artifacts"]:
-            self._manifest["artifacts"].append("diagnostics.json")
+        self._record_artifact(path)
         self._manifest["diagnostics_path"] = "diagnostics.json"
         self._manifest["diagnostics_count"] = len(diagnostics)
+        return path
+
+    def write_blockers(self, blockers: list[dict[str, Any]]) -> Path:
+        path = self.blockers_dir / "blockers.json"
+        path.write_text(json.dumps(blockers, indent=2), encoding="utf-8")
+        self._record_artifact(path)
+        self._manifest["blocker_count"] = len(blockers)
+        self._manifest["blockers_path"] = str(path.relative_to(self.run_dir))
+        return path
+
+    def write_normalized(self, name: str, payload: dict[str, Any]) -> Path:
+        path = self.normalized_dir / f"{name}.json"
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self._record_artifact(path)
+        return path
+
+    def write_ai_safe(self, name: str, payload: dict[str, Any]) -> Path:
+        path = self.ai_safe_dir / f"{name}.json"
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self._record_artifact(path)
+        return path
+
+    def write_findings(self, findings: list[dict[str, Any]]) -> Path:
+        path = self.findings_dir / "findings.json"
+        path.write_text(json.dumps(findings, indent=2), encoding="utf-8")
+        self._record_artifact(path)
+        self._manifest["findings_count"] = len(findings)
+        self._manifest["findings_path"] = str(path.relative_to(self.run_dir))
+        return path
+
+    def write_report_pack(self, payload: dict[str, Any]) -> Path:
+        path = self.reports_dir / "report-pack.json"
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self._record_artifact(path)
+        self._manifest["report_pack_path"] = str(path.relative_to(self.run_dir))
         return path
 
     def write_summary(self, item: dict[str, Any]) -> None:
@@ -112,8 +194,13 @@ class AuditWriter:
         self._manifest["duration_seconds"] = metadata.get("duration_seconds", 0)
         self._manifest["mode"] = metadata.get("mode", "live")
         self._manifest["auditor_profile"] = metadata.get("auditor_profile", "auto")
+        self._manifest["plane"] = metadata.get("plane", "inventory")
         self._manifest["session_context"] = metadata.get("session_context", {})
         self._manifest["command_line"] = metadata.get("command_line", [])
+        self._manifest["time_window"] = {
+            "since": metadata.get("since"),
+            "until": metadata.get("until"),
+        }
         self._manifest["run_dir"] = str(self.run_dir)
         self._manifest["audit_log_path"] = "audit-log.jsonl"
         self._manifest["audit_command_log_path"] = "audit-command-log.jsonl"
@@ -122,15 +209,13 @@ class AuditWriter:
             auth_context_path = self.run_dir / "auth-context.json"
             auth_context_path.write_text(json.dumps(self._manifest["session_context"], indent=2), encoding="utf-8")
             self._manifest["session_context_path"] = str(auth_context_path.relative_to(self.run_dir))
-            if "auth-context.json" not in self._manifest["artifacts"]:
-                self._manifest["artifacts"].append("auth-context.json")
+            self._record_artifact(auth_context_path)
 
         if self.coverage:
             coverage_path = self.run_dir / "coverage.json"
             coverage_path.write_text(json.dumps(self.coverage, indent=2), encoding="utf-8")
             self._manifest["coverage_path"] = str(coverage_path.relative_to(self.run_dir))
-            if "coverage.json" not in self._manifest["artifacts"]:
-                self._manifest["artifacts"].append("coverage.json")
+            self._record_artifact(coverage_path)
             self._manifest["coverage_count"] = len(self.coverage)
 
         manifest_path = self.run_dir / "run-manifest.json"

@@ -19,6 +19,7 @@ class IdentityCollector(Collector):
     def run(self, context: dict[str, Any]) -> CollectorResult:
         client: GraphClient = context["client"]
         top = context.get("top", 500)
+        page_size = context.get("page_size")
         selectors = {
             "organization": {
                 "endpoint": "/organization",
@@ -62,6 +63,8 @@ class IdentityCollector(Collector):
             client,
             selectors,
             top=top,
+            page_size=page_size,
+            chunk_writer=context.get("chunk_writer"),
             log_event=context.get("audit_logger"),
         )
         total_items = sum(entry.get("item_count", 0) for entry in coverage)

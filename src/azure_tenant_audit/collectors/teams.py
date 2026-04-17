@@ -19,6 +19,7 @@ class TeamsCollector(Collector):
     def run(self, context: dict[str, Any]) -> CollectorResult:
         client: GraphClient = context["client"]
         top = context.get("top", 200)
+        page_size = context.get("page_size")
         endpoint_specs = {
             "teamGroups": {
                 "endpoint": "/groups",
@@ -33,6 +34,8 @@ class TeamsCollector(Collector):
             client,
             endpoint_specs,
             top=top,
+            page_size=page_size,
+            chunk_writer=context.get("chunk_writer"),
             log_event=context.get("audit_logger"),
         )
 

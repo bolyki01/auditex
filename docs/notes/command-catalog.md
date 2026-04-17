@@ -18,13 +18,24 @@ Use this as a lookup when extending collectors.
 - `GET /identity/conditionalAccess/policies`
 - `GET /identity/conditionalAccess/namedLocations`
 - `GET /auditLogs/signIns`
+- `GET /auditLogs/directoryAudits`
 - `GET /security/alerts`
+
+## Authentication Methods
+
+- `GET /policies/authenticationMethodsPolicy`
+- `GET /reports/authenticationMethods/userRegistrationDetails`
 
 ## Intune
 
 - `GET /deviceManagement/managedDevices`
 - `GET /deviceManagement/deviceCompliancePolicies`
 - `GET /deviceManagement/deviceConfigurations`
+
+## SharePoint / OneDrive
+
+- `GET /admin/sharepoint/settings`
+- `GET /sites`
 
 ## Teams
 

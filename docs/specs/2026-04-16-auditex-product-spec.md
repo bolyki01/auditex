@@ -100,3 +100,8 @@ Local skills exist to teach Codex:
 - evidence model is still narrower than the target product model
 
 This spec accepts those facts and moves the public surface toward a coherent product without rewriting the homelab history.
+
+The enterprise-scale target architecture and implementation backlog are extended in:
+
+- `docs/superpowers/specs/2026-04-17-enterprise-audit-architecture-design.md`
+- `docs/superpowers/plans/2026-04-17-enterprise-audit-backlog-plan.md`

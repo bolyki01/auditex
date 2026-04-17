@@ -18,6 +18,7 @@ class IntuneCollector(Collector):
     def run(self, context: dict[str, Any]) -> CollectorResult:
         client: GraphClient = context["client"]
         top = context.get("top", 500)
+        page_size = context.get("page_size")
         endpoints = {
             "managedDevices": {
                 "endpoint": "/deviceManagement/managedDevices",
@@ -39,6 +40,8 @@ class IntuneCollector(Collector):
             client,
             endpoints,
             top=top,
+            page_size=page_size,
+            chunk_writer=context.get("chunk_writer"),
             log_event=context.get("audit_logger"),
         )
         total = sum(item.get("item_count", 0) for item in coverage)

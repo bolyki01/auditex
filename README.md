@@ -129,6 +129,11 @@ Current engine outputs:
 
 Product target directories are documented and scaffolded in `schemas/` and `docs/specs/`.
 
+Enterprise-scale architecture and backlog are documented in:
+
+- `docs/superpowers/specs/2026-04-17-enterprise-audit-architecture-design.md`
+- `docs/superpowers/plans/2026-04-17-enterprise-audit-backlog-plan.md`
+
 ## MCP
 
 Local MCP entrypoint:

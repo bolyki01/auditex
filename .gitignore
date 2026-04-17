@@ -10,3 +10,5 @@ tenant-bootstrap/runs/
 tenant-bootstrap/.secrets/
 *.whl
 *.egg-info/
+.codex
+.codex/

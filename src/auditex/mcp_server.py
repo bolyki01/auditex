@@ -6,7 +6,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from azure_tenant_audit.diffing import diff_run_directories
 from azure_tenant_audit.profiles import PROFILES
+
+SUPPORTED_PLANES = ("inventory", "full")
 
 
 def tool_specs() -> list[dict[str, Any]]:
@@ -31,6 +34,11 @@ def tool_specs() -> list[dict[str, Any]]:
             "description": "Read a completed run directory and return summary, manifest, and diagnostics paths.",
             "readOnlyHint": True,
         },
+        {
+            "name": "auditex_diff_runs",
+            "description": "Compare normalized snapshots between two completed run directories.",
+            "readOnlyHint": True,
+        },
     ]
 
 
@@ -40,21 +48,31 @@ def build_cli_command(
     out_dir: str,
     tenant_id: str | None = None,
     auditor_profile: str = "global-reader",
+    plane: str = "inventory",
     use_azure_cli_token: bool = True,
     access_token: str | None = None,
     include_exchange: bool = False,
     collectors: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
     offline: bool = False,
     sample_path: str = "examples/sample_audit_bundle/sample_result.json",
 ) -> list[str]:
+    if plane not in SUPPORTED_PLANES:
+        raise ValueError(f"Unsupported plane '{plane}'. Supported planes: {', '.join(SUPPORTED_PLANES)}")
     command = [sys.executable, "-m", "azure_tenant_audit", "--tenant-name", tenant_name, "--out", out_dir]
     if tenant_id:
         command.extend(["--tenant-id", tenant_id])
     command.extend(["--auditor-profile", auditor_profile])
+    command.extend(["--plane", plane])
     if include_exchange:
         command.append("--include-exchange")
     if collectors:
         command.extend(["--collectors", collectors])
+    if since:
+        command.extend(["--since", since])
+    if until:
+        command.extend(["--until", until])
     if offline:
         command.extend(["--offline", "--sample", sample_path])
         return command
@@ -95,6 +113,10 @@ def summarize_run(run_dir: str) -> dict[str, Any]:
     return result
 
 
+def diff_runs(run_a: str, run_b: str) -> dict[str, Any]:
+    return diff_run_directories(run_a, run_b)
+
+
 def main() -> int:
     try:
         from mcp.server.fastmcp import FastMCP
@@ -129,23 +151,33 @@ def main() -> int:
         tenant_id: str = "organizations",
         out_dir: str = "outputs/live",
         auditor_profile: str = "global-reader",
+        plane: str = "inventory",
         include_exchange: bool = False,
         collectors: str = "",
+        since: str = "",
+        until: str = "",
     ) -> dict[str, Any]:
         command = build_cli_command(
             tenant_name=tenant_name,
             tenant_id=tenant_id,
             out_dir=out_dir,
             auditor_profile=auditor_profile,
+            plane=plane,
             use_azure_cli_token=True,
             include_exchange=include_exchange,
             collectors=collectors or None,
+            since=since or None,
+            until=until or None,
         )
         return run_cli_command(command)
 
     @server.tool
     def auditex_summarize_run(run_dir: str) -> dict[str, Any]:
         return summarize_run(run_dir)
+
+    @server.tool
+    def auditex_diff_runs(run_a: str, run_b: str) -> dict[str, Any]:
+        return diff_runs(run_a, run_b)
 
     server.run()
     return 0

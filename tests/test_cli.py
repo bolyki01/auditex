@@ -43,6 +43,41 @@ def test_offline_creates_bundle(tmp_path: Path) -> None:
     assert (output_dir / "raw" / "sample_input.json").exists()
 
 
+def test_main_offline_preserves_plane_and_time_window(tmp_path: Path) -> None:
+    sample = {"identity": {"value": [{"id": "1"}]}}
+    sample_path = tmp_path / "sample.json"
+    sample_path.write_text(json.dumps(sample), encoding="utf-8")
+
+    rc = cli.main(
+        [
+            "--tenant-name",
+            "contoso",
+            "--offline",
+            "--sample",
+            str(sample_path),
+            "--out",
+            str(tmp_path),
+            "--run-name",
+            "offline-plane-test",
+            "--auditor-profile",
+            "global-reader",
+            "--plane",
+            "full",
+            "--since",
+            "2026-04-01T00:00:00Z",
+            "--until",
+            "2026-04-02T00:00:00Z",
+        ]
+    )
+    assert rc == 0
+
+    manifest = json.loads((tmp_path / "contoso-offline-plane-test" / "run-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["auditor_profile"] == "global-reader"
+    assert manifest["plane"] == "full"
+    assert manifest["time_window"]["since"] == "2026-04-01T00:00:00Z"
+    assert manifest["time_window"]["until"] == "2026-04-02T00:00:00Z"
+
+
 def test_offline_missing_sample_fails(tmp_path: Path) -> None:
     rc = cli.run_offline(
         tmp_path / "missing.json",
@@ -119,6 +154,12 @@ def test_run_live_logs_run_events(tmp_path: Path, monkeypatch) -> None:
             "secret",
             "--collectors",
             "identity",
+            "--plane",
+            "full",
+            "--since",
+            "2026-04-01T00:00:00Z",
+            "--until",
+            "2026-04-02T00:00:00Z",
             "--out",
             str(tmp_path),
         ]
@@ -142,6 +183,9 @@ def test_run_live_logs_run_events(tmp_path: Path, monkeypatch) -> None:
     output_dir = output_dirs[0]
     manifest = json.loads((output_dir / "run-manifest.json").read_text(encoding="utf-8"))
     assert manifest["coverage_count"] == 1
+    assert manifest["plane"] == "full"
+    assert manifest["time_window"]["since"] == "2026-04-01T00:00:00Z"
+    assert manifest["time_window"]["until"] == "2026-04-02T00:00:00Z"
     assert (output_dir / "coverage.json").exists()
     assert (output_dir / "index" / "coverage.jsonl").exists()
 

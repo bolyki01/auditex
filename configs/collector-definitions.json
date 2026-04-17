@@ -32,9 +32,21 @@
       "query_plan": [
         "conditionalAccessPolicies",
         "namedLocations",
+        "directoryAudits",
         "securityAlerts",
-        "signIns",
-        "auditLogs"
+        "signIns"
+      ]
+    },
+    "auth_methods": {
+      "enabled": true,
+      "description": "Authentication methods policy and MFA registration posture",
+      "required_permissions": [
+        "Policy.Read.All",
+        "Reports.Read.All"
+      ],
+      "query_plan": [
+        "authenticationMethodsPolicy",
+        "userRegistrationDetails"
       ]
     },
     "intune": {
@@ -49,6 +61,17 @@
         "managedDevices",
         "deviceCompliancePolicies",
         "deviceConfigurationProfiles"
+      ]
+    },
+    "sharepoint": {
+      "enabled": true,
+      "description": "SharePoint and OneDrive tenant inventory posture",
+      "required_permissions": [
+        "Sites.Read.All"
+      ],
+      "query_plan": [
+        "sharePointSettings",
+        "sites"
       ]
     },
     "teams": {
@@ -87,5 +110,5 @@
       ]
     }
   },
-  "default_order": ["identity", "security", "intune", "teams", "exchange"]
+  "default_order": ["identity", "security", "auth_methods", "intune", "sharepoint", "teams", "exchange"]
 }

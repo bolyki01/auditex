@@ -10,6 +10,7 @@ class AuditProfile:
     default_collectors: tuple[str, ...]
     delegated_role_hints: tuple[str, ...]
     app_escalation_permissions: tuple[str, ...]
+    supported_planes: tuple[str, ...]
     notes: str
 
 
@@ -17,30 +18,35 @@ PROFILES: dict[str, AuditProfile] = {
     "auto": AuditProfile(
         name="auto",
         description="Run the selected collectors and record gaps without assuming a fixed role.",
-        default_collectors=("identity", "security", "intune", "teams"),
+        default_collectors=("identity", "security", "auth_methods", "intune", "sharepoint", "teams"),
         delegated_role_hints=("Global Reader",),
         app_escalation_permissions=(),
+        supported_planes=("inventory", "full"),
         notes="Use for unknown delegated tokens and let diagnostics describe missing visibility.",
     ),
     "global-reader": AuditProfile(
         name="global-reader",
         description="Read-only delegated audit path for Entra, M365, and basic workload posture.",
-        default_collectors=("identity", "security", "intune", "teams"),
+        default_collectors=("identity", "security", "auth_methods", "intune", "sharepoint", "teams"),
         delegated_role_hints=("Global Reader",),
         app_escalation_permissions=(
             "Policy.Read.All",
             "Directory.Read.All",
             "AuditLog.Read.All",
             "DeviceManagementManagedDevices.Read.All",
+            "Reports.Read.All",
+            "Sites.Read.All",
         ),
+        supported_planes=("inventory", "full"),
         notes="Preferred first-pass profile for customer-led browser login without app consent.",
     ),
     "security-reader": AuditProfile(
         name="security-reader",
         description="Focused delegated audit for security posture, risk, and alerts.",
-        default_collectors=("identity", "security"),
+        default_collectors=("identity", "security", "auth_methods"),
         delegated_role_hints=("Security Reader", "Global Reader"),
-        app_escalation_permissions=("SecurityEvents.Read.All", "AuditLog.Read.All"),
+        app_escalation_permissions=("SecurityEvents.Read.All", "AuditLog.Read.All", "Reports.Read.All", "Policy.Read.All"),
+        supported_planes=("inventory", "full"),
         notes="Use when the customer grants Security Reader but not broader workload access.",
     ),
     "exchange-reader": AuditProfile(
@@ -49,6 +55,7 @@ PROFILES: dict[str, AuditProfile] = {
         default_collectors=("exchange",),
         delegated_role_hints=("Exchange Reader", "Global Reader"),
         app_escalation_permissions=("Exchange.ManageAsApp",),
+        supported_planes=("inventory", "full"),
         notes="Uses command-based Exchange collection where Graph coverage is limited.",
     ),
     "intune-reader": AuditProfile(
@@ -60,12 +67,13 @@ PROFILES: dict[str, AuditProfile] = {
             "DeviceManagementConfiguration.Read.All",
             "DeviceManagementManagedDevices.Read.All",
         ),
+        supported_planes=("inventory", "full"),
         notes="Useful when Global Reader does not expose the device-management surfaces needed.",
     ),
     "app-readonly-full": AuditProfile(
         name="app-readonly-full",
         description="Customer-local app-only read path for deep unattended evidence collection.",
-        default_collectors=("identity", "security", "intune", "teams", "exchange"),
+        default_collectors=("identity", "security", "auth_methods", "intune", "sharepoint", "teams", "exchange"),
         delegated_role_hints=(),
         app_escalation_permissions=(
             "Directory.Read.All",
@@ -74,7 +82,10 @@ PROFILES: dict[str, AuditProfile] = {
             "DeviceManagementConfiguration.Read.All",
             "DeviceManagementManagedDevices.Read.All",
             "SecurityEvents.Read.All",
+            "Reports.Read.All",
+            "Sites.Read.All",
         ),
+        supported_planes=("inventory", "full"),
         notes="Secondary pass only. Use a customer-local app registration and keep permissions read-only.",
     ),
 }

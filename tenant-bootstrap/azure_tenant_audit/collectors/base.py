@@ -63,6 +63,8 @@ def run_graph_endpoints(
     endpoint_specs: dict[str, dict[str, Any]],
     top: int,
     *,
+    page_size: int | None = None,
+    chunk_writer: Optional[Callable[[str, str, int, list[dict[str, Any]], Optional[dict[str, Any]]], str | None]] = None,
     log_event: Optional[Callable[[str, str, Optional[dict[str, Any]]], None]] = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Execute a set of Graph endpoints for one collector.
@@ -76,7 +78,7 @@ def run_graph_endpoints(
         endpoint = spec["endpoint"]
         page = spec.get("page", True)
         apply_top = spec.get("apply_top", True)
-        effective_top = top
+        effective_top = page_size if page_size is not None else top
         if not page or not apply_top:
             # Non-collection calls often do not accept $top.
             effective_top = None
@@ -96,15 +98,53 @@ def run_graph_endpoints(
 
         try:
             if page:
-                rows = client.get_all(endpoint, params=query)
-                if isinstance(rows, list):
-                    item_count = len(rows)
-                    payload[key] = {"value": rows}
-                elif isinstance(rows, dict):
-                    payload[key] = rows
-                    item_count = len(rows.get("value", [])) if isinstance(rows.get("value"), list) else 0
+                if chunk_writer is not None and hasattr(client, "iter_pages"):
+                    sample: list[dict[str, Any]] = []
+                    chunk_files: list[str] = []
+                    remaining = max(top, 0)
+                    for page_number, page_payload in enumerate(client.iter_pages(endpoint, params=query), start=1):
+                        values = page_payload.get("value", [])
+                        if not isinstance(values, list):
+                            raise GraphError(f"Non-list response from {endpoint}", request=endpoint)
+                        if remaining <= 0:
+                            break
+                        limited_values = values[:remaining]
+                        if limited_values:
+                            chunk_path = chunk_writer(
+                                collector,
+                                key,
+                                page_number,
+                                limited_values,
+                                {"endpoint": endpoint, "page_number": page_number},
+                            )
+                            if chunk_path:
+                                chunk_files.append(chunk_path)
+                        item_count += len(limited_values)
+                        remaining -= len(limited_values)
+                        if len(sample) < 20:
+                            sample.extend(limited_values[: 20 - len(sample)])
+                        if remaining <= 0:
+                            break
+                    payload[key] = {
+                        "value": sample,
+                        "item_count": item_count,
+                        "sample_truncated": item_count > len(sample),
+                    }
+                    if chunk_files:
+                        payload[key]["chunk_files"] = chunk_files
                 else:
-                    payload[key] = {"value": rows}
+                    if hasattr(client, "iter_items"):
+                        rows = list(client.iter_items(endpoint, params=query, result_limit=top))
+                    else:
+                        rows = client.get_all(endpoint, params=query)
+                    if isinstance(rows, list):
+                        item_count = len(rows)
+                        payload[key] = {"value": rows}
+                    elif isinstance(rows, dict):
+                        payload[key] = rows
+                        item_count = len(rows.get("value", [])) if isinstance(rows.get("value"), list) else 0
+                    else:
+                        payload[key] = {"value": rows}
             else:
                 page_result = client.get_json(endpoint, params=query)
                 values = page_result.get("value") if isinstance(page_result, dict) else page_result
@@ -138,11 +178,12 @@ def run_graph_endpoints(
                 "type": "graph",
                 "name": key,
                 "endpoint": endpoint,
-                "status": status,
-                "top": query.get("$top"),
-                "page": page,
-                "item_count": item_count,
-                "duration_ms": duration_ms,
+                    "status": status,
+                    "top": query.get("$top"),
+                    "result_limit": top if page else None,
+                    "page": page,
+                    "item_count": item_count,
+                    "duration_ms": duration_ms,
                 "error_class": error_class,
                 "error": error,
             }

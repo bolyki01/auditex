@@ -14,14 +14,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 cli = importlib.import_module("azure_tenant_audit.cli")
 output = importlib.import_module("azure_tenant_audit.output")
+profiles = importlib.import_module("azure_tenant_audit.profiles")
 
 
 def test_build_parser_accepts_auditor_profile():
     parser = cli.build_parser()
 
-    args = parser.parse_args(["--auditor-profile", cli.AUDITOR_PROFILE_GLOBAL_READER])
+    args = parser.parse_args(["--auditor-profile", "global-reader"])
 
-    assert args.auditor_profile == cli.AUDITOR_PROFILE_GLOBAL_READER
+    assert args.auditor_profile == "global-reader"
 
 
 def test_invalid_auditor_profile_fails():
@@ -31,33 +32,38 @@ def test_invalid_auditor_profile_fails():
         parser.parse_args(["--auditor-profile", "viewer-only"])
 
 
-def test_resolve_profile_from_auth_mode():
-    assert (
-        cli._resolve_audit_profile(cli.AUDITOR_PROFILE_AUTO, "app")
-        == cli.AUDITOR_PROFILE_ENTERPRISE
-    )
-    assert (
-        cli._resolve_audit_profile(cli.AUDITOR_PROFILE_AUTO, "azure_cli")
-        == cli.AUDITOR_PROFILE_GLOBAL_READER
-    )
-    assert (
-        cli._resolve_audit_profile(cli.AUDITOR_PROFILE_ENTERPRISE, "azure_cli")
-        == cli.AUDITOR_PROFILE_ENTERPRISE
-    )
+def test_profiles_module_exposes_global_reader_contract():
+    assert "global-reader" in profiles.profile_choices()
+    profile = profiles.get_profile("global-reader")
+    assert profile.name == "global-reader"
+    assert "inventory" in profile.supported_planes
+    assert "full" in profile.supported_planes
 
 
-def test_apply_profile_defaults_global_reader_only_when_not_explicit():
-    available = ["identity", "security", "teams", "intune", "exchange"]
-
-    with_explicit = cli._apply_profile_collector_defaults(
-        ["identity", "security"], cli.AUDITOR_PROFILE_GLOBAL_READER, available
+def test_build_parser_accepts_plane_and_time_window():
+    parser = cli.build_parser()
+    args = parser.parse_args(
+        [
+            "--auditor-profile",
+            "global-reader",
+            "--plane",
+            "full",
+            "--since",
+            "2026-04-01T00:00:00Z",
+            "--until",
+            "2026-04-02T00:00:00Z",
+        ]
     )
-    defaulted = cli._apply_profile_collector_defaults(
-        None, cli.AUDITOR_PROFILE_GLOBAL_READER, available
-    )
+    assert args.plane == "full"
+    assert args.since == "2026-04-01T00:00:00Z"
+    assert args.until == "2026-04-02T00:00:00Z"
 
-    assert with_explicit == ["identity", "security"]
-    assert defaulted == ["identity", "security", "teams", "intune"]
+
+def test_build_parser_rejects_unimplemented_response_plane():
+    parser = cli.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--auditor-profile", "global-reader", "--plane", "response"])
 
 
 def test_run_bundle_records_auditor_profile(tmp_path: Path):
@@ -69,7 +75,10 @@ def test_run_bundle_records_auditor_profile(tmp_path: Path):
             "overall_status": "ok",
             "duration_seconds": 0.5,
             "mode": "live",
-            "auditor_profile": cli.AUDITOR_PROFILE_GLOBAL_READER,
+            "auditor_profile": "global-reader",
+            "plane": "inventory",
+            "since": "2026-04-01T00:00:00Z",
+            "until": "2026-04-02T00:00:00Z",
             "session_context": {},
             "command_line": ["python", "-m", "azure_tenant_audit"],
         }
@@ -77,7 +86,10 @@ def test_run_bundle_records_auditor_profile(tmp_path: Path):
 
     manifest = json.loads((writer.run_dir / "run-manifest.json").read_text(encoding="utf-8"))
 
-    assert manifest["auditor_profile"] == cli.AUDITOR_PROFILE_GLOBAL_READER
+    assert manifest["auditor_profile"] == "global-reader"
+    assert manifest["plane"] == "inventory"
+    assert manifest["time_window"]["since"] == "2026-04-01T00:00:00Z"
+    assert manifest["time_window"]["until"] == "2026-04-02T00:00:00Z"
 
 
 def test_audit_command_log_only_records_command_events(tmp_path: Path):
