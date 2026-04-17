@@ -125,9 +125,15 @@ Current engine outputs:
 - `audit-debug.log`
 - `raw/`
 - `index/coverage.jsonl`
-- `diagnostics.json` when blockers exist
+- `blockers/blockers.json` and `diagnostics.json` when blockers exist
+- `normalized/`
+- `ai_safe/`
+- `findings/`
+- `reports/`
+- `chunks/`
+- `checkpoints/checkpoint-state.json`
 
-Product target directories are documented and scaffolded in `schemas/` and `docs/specs/`.
+Product target directories are fully implemented and documented in `schemas/` and `docs/specs/`.
 
 Enterprise-scale architecture and backlog are documented in:
 
@@ -148,6 +154,13 @@ Current MCP tools:
 - `auditex_run_offline_validation`
 - `auditex_run_delegated_audit`
 - `auditex_summarize_run`
+- `auditex_diff_runs`
+- `auditex_probe_live`
+- `auditex_probe_summarize`
+- `auditex_list_blockers`
+- `auditex_auth_status`
+- `auditex_auth_list`
+- `auditex_auth_use`
 
 ## Privacy and auditability
 

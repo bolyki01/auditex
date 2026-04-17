@@ -17,27 +17,38 @@ The system must:
 
 ## Problem Statement
 
-The current canonical runtime is structurally useful but not enterprise-ready.
+The canonical runtime now has the first enterprise execution layer and is suitable for large delegated-only tenants, with explicit residual gaps.
 
 Observed repo facts:
 
-- canonical runtime has `5` collectors only:
+Canonical runtime now ships with `7` collectors:
   - `identity`
   - `security`
   - `intune`
   - `teams`
   - `exchange`
-- `GraphClient.get_all()` materializes full result sets in memory
-- `--top` acts as page size, not a global limit
-- audit-log collection is not partitioned or checkpointed
-- Teams inventory is partially sampled
-- Intune and Exchange coverage are shallow
-- Purview, eDiscovery, SharePoint, OneDrive, Defender depth, MFA/auth methods, and Entra governance are missing from the canonical runtime
-- output model is still mostly:
-  - `raw/`
-  - `coverage`
-  - `summary`
-  - `diagnostics`
+  - `sharepoint`
+  - `auth_methods`
+- `GraphClient.get_all()` has been replaced by streaming primitives (`iter_pages`, `iter_items`) with bounded memory semantics
+- `--top` is now a per-endpoint result cap; page size is explicit
+- security collection supports partitioned `signIns` and `directoryAudits`
+- checkpoints and resumable run state are implemented
+- output is chunked and includes:
+  - `chunks/`
+  - `blockers/`
+  - `normalized/`
+  - `ai_safe/`
+  - `findings/`
+  - `reports/`
+  - `checkpoints/`
+- adapter registry exists for optional non-Graph surfaces (`m365_cli`, `powershell_graph`, `m365dsc`)
+
+Still missing from current implementation:
+
+- unified audit and Defender depth
+- Purview and eDiscovery exporters
+- full Entra governance (PIM/access reviews/entitlement graphing)
+- deep Exchange message-flow artifact coverage
 
 This is acceptable for homelab/bootstrap use and small delegated audits. It is not acceptable for Magrathean-scale enterprise audits.
 

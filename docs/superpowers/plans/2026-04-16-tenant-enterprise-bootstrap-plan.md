@@ -10,6 +10,16 @@
 
 ---
 
+## Execution status (2026-04-17)
+
+All bootstrap expansion tasks are implemented in `tenant-bootstrap/config.example.json`, `tenant-bootstrap/scripts/02-seed-identities-groups.ps1`, and `tenant-bootstrap/README.md`.
+
+Verification:
+
+- Dry-run enterprise-lab run executed:
+  - `tenant-bootstrap/run-enterprise-lab-max.sh --run-name enterprise-audit-status-dryrun --days 7`
+  - Verified target shape: 108 users, 793 groups, 100 directory devices, 1 managed device target.
+
 ### Task 1: Add enterprise seeding schema
 
 **Files:**

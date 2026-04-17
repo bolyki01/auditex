@@ -40,14 +40,15 @@ Stable artifacts required per run:
 - `raw/`
 - `index/coverage.jsonl`
 - `diagnostics.json` when needed
-
-Planned product extensions:
-
+- `blockers/blockers.json` and optional `diagnostics.json`
 - `normalized/`
 - `ai_safe/`
-- `blockers/`
 - `findings/`
 - `reports/`
+- `chunks/`
+- `checkpoints/checkpoint-state.json`
+
+`blockers/` and optional `checkpoints/` are created for resumable and partial runs.
 
 ## Failure model
 
@@ -83,6 +84,10 @@ The local MCP server exposes orchestration, not tenant-specific hidden state:
 - run offline validation
 - run delegated audit
 - summarize completed run
+- diff two completed runs
+- probe live toolchain readiness
+- list blockers for a completed run
+- auth status/list/use helpers
 
 ## Skills surface
 
@@ -96,8 +101,13 @@ Local skills exist to teach Codex:
 ## Known repository debt
 
 - duplicated runtime code exists under `tenant-bootstrap/azure_tenant_audit`
-- docs and skill manifests previously referenced flags not present in the canonical package
-- evidence model is still narrower than the target product model
+- evidence model and MCP surface have been expanded since this file was authored; current implementation is represented by the concrete schema + MCP contracts in this repo
+
+Current enterprise gap list remains:
+
+- Defender posture depth
+- Purview/eDiscovery export
+- full Conditional Access resolution and policy graphing
 
 This spec accepts those facts and moves the public surface toward a coherent product without rewriting the homelab history.
 

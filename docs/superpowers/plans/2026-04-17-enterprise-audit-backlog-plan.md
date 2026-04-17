@@ -10,6 +10,17 @@
 
 ---
 
+## Execution status (2026-04-17)
+
+Tasks 1–9 are implemented in-tree for all listed features: streaming transport, chunked writers, canonical security/auth/m365-sharepoint collectors, adapter registry, and diffing.
+
+Verification status:
+
+- Full Task 10 command executed in this environment:
+  - `pytest tests/test_auditex_product.py tests/test_cli.py tests/test_output.py tests/test_graph_streaming.py tests/test_security_collectors.py tests/test_auth_methods_collector.py tests/test_sharepoint_collector.py tests/test_adapters.py tests/test_diffing.py -q`
+  - PASS
+- Next recommended action: run the same matrix against one large tenant fixture and exercise the optional `m365` adapter path.
+
 ### Task 1: Establish the enterprise runtime contract
 
 **Files:**

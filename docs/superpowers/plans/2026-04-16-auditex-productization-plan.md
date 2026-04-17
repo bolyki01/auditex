@@ -10,6 +10,15 @@
 
 ---
 
+## Execution status (2026-04-17)
+
+Implementation is complete for all listed tasks (wrapper, profiles, skill pack, schemas, and verify/publish preparation).
+
+Verification status:
+
+- `pytest tests/test_auditex_product.py tests/test_cli.py tests/test_output.py tests/test_config.py -q`
+  - PASS in this environment (2026-04-17)
+
 ### Task 1: Add the stable product surface
 
 **Files:**
