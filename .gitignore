@@ -12,3 +12,5 @@ tenant-bootstrap/.secrets/
 *.egg-info/
 .codex
 .codex/
+._*
+.DS_Store
