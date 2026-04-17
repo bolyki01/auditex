@@ -365,6 +365,7 @@ def test_run_live_resume_skips_completed_collectors(tmp_path: Path, monkeypatch)
     run_dir = tmp_path / "acme-resume-run"
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "checkpoints").mkdir(exist_ok=True)
+    (run_dir / "raw").mkdir(exist_ok=True)
     (run_dir / "summary.json").write_text(
         json.dumps(
             {
@@ -378,6 +379,10 @@ def test_run_live_resume_skips_completed_collectors(tmp_path: Path, monkeypatch)
                 ]
             }
         ),
+        encoding="utf-8",
+    )
+    (run_dir / "raw" / "identity.json").write_text(
+        json.dumps({"users": {"value": [{"id": "identity", "displayName": "Identity User"}]}}),
         encoding="utf-8",
     )
     (run_dir / "checkpoints" / "checkpoint-state.json").write_text(
@@ -426,8 +431,18 @@ def test_run_live_resume_skips_completed_collectors(tmp_path: Path, monkeypatch)
     output_dir = run_dir
     manifest = json.loads((output_dir / "run-manifest.json").read_text(encoding="utf-8"))
     summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    checkpoint_state = json.loads((output_dir / "checkpoints" / "checkpoint-state.json").read_text(encoding="utf-8"))
+    normalized_snapshot = json.loads((output_dir / "normalized" / "snapshot.json").read_text(encoding="utf-8"))
     assert manifest["run_id"] == "resume-run"
-    assert any(item.get("name") == "identity" and item.get("status") == "skipped" for item in summary.get("collectors", []))
+    identity_rows = [item for item in summary.get("collectors", []) if item.get("name") == "identity"]
+    assert len(identity_rows) == 1
+    assert identity_rows[0]["status"] == "ok"
+    assert identity_rows[0]["item_count"] == 1
+    assert checkpoint_state["collectors"]["identity"]["status"] == "ok"
+    assert checkpoint_state["collectors"]["identity"]["item_count"] == 1
+    assert not (output_dir / "blockers" / "blockers.json").exists()
+    assert normalized_snapshot["collector_count"] == 2
+    assert normalized_snapshot["object_counts"]["users"] == 1
     args = cli.build_parser().parse_args(
         [
             "--tenant-name",

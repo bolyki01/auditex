@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -136,10 +137,16 @@ class AuditWriter:
         except (OSError, json.JSONDecodeError, ValueError):
             return None
 
-    def _seed_existing_run_artifacts(self, existing_manifest: Any) -> None:
-        if not isinstance(existing_manifest, dict):
-            return
+    def _write_text_atomic(self, path: Path, content: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_name(f".{path.name}.tmp")
+        tmp_path.write_text(content, encoding="utf-8")
+        os.replace(tmp_path, path)
 
+    def _write_json_atomic(self, path: Path, payload: Any) -> None:
+        self._write_text_atomic(path, json.dumps(payload, indent=2))
+
+    def _seed_existing_run_artifacts(self, existing_manifest: Any) -> None:
         existing_summary = self._safe_load_json(self.run_dir / "summary.json")
         if isinstance(existing_summary, dict):
             existing_collectors = existing_summary.get("collectors")
@@ -251,7 +258,7 @@ class AuditWriter:
             "operations": operations,
         }
         path = self.checkpoint_state_path
-        path.write_text(json.dumps(checkpoint_payload, indent=2), encoding="utf-8")
+        self._write_json_atomic(path, checkpoint_payload)
         self._record_artifact(path)
         self._manifest["checkpoint_state_path"] = str(path.relative_to(self.run_dir))
         return path
@@ -272,11 +279,11 @@ class AuditWriter:
         checkpoint_payload = {
             "run_dir": str(self.run_dir),
             "run_id": self.run_id,
-            "collectors": state,
+            "collectors": collectors,
             "operations": operations,
         }
         path = self.checkpoint_state_path
-        path.write_text(json.dumps(checkpoint_payload, indent=2), encoding="utf-8")
+        self._write_json_atomic(path, checkpoint_payload)
         self._record_artifact(path)
         self._manifest["checkpoint_state_path"] = str(path.relative_to(self.run_dir))
         return path
@@ -284,14 +291,14 @@ class AuditWriter:
     def write_json_artifact(self, relative_path: str, payload: Any) -> Path:
         target = self.run_dir / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self._write_json_atomic(target, payload)
         self._record_artifact(target)
         return target
 
     def write_raw(self, name: str, payload: dict[str, Any]) -> Path:
         target = self.raw_dir / f"{name}.json"
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self._write_json_atomic(target, payload)
         self._record_artifact(target)
         return target
 
@@ -311,7 +318,7 @@ class AuditWriter:
                 handle.write(json.dumps(record, default=str) + "\n")
         if metadata:
             meta_path = collector_dir / f"{name}-{page_number:05d}.meta.json"
-            meta_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+            self._write_json_atomic(meta_path, metadata)
             self._record_artifact(meta_path)
         self._record_artifact(target)
         return target
@@ -332,7 +339,7 @@ class AuditWriter:
                 handle.write(json.dumps(record, default=str) + "\n")
         if metadata:
             meta_path = section_dir / f"part-{page_number:05d}.meta.json"
-            meta_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+            self._write_json_atomic(meta_path, metadata)
             self._record_artifact(meta_path)
         self._record_artifact(target)
         return target
@@ -341,7 +348,7 @@ class AuditWriter:
         section_dir = self.raw_dir / collector / operation
         section_dir.mkdir(parents=True, exist_ok=True)
         target = section_dir / "summary.json"
-        target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self._write_json_atomic(target, payload)
         self._record_artifact(target)
         return target
 
@@ -360,7 +367,7 @@ class AuditWriter:
 
     def write_diagnostics(self, diagnostics: list[dict[str, Any]]) -> Path:
         path = self.run_dir / "diagnostics.json"
-        path.write_text(json.dumps(diagnostics, indent=2), encoding="utf-8")
+        self._write_json_atomic(path, diagnostics)
         self._record_artifact(path)
         self._manifest["diagnostics_path"] = "diagnostics.json"
         self._manifest["diagnostics_count"] = len(diagnostics)
@@ -368,7 +375,7 @@ class AuditWriter:
 
     def write_blockers(self, blockers: list[dict[str, Any]]) -> Path:
         path = self.blockers_dir / "blockers.json"
-        path.write_text(json.dumps(blockers, indent=2), encoding="utf-8")
+        self._write_json_atomic(path, blockers)
         self._record_artifact(path)
         self._manifest["blocker_count"] = len(blockers)
         self._manifest["blockers_path"] = str(path.relative_to(self.run_dir))
@@ -376,19 +383,19 @@ class AuditWriter:
 
     def write_normalized(self, name: str, payload: dict[str, Any]) -> Path:
         path = self.normalized_dir / f"{name}.json"
-        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self._write_json_atomic(path, payload)
         self._record_artifact(path)
         return path
 
     def write_ai_safe(self, name: str, payload: dict[str, Any]) -> Path:
         path = self.ai_safe_dir / f"{name}.json"
-        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self._write_json_atomic(path, payload)
         self._record_artifact(path)
         return path
 
     def write_findings(self, findings: list[dict[str, Any]]) -> Path:
         path = self.findings_dir / "findings.json"
-        path.write_text(json.dumps(findings, indent=2), encoding="utf-8")
+        self._write_json_atomic(path, findings)
         self._record_artifact(path)
         self._manifest["findings_count"] = len(findings)
         self._manifest["findings_path"] = str(path.relative_to(self.run_dir))
@@ -396,7 +403,7 @@ class AuditWriter:
 
     def write_report_pack(self, payload: dict[str, Any]) -> Path:
         path = self.reports_dir / "report-pack.json"
-        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self._write_json_atomic(path, payload)
         self._record_artifact(path)
         self._manifest["report_pack_path"] = str(path.relative_to(self.run_dir))
         return path
@@ -439,23 +446,23 @@ class AuditWriter:
         self._manifest["debug_log_path"] = "audit-debug.log"
         if self._manifest.get("session_context"):
             auth_context_path = self.run_dir / "auth-context.json"
-            auth_context_path.write_text(json.dumps(self._manifest["session_context"], indent=2), encoding="utf-8")
+            self._write_json_atomic(auth_context_path, self._manifest["session_context"])
             self._manifest["session_context_path"] = str(auth_context_path.relative_to(self.run_dir))
             self._record_artifact(auth_context_path)
 
         if self.coverage:
             coverage_path = self.run_dir / "coverage.json"
-            coverage_path.write_text(json.dumps(self.coverage, indent=2), encoding="utf-8")
+            self._write_json_atomic(coverage_path, self.coverage)
             self._manifest["coverage_path"] = str(coverage_path.relative_to(self.run_dir))
             self._record_artifact(coverage_path)
             self._manifest["coverage_count"] = len(self.coverage)
 
         manifest_path = self.run_dir / "run-manifest.json"
-        manifest_path.write_text(json.dumps(self._manifest, indent=2), encoding="utf-8")
+        self._write_json_atomic(manifest_path, self._manifest)
 
         summary_json_path = self.run_dir / "summary.json"
         summary_md_path = self.run_dir / "summary.md"
-        summary_json_path.write_text(json.dumps(self.summary, indent=2), encoding="utf-8")
+        self._write_json_atomic(summary_json_path, self.summary)
 
         lines = [
             "# Audit Summary",
@@ -470,7 +477,7 @@ class AuditWriter:
             lines.append(
                 f"| {row.get('name')} | {row.get('status')} | {row.get('item_count', 0)} | {row.get('message', '')} |"
             )
-        summary_md_path.write_text("\n".join(lines), encoding="utf-8")
+        self._write_text_atomic(summary_md_path, "\n".join(lines))
 
         self.log_event(
             "run.completed",

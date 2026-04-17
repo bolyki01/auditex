@@ -180,7 +180,7 @@ def run_response(config: ResponseConfig, command_line: list[str] | None = None) 
         )
 
     tenant_id = config.tenant_id or "organizations"
-    if not config.allow_lab_response and tenant_id not in _lab_tenant_ids():
+    if not (config.allow_lab_response and tenant_id in _lab_tenant_ids()):
         blockers.append(
             {
                 "collector": "response",

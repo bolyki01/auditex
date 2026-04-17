@@ -341,7 +341,7 @@ def _build_diagnostics(
 
     for row in result_rows:
         collector_name = row["name"]
-        if row["status"] == "ok":
+        if row["status"] in {"ok", "skipped"}:
             continue
         hints = permission_hints.get(collector_name, {})
         recommended_scopes = hints.get("graph_scopes", [])
@@ -572,7 +572,8 @@ def run_live(args: argparse.Namespace) -> int:
     start = time.time()
     result_rows: list[dict[str, object]] = []
     failures = 0
-    coverage_rows: list[dict[str, Any]] = []
+    summary_rows: list[dict[str, object]] = []
+    coverage_rows: list[dict[str, Any]] = list(writer.coverage) if resume_from else []
     collector_payloads: dict[str, dict[str, Any]] = {}
 
     for name in selected:
@@ -582,18 +583,29 @@ def run_live(args: argparse.Namespace) -> int:
             continue
 
         if resume_from and name in completed_collectors:
+            previous_state = collector_checkpoint_state.get(name, {})
             skipped_row: dict[str, object] = {
                 "name": name,
                 "status": "skipped",
-                "item_count": completed_state.get(name, {}).get("item_count", 0),
+                "item_count": previous_state.get("item_count", 0),
                 "message": "Collector skipped due to checkpoint resume.",
                 "error": None,
                 "coverage_rows": 0,
             }
             result_rows.append(skipped_row)
-            writer.write_summary(skipped_row)
-            writer.write_checkpoint(name, skipped_row)
-            writer.log_event("collector.skipped", "Collector skipped", {"collector": name})
+            existing_payload = writer._safe_load_json(writer.raw_dir / f"{name}.json")
+            if isinstance(existing_payload, dict):
+                collector_payloads[name] = existing_payload
+            writer.log_event(
+                "collector.skipped",
+                "Collector skipped",
+                {
+                    "collector": name,
+                    "resume_from": str(resume_from),
+                    "previous_status": previous_state.get("status"),
+                    "item_count": previous_state.get("item_count", 0),
+                },
+            )
             continue
 
         try:
@@ -661,6 +673,7 @@ def run_live(args: argparse.Namespace) -> int:
                     "coverage_rows": len(collector_coverage),
                 }
             )
+            summary_rows.append(result_rows[-1])
             writer.write_checkpoint(name, result_rows[-1])
         except Exception as exc:  # noqa: BLE001
             failures += 1
@@ -680,10 +693,11 @@ def run_live(args: argparse.Namespace) -> int:
                     "coverage_rows": 0,
                 }
             )
+            summary_rows.append(result_rows[-1])
             writer.write_checkpoint(name, result_rows[-1])
 
     duration = round(time.time() - start, 2)
-    for row in result_rows:
+    for row in summary_rows:
         writer.write_summary(row)
     diagnostics = _build_diagnostics(
         result_rows=result_rows,

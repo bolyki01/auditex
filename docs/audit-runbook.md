@@ -62,7 +62,7 @@ auditex \
 
 The live runtime now writes chunked page exports for paged Graph collectors under `chunks/` and keeps smaller summary payloads in `raw/`.
 Use `--page-size` to control request page size independently from `--top`, which is now the per-endpoint result limit.
-Use `--resume-from` with a prior run directory to reuse completed checkpoint state.
+Use `--resume-from` with a prior run directory to reuse completed checkpoint state. Resume skips preserve the prior collector checkpoint/summary status instead of downgrading it to `skipped`, and the checkpoint state file is written atomically to reduce interruption risk.
 
 Exchange command collection notes:
 
@@ -113,7 +113,7 @@ auditex response run \
   --out outputs/response
 ```
 
-Add `--execute` only when the response is explicitly authorized. The default mode is dry-run and records the planned command trace, blockers, and response bundle.
+Add `--execute` only when the response is explicitly authorized. The default mode is dry-run and records the planned command trace, blockers, and response bundle. Execution also requires both `--allow-lab-response` and a tenant ID present in `AUDITEX_LAB_TENANT_IDS`.
 
 ## Troubleshooting common login failures
 
