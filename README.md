@@ -6,9 +6,10 @@ The operating model is:
 
 - customer signs in with delegated `Global Reader` or another read role
 - Auditex collects evidence locally
+- operator control is CLI/MCP-first; there is no GUI
 - collector failures are isolated and written as blocker evidence
 - raw tenant data stays local
-- AI reads `ai_safe` artifacts by default
+- AI reads normalized and `ai_safe` artifacts by default
 - optional customer-local read-only app consent can unlock deeper second-pass collection
 - guarded response actions live in a separate `auditex response` namespace and are dry-run by default
 
@@ -84,6 +85,8 @@ auditex \
   --auditor-profile global-reader \
   --out outputs/live
 ```
+
+Saved auth contexts from `auditex auth import-token` can be reused for `auditex probe live --auth-context <name>` and `auditex response run --auth-context <name>`.
 
 Optional Exchange coverage:
 
@@ -182,7 +185,7 @@ By default the response command writes a dry-run bundle. Execution requires `--e
 - collector crashes do not abort the run
 - permission issues become structured diagnostics
 - raw tenant evidence is stored locally
-- AI-safe review is the default reasoning surface
+- normalized and `ai_safe` artifacts are the default reasoning surfaces
 
 ## GitHub
 

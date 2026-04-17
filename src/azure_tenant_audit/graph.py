@@ -263,6 +263,13 @@ class GraphClient:
             raise GraphError(reason, status=response.status_code, request=response.url, error_code=error_code)
         return response.json()
 
+    def get_content(self, path: str, params: Optional[Dict[str, Any]] = None, full_url: bool = False) -> str:
+        url = path if full_url else f"{GRAPH_ROOT}{path}"
+        response = self._request("GET", url, params=params)
+        if response.status_code >= 400:
+            raise GraphError(response.text, status=response.status_code, request=response.url)
+        return response.text
+
     def iter_pages(self, path: str, params: Optional[Dict[str, Any]] = None) -> Iterator[Dict[str, Any]]:
         page_url: Optional[str] = path if path.startswith("http") else f"{GRAPH_ROOT}{path}"
         current_params = params

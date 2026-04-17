@@ -16,6 +16,10 @@ Package this repo as a portable AI-first Microsoft 365 audit tool operated by Co
 - `azure-tenant-audit`
 - `auditex-mcp`
 
+## Operator model
+
+The operator surface is CLI/MCP-first. There is no GUI.
+
 ## Auth modes
 
 Primary:
@@ -27,6 +31,8 @@ Primary:
 Secondary:
 
 - customer-local read-only app registration
+
+Saved local auth contexts can be reused by `auditex probe live --auth-context <name>`; the same pattern will extend to `auditex response` once that CLI wiring lands.
 
 ## Output model
 
@@ -72,7 +78,7 @@ Blocked or partial coverage must record:
 ## Privacy model
 
 - raw evidence stays local
-- AI should reason over AI-safe artifacts by default
+- AI should reason over normalized and `ai_safe` artifacts by default
 - token values and secrets must be redacted from logs
 - document-content access must be explicit and logged
 
@@ -105,11 +111,11 @@ Local skills exist to teach Codex:
 - duplicated runtime code exists under `tenant-bootstrap/azure_tenant_audit`
 - evidence model and MCP surface have been expanded since this file was authored; current implementation is represented by the concrete schema + MCP contracts in this repo
 
-Current enterprise gap list remains:
+The core collectors, the current `auditex response` scaffold, and the normalized/AI-safe output model are already in place; remaining enterprise gaps are:
 
 - deeper Defender, Purview, and eDiscovery action depth
 - large-tenant validation against a real customer matrix
-- more response adapters beyond the current guarded scaffold
+- additional guarded response adapters beyond the current `auditex response` scaffold
 
 This spec accepts those facts and moves the public surface toward a coherent product without rewriting the homelab history.
 

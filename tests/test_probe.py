@@ -140,3 +140,51 @@ def test_delegated_probe_without_token_source_writes_auth_blocker(tmp_path: Path
     blockers = json.loads((run_dir / "blockers" / "blockers.json").read_text(encoding="utf-8"))
     assert blockers[0]["collector"] == "probe_auth"
     assert blockers[0]["error_class"] == "unauthenticated"
+
+
+def test_probe_live_uses_saved_auth_context_and_writes_auth_artifact(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("azure_tenant_audit.probe.GraphClient", _FakeClient)
+    monkeypatch.setattr(
+        "azure_tenant_audit.probe._probe_toolchain_statuses",
+        lambda **_: [],
+    )
+    monkeypatch.setattr("azure_tenant_audit.probe.REGISTRY", {"identity": _FakeCollector()})
+    monkeypatch.setattr(
+        "auditex.auth.resolve_auth_context",
+        lambda name=None: {
+            "name": name or "customer-token",
+            "auth_type": "imported_token",
+            "tenant_id": "tenant-saved",
+            "token": "saved-token",
+            "token_claims": {
+                "tenant_id": "tenant-saved",
+                "audience": "https://graph.microsoft.com",
+                "delegated_scopes": ["Directory.Read.All"],
+                "app_roles": [],
+                "user_principal_name": "reader@contoso.test",
+                "expires_at_utc": "2030-01-01T00:00:00Z",
+            },
+        },
+    )
+
+    rc = run_live_probe(
+        ProbeConfig(
+            tenant_name="contoso",
+            output_dir=tmp_path,
+            auth_context="customer-token",
+            mode="delegated",
+            surface="identity",
+            run_name="probe-auth-context",
+        )
+    )
+    assert rc == 0
+
+    run_dir = tmp_path / "contoso-probe-auth-context"
+    auth_context = json.loads((run_dir / "auth-context.json").read_text(encoding="utf-8"))
+    manifest = json.loads((run_dir / "run-manifest.json").read_text(encoding="utf-8"))
+
+    assert auth_context["name"] == "customer-token"
+    assert auth_context["tenant_id"] == "tenant-saved"
+    assert auth_context["token_claims"]["delegated_scopes"] == ["Directory.Read.All"]
+    assert manifest["auth_path"] == "saved_context"
+    assert manifest["auth_context_path"] == "auth-context.json"

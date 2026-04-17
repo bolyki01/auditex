@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +30,7 @@ class ResponseConfig:
     out_dir: Path
     action: str
     tenant_id: str | None = None
+    auth_context: str | None = None
     target: str | None = None
     intent: str = ""
     since: str | None = None
@@ -132,6 +134,11 @@ def _planned_commands(action: ResponseAction, config: ResponseConfig) -> list[st
     return [template.format(**context) for template in action.commands]
 
 
+def _resolve_saved_auth_context(name: str) -> dict[str, Any]:
+    auditex_auth = importlib.import_module("auditex.auth")
+    return auditex_auth.resolve_auth_context(name)
+
+
 def run_response(config: ResponseConfig, command_line: list[str] | None = None) -> int:
     writer = AuditWriter(config.out_dir.expanduser().resolve(), tenant_name=config.tenant_name, run_name=config.run_name)
     command_line = _scrub_command_line(list(command_line or []))
@@ -141,17 +148,30 @@ def run_response(config: ResponseConfig, command_line: list[str] | None = None) 
     coverage: list[dict[str, Any]] = []
     findings: list[dict[str, Any]] = []
     data_handling_events: list[dict[str, Any]] = []
+    saved_auth_context: dict[str, Any] | None = None
+    auth_context_payload: dict[str, Any] | None = None
+
+    if config.auth_context:
+        saved_auth_context = _resolve_saved_auth_context(config.auth_context)
+        auth_context_payload = {
+            "name": saved_auth_context.get("name") or config.auth_context,
+            "auth_type": saved_auth_context.get("auth_type"),
+            "tenant_id": saved_auth_context.get("tenant_id"),
+            "token_claims": saved_auth_context.get("token_claims") or {},
+        }
+    tenant_id = config.tenant_id or (saved_auth_context or {}).get("tenant_id") or "organizations"
 
     writer.log_event(
         "response.run.started",
         "Response run started",
         {
             "action": config.action,
-            "tenant_id": config.tenant_id or "organizations",
+            "tenant_id": tenant_id,
             "auditor_profile": config.auditor_profile,
             "execute": config.execute,
             "intent": config.intent,
             "command_line": command_line,
+            "auth_context": config.auth_context,
         },
     )
 
@@ -179,7 +199,6 @@ def run_response(config: ResponseConfig, command_line: list[str] | None = None) 
             }
         )
 
-    tenant_id = config.tenant_id or "organizations"
     if not (config.allow_lab_response and tenant_id in _lab_tenant_ids()):
         blockers.append(
             {
@@ -290,6 +309,7 @@ def run_response(config: ResponseConfig, command_line: list[str] | None = None) 
                     "intent": config.intent,
                     "planned_commands": planned_commands,
                     "execute": False,
+                    "auth_context": config.auth_context,
                 },
             )
             data_handling_events.append(
@@ -299,6 +319,7 @@ def run_response(config: ResponseConfig, command_line: list[str] | None = None) 
                     "reason": config.intent,
                     "target": config.target,
                     "run_mode": "dry_run",
+                    "auth_context": config.auth_context,
                 }
             )
             writer.write_normalized(
@@ -343,6 +364,7 @@ def run_response(config: ResponseConfig, command_line: list[str] | None = None) 
                         "intent": config.intent,
                         "response_payload": command_payload,
                         "executed": True,
+                        "auth_context": config.auth_context,
                     },
                 )
                 data_handling_events.append(
@@ -354,6 +376,7 @@ def run_response(config: ResponseConfig, command_line: list[str] | None = None) 
                         "run_mode": "execute",
                         "command": command,
                         "error_class": command_payload.get("error_class"),
+                        "auth_context": config.auth_context,
                     }
                 )
                 if executed:
@@ -410,6 +433,7 @@ def run_response(config: ResponseConfig, command_line: list[str] | None = None) 
             "target": config.target,
             "execute": config.execute,
             "blocked": len(blockers),
+            "auth_context": config.auth_context,
         },
     )
     writer.write_json_artifact(
@@ -445,6 +469,11 @@ def run_response(config: ResponseConfig, command_line: list[str] | None = None) 
             "time_window": {"since": config.since, "until": config.until},
         }
     )
+    if auth_context_payload is not None:
+        auth_context_path = writer.write_json_artifact("auth-context.json", auth_context_payload)
+        auth_context_path_value = str(auth_context_path.relative_to(writer.run_dir))
+    else:
+        auth_context_path_value = None
     writer.write_bundle(
         {
             "executed_by": "auditex_response",
@@ -457,7 +486,7 @@ def run_response(config: ResponseConfig, command_line: list[str] | None = None) 
             "since": config.since,
             "until": config.until,
             "session_context": {
-                "tenant_id": config.tenant_id,
+                "tenant_id": tenant_id,
                 "auditor_profile": config.auditor_profile,
                 "action": config.action,
                 "intent": config.intent,
@@ -465,6 +494,7 @@ def run_response(config: ResponseConfig, command_line: list[str] | None = None) 
                 "run_name": config.run_name,
                 "allow_write": config.allow_write,
                 "allow_lab_response": config.allow_lab_response,
+                "auth_context": config.auth_context,
             },
             "command_line": command_line,
             "data_handling_events": data_handling_events,
@@ -474,6 +504,7 @@ def run_response(config: ResponseConfig, command_line: list[str] | None = None) 
             "response_adapter": adapter.name if adapter else adapter_name,
             "response_allow_write": config.allow_write,
             "response_allow_lab_response": config.allow_lab_response,
+            "auth_context_path": auth_context_path_value,
         }
     )
     writer.log_event(

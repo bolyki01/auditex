@@ -47,6 +47,17 @@
       ],
       "notes": "Defender alert/incidence and secure score APIs are covered by Security Reader in most environments."
     },
+    "service_health": {
+      "graph_scopes": [
+        "ServiceHealth.Read.All",
+        "ServiceMessage.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader",
+        "Reports Reader"
+      ],
+      "notes": "Service health and message center data is available in read-only audit scenarios when reporting permissions are granted."
+    },
     "purview": {
       "graph_scopes": [
         "AuditLog.Read.All"
@@ -103,6 +114,48 @@
       ],
       "notes": "Authentication method policy and registration reports can require report-reading access."
     },
+    "reports_usage": {
+      "graph_scopes": [
+        "Reports.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Reports Reader",
+        "Global Reader"
+      ],
+      "notes": "Global Reader can access tenant-level usage reporting, while detailed report visibility often requires Reports Reader or a workload-specific reader role."
+    },
+    "external_identity": {
+      "graph_scopes": [
+        "Policy.Read.All",
+        "Directory.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader",
+        "Security Reader"
+      ],
+      "notes": "External identity policy inventory covers cross-tenant access, invitation policy, and authentication flow posture."
+    },
+    "consent_policy": {
+      "graph_scopes": [
+        "Policy.Read.All",
+        "Directory.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader",
+        "Cloud Application Administrator",
+        "Security Reader"
+      ],
+      "notes": "Consent policy inventory covers admin consent workflow and permission grant policies."
+    },
+    "domains_hybrid": {
+      "graph_scopes": [
+        "Directory.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader"
+      ],
+      "notes": "Hybrid posture is inferred from domains and sampled on-premises sync markers on users."
+    },
     "intune": {
       "graph_scopes": [
         "DeviceManagementManagedDevices.Read.All",
@@ -125,6 +178,26 @@
       ],
       "notes": "SharePoint tenant settings and site inventory can vary by role and service readiness."
     },
+    "sharepoint_access": {
+      "graph_scopes": [
+        "Sites.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader",
+        "SharePoint Administrator"
+      ],
+      "notes": "Sampled site permissions are attempted in a reader-first mode, but Graph site permission depth can require stronger SharePoint privileges or app-only escalation."
+    },
+    "onedrive_posture": {
+      "graph_scopes": [
+        "Sites.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader",
+        "SharePoint Administrator"
+      ],
+      "notes": "OneDrive posture uses SharePoint read APIs and site URL heuristics; admin-center-only OneDrive details may still be unavailable to Global Reader."
+    },
     "teams": {
       "graph_scopes": [
         "Team.ReadBasic.All",
@@ -135,6 +208,75 @@
         "Teams Service Administrator"
       ],
       "notes": "Teams endpoints are still readable in many read-only role patterns."
+    },
+    "teams_policy": {
+      "graph_scopes": [],
+      "minimum_role_hints": [
+        "Teams Administrator",
+        "Global Reader"
+      ],
+      "notes": "Teams policy depth uses PowerShell-backed cmdlets and usually needs Teams PowerShell tooling and tenant admin connectivity.",
+      "command_tools": [
+        "pwsh",
+        "powershell_graph"
+      ],
+      "optional_commands": [
+        "Get-CsTenantFederationConfiguration",
+        "Get-CsTeamsMessagingPolicy",
+        "Get-CsTeamsMeetingPolicy",
+        "Get-CsTeamsAppPermissionPolicy",
+        "Get-CsTeamsAppSetupPolicy"
+      ]
+    },
+    "app_consent": {
+      "graph_scopes": [
+        "Directory.Read.All",
+        "DelegatedPermissionGrant.Read.All",
+        "AppRoleAssignment.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader",
+        "Cloud Application Administrator",
+        "Security Reader"
+      ],
+      "notes": "Enterprise application consent depth depends on delegated grant and app role assignment visibility."
+    },
+    "licensing": {
+      "graph_scopes": [
+        "Organization.Read.All",
+        "Directory.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader",
+        "License Administrator"
+      ],
+      "notes": "License assignment details are sampled and can be cross-correlated with SKU inventory."
+    },
+    "identity_governance": {
+      "graph_scopes": [
+        "AccessReview.Read.All",
+        "EntitlementManagement.Read.All",
+        "RoleManagement.Read.Directory",
+        "Directory.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader",
+        "Identity Governance Administrator",
+        "Privileged Role Administrator"
+      ],
+      "notes": "Governance and PIM schedule visibility depends on Entra ID Governance licensing and role-scoped APIs."
+    },
+    "intune_depth": {
+      "graph_scopes": [
+        "DeviceManagementConfiguration.Read.All",
+        "DeviceManagementApps.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Intune Administrator",
+        "Intune Reader",
+        "Global Reader"
+      ],
+      "notes": "Deeper Intune policy and assignment surfaces can still return empty or partial results when Intune is not licensed or the tenant does not use those workloads."
     },
     "exchange": {
       "graph_scopes": [],
@@ -158,18 +300,50 @@
         "m365 outlook roomlist list --output json",
         "m365 exo mailbox list --output json"
       ]
+    },
+    "exchange_policy": {
+      "graph_scopes": [],
+      "minimum_role_hints": [
+        "Exchange Reader",
+        "Exchange Administrator",
+        "Global Reader"
+      ],
+      "notes": "Exchange policy depth uses Exchange PowerShell cmdlets and requires PowerShell plus Exchange connectivity.",
+      "command_tools": [
+        "pwsh",
+        "powershell_graph"
+      ],
+      "optional_commands": [
+        "Get-TransportRule",
+        "Get-InboundConnector",
+        "Get-OutboundConnector",
+        "Get-AcceptedDomain",
+        "Get-RemoteDomain",
+        "Get-EXOMailbox"
+      ]
     }
   },
   "global_app_recommendation": [
     "Directory.Read.All",
+    "DelegatedPermissionGrant.Read.All",
+    "AppRoleAssignment.Read.All",
     "User.Read.All",
     "AuditLog.Read.All",
     "SecurityEvents.Read.All",
+    "ServiceHealth.Read.All",
+    "ServiceMessage.Read.All",
     "SecurityIncident.Read.All",
     "DeviceManagementManagedDevices.Read.All",
     "DeviceManagementConfiguration.Read.All",
+    "DeviceManagementApps.Read.All",
+    "Organization.Read.All",
+    "AccessReview.Read.All",
+    "EntitlementManagement.Read.All",
+    "RoleManagement.Read.Directory",
     "Team.ReadBasic.All",
     "Channel.ReadBasic.All",
-    "Group.Read.All"
+    "TeamSettings.Read.All",
+    "Group.Read.All",
+    "Sites.Read.All"
   ]
 }

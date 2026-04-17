@@ -31,6 +31,25 @@ python3 -m azure_tenant_audit --interactive --tenant-name "ACME" --client-id "<a
 
 In interactive mode `tenant-id` defaults to `organizations` if omitted.
 
+## 3b) Credentialed smoke (customer-provided Graph token)
+
+Save the delegated or app-issued Graph token locally, inspect it, and probe with that exact auth context:
+
+```bash
+auditex auth import-token --name customer-token --token "<bearer-token>" --tenant-id "<tenant-id>"
+auditex auth inspect-token --token "<bearer-token>"
+auditex auth capability --name customer-token --collectors identity,security,sharepoint
+auditex probe live \
+  --tenant-name "ACME" \
+  --auth-context customer-token \
+  --mode delegated \
+  --surface identity,security \
+  --out outputs/probes
+```
+
+Saved auth contexts stay local under `.secrets/` unless `AUDITEX_AUTH_CONTEXTS_PATH` points elsewhere.
+That same saved context can be passed to `auditex probe live --auth-context <name>` and `auditex response run --auth-context <name>`.
+
 ## 4) Credentialed smoke (app auth)
 
 Set environment or pass inline:
@@ -63,6 +82,7 @@ auditex \
 The live runtime now writes chunked page exports for paged Graph collectors under `chunks/` and keeps smaller summary payloads in `raw/`.
 Use `--page-size` to control request page size independently from `--top`, which is now the per-endpoint result limit.
 Use `--resume-from` with a prior run directory to reuse completed checkpoint state. Resume skips preserve the prior collector checkpoint/summary status instead of downgrading it to `skipped`, and the checkpoint state file is written atomically to reduce interruption risk.
+Saved auth contexts from `auditex auth import-token` can also be reused for full audits with `--auth-context <name>`.
 
 Exchange command collection notes:
 

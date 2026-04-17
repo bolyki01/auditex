@@ -43,7 +43,7 @@ def test_writer(tmp_path: Path):
     assert (writer.run_dir / "audit-debug.log").exists()
     assert (writer.run_dir / "coverage.json").exists()
     assert (writer.run_dir / "index" / "coverage.jsonl").exists()
-    assert (writer.run_dir / "auth-context.json").exists()
+    assert (writer.run_dir / "session-context.json").exists()
 
     json_lines = (writer.run_dir / "audit-log.jsonl").read_text(encoding="utf-8").splitlines()
     assert any('"run.completed"' in line for line in json_lines)

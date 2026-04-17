@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import shutil
@@ -45,6 +46,7 @@ class ProbeConfig:
     page_size: int = 5
     access_token: str | None = None
     use_azure_cli_token: bool = True
+    auth_context: str | None = None
     client_id: str | None = None
     client_secret: str | None = None
     authority: str = "https://login.microsoftonline.com/"
@@ -499,6 +501,8 @@ def run_live_probe(cfg: ProbeConfig) -> int:
     collector_payloads: dict[str, dict[str, Any]] = {}
     blockers: list[dict[str, Any]] = []
     lab_guard_state = "not_applicable"
+    auth_context_payload: dict[str, Any] | None = None
+    auth_context_path: Path | None = None
 
     toolchain_rows = _probe_toolchain_statuses(include_response=(cfg.mode == "response"), log_event=writer.log_event)
     auth_mode = "none"
@@ -575,11 +579,29 @@ def run_live_probe(cfg: ProbeConfig) -> int:
                 capability_matrix.extend(selected_toolchain_rows)
                 blockers.extend(_toolchain_blockers(selected_toolchain_rows, response=True))
     else:
-        tenant_id = cfg.tenant_id or "organizations"
+        tenant_id = cfg.tenant_id
         access_token = cfg.access_token
+        if cfg.auth_context:
+            auth_module = importlib.import_module("auditex.auth")
+            saved_context = auth_module.resolve_auth_context(cfg.auth_context)
+            saved_claims = dict(saved_context.get("token_claims") or {})
+            tenant_id = tenant_id or saved_context.get("tenant_id")
+            access_token = access_token or saved_context.get("token")
+            auth_context_payload = {
+                "name": saved_context.get("name") or cfg.auth_context,
+                "auth_type": saved_context.get("auth_type"),
+                "tenant_id": tenant_id,
+                "token_claims": saved_claims,
+            }
+            session_context = {
+                "user_principal_name": saved_claims.get("user_principal_name"),
+                "roles": list(saved_claims.get("app_roles") or []),
+            }
+
+        tenant_id = tenant_id or "organizations"
         if cfg.mode == "delegated":
             auth_mode = "access_token" if access_token else "azure_cli"
-            auth_path = auth_mode
+            auth_path = "saved_context" if cfg.auth_context and access_token else auth_mode
             if not access_token and not cfg.use_azure_cli_token:
                 blockers.append(
                     {
@@ -617,7 +639,8 @@ def run_live_probe(cfg: ProbeConfig) -> int:
                     graph_scope=cfg.graph_scope,
                 )
                 client = GraphClient(auth, audit_event=writer.log_event)
-                session_context = _capture_signed_in_context(client, log_event=writer.log_event)
+                if auth_path != "saved_context":
+                    session_context = _capture_signed_in_context(client, log_event=writer.log_event)
         elif cfg.mode == "app":
             auth_mode = "app"
             auth_path = "app"
@@ -732,6 +755,8 @@ def run_live_probe(cfg: ProbeConfig) -> int:
     capability_path = writer.write_json_artifact("capability-matrix.json", capability_matrix)
     toolchain_payload = {row["name"]: row for row in toolchain_rows}
     toolchain_path = writer.write_json_artifact("toolchain-readiness.json", toolchain_payload)
+    if auth_context_payload is not None:
+        auth_context_path = writer.write_json_artifact("auth-context.json", auth_context_payload)
     if blockers:
         writer.write_diagnostics(blockers)
         writer.write_blockers(blockers)
@@ -757,6 +782,8 @@ def run_live_probe(cfg: ProbeConfig) -> int:
         "capability-matrix.json",
         "toolchain-readiness.json",
     ]
+    if auth_context_path is not None:
+        evidence_paths.append("auth-context.json")
     if blockers:
         evidence_paths.append("blockers/blockers.json")
     if findings:
@@ -792,6 +819,7 @@ def run_live_probe(cfg: ProbeConfig) -> int:
             "toolchain_readiness_path": str(toolchain_path.relative_to(writer.run_dir)),
             "evidence_index_path": str(evidence_index_path.relative_to(writer.run_dir)),
             "auth_path": auth_path,
+            "auth_context_path": str(auth_context_path.relative_to(writer.run_dir)) if auth_context_path else None,
             "data_handling_events": [],
             "lab_guard_state": lab_guard_state,
         }

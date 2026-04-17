@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import json
+import importlib
 import logging
 import os
 from collections import defaultdict
@@ -59,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--client-id", default=None, help="App registration ID.")
     parser.add_argument("--client-secret", default=None, help="App secret.")
     parser.add_argument("--access-token", default=None, help="Optional preissued Graph access token.")
+    parser.add_argument("--auth-context", default=None, help="Optional saved Auditex auth context name.")
     parser.add_argument(
         "--use-azure-cli-token",
         action="store_true",
@@ -245,6 +247,118 @@ def _capture_signed_in_context(
     return context
 
 
+def _inspect_access_token(token: str) -> dict[str, Any]:
+    return importlib.import_module("auditex.auth").inspect_token_claims(token)
+
+
+def _build_auth_context_payload(
+    *,
+    auth_mode: str,
+    tenant_id: str,
+    token_claims: dict[str, Any] | None = None,
+    session_context: dict[str, Any] | None = None,
+    saved_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "auth_mode": auth_mode,
+        "tenant_id": tenant_id,
+        "token_claims": token_claims or {},
+        "session_context": session_context or {},
+    }
+    if saved_context:
+        payload["saved_auth_context"] = {
+            "name": saved_context.get("name"),
+            "auth_type": saved_context.get("auth_type"),
+            "tenant_id": saved_context.get("tenant_id"),
+        }
+        delegated_roles = saved_context.get("delegated_roles") or []
+    else:
+        delegated_roles = []
+    session_roles = (session_context or {}).get("roles") or []
+    payload["delegated_roles"] = list(dict.fromkeys([*delegated_roles, *session_roles]))
+    return payload
+
+
+def _build_capability_matrix_rows(
+    *,
+    auth_context: dict[str, Any],
+    selected_collectors: list[str],
+    auditor_profile: str,
+    collector_config: CollectorConfig,
+    permission_hints: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    token_claims = auth_context.get("token_claims") or {}
+    available = {
+        *[str(item) for item in token_claims.get("delegated_scopes") or [] if item],
+        *[str(item) for item in token_claims.get("app_roles") or [] if item],
+    }
+    delegated_roles = {str(item) for item in auth_context.get("delegated_roles") or [] if item}
+    has_global_reader = any(role.lower() == "global reader" for role in delegated_roles)
+    profile = get_profile(auditor_profile)
+    rows: list[dict[str, Any]] = []
+    for collector_name in selected_collectors:
+        definition = collector_config.collectors.get(collector_name)
+        hints = permission_hints.get(collector_name, {})
+        required = list(definition.required_permissions) if definition else list(hints.get("graph_scopes") or [])
+        missing = [perm for perm in required if perm not in available]
+        status = "supported"
+        reason = "required_permissions_present"
+        if missing:
+            status = "blocked_by_scope"
+            reason = "missing_required_permissions"
+        if collector_name in {"purview", "ediscovery"} and has_global_reader:
+            status = "blocked_by_role"
+            reason = "global_reader_limit"
+        elif collector_name == "reports_usage" and has_global_reader and "Reports.Read.All" not in available:
+            status = "partial"
+            reason = "global_reader_tenant_level_reports_only"
+        rows.append(
+            {
+                "collector": collector_name,
+                "status": status,
+                "reason": reason,
+                "required_permissions": required,
+                "missing_permissions": missing,
+                "observed_permissions": sorted(available),
+                "delegated_roles": sorted(delegated_roles),
+                "minimum_role_hints": list(hints.get("minimum_role_hints") or profile.delegated_role_hints),
+                "notes": hints.get("notes") or profile.notes,
+            }
+        )
+    return rows
+
+
+def _build_coverage_ledger(
+    *,
+    capability_rows: list[dict[str, Any]],
+    result_rows: list[dict[str, Any]],
+    diagnostics: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    results_by_collector = {str(row.get("name")): row for row in result_rows}
+    diagnostics_by_collector: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in diagnostics:
+        collector = str(item.get("collector") or "")
+        if collector:
+            diagnostics_by_collector[collector].append(item)
+    ledger: list[dict[str, Any]] = []
+    for capability in capability_rows:
+        collector = str(capability.get("collector") or "")
+        result = results_by_collector.get(collector, {})
+        ledger.append(
+            {
+                "collector": collector,
+                "expected_status": capability.get("status"),
+                "expected_reason": capability.get("reason"),
+                "actual_status": result.get("status"),
+                "item_count": result.get("item_count", 0),
+                "message": result.get("message"),
+                "diagnostic_count": len(diagnostics_by_collector.get(collector, [])),
+                "diagnostics": diagnostics_by_collector.get(collector, []),
+            }
+        )
+    return ledger
+
+
 def run_offline(
     sample_path: Path,
     out: Path,
@@ -420,6 +534,12 @@ def run_live(args: argparse.Namespace) -> int:
     out = Path(args.out).expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
 
+    saved_auth_context: dict[str, Any] | None = None
+    if args.auth_context:
+        saved_auth_context = importlib.import_module("auditex.auth").resolve_auth_context(args.auth_context)
+        args.access_token = args.access_token or saved_auth_context.get("token")
+        args.tenant_id = args.tenant_id or saved_auth_context.get("tenant_id")
+
     config = CollectorConfig.from_path(Path(args.config))
     permission_hints = _load_permission_hints(Path(args.permission_hints))
     profile = get_profile(args.auditor_profile)
@@ -550,6 +670,31 @@ def run_live(args: argparse.Namespace) -> int:
     session_context: dict[str, Any] = {}
     if auth_mode in {"azure_cli", "interactive"}:
         session_context = _capture_signed_in_context(client, log_event=writer.log_event)
+    token_claims: dict[str, Any] = {}
+    if args.access_token:
+        try:
+            token_claims = _inspect_access_token(args.access_token)
+        except Exception as exc:  # noqa: BLE001
+            writer.log_event(
+                "auth.token.inspect_failed",
+                "Access token could not be decoded locally.",
+                {"error": str(exc)},
+            )
+            token_claims = {}
+    auth_context_payload = _build_auth_context_payload(
+        auth_mode=auth_mode,
+        tenant_id=tenant_id,
+        token_claims=token_claims,
+        session_context=session_context,
+        saved_context=saved_auth_context,
+    )
+    capability_rows = _build_capability_matrix_rows(
+        auth_context=auth_context_payload,
+        selected_collectors=selected,
+        auditor_profile=run_cfg.auditor_profile,
+        collector_config=config,
+        permission_hints=permission_hints,
+    )
     command_line = _scrub_command_line(list(sys.argv))
     writer.log_event(
         "run.started",
@@ -566,6 +711,7 @@ def run_live(args: argparse.Namespace) -> int:
             "since": run_cfg.since,
             "until": run_cfg.until,
             "session_context": session_context,
+            "auth_context": auth_context_payload,
             "command_line": command_line,
         },
     )
@@ -713,7 +859,11 @@ def run_live(args: argparse.Namespace) -> int:
             "Failure diagnostics generated",
             {"count": len(diagnostics)},
         )
-    findings = build_findings(diagnostics)
+    coverage_ledger = _build_coverage_ledger(
+        capability_rows=capability_rows,
+        result_rows=result_rows,
+        diagnostics=diagnostics,
+    )
     normalized_snapshot = build_normalized_snapshot(
         tenant_name=run_cfg.tenant_name,
         run_id=writer.run_id,
@@ -722,6 +872,10 @@ def run_live(args: argparse.Namespace) -> int:
         result_rows=result_rows,
         coverage_rows=coverage_rows,
     )
+    findings = build_findings(diagnostics, normalized_snapshot=normalized_snapshot)
+    writer.write_normalized("auth_context", auth_context_payload)
+    writer.write_normalized("capability_matrix", {"kind": "capability_matrix", "records": capability_rows})
+    writer.write_normalized("coverage_ledger", {"kind": "coverage_ledger", "records": coverage_ledger})
     if findings:
         writer.write_findings(findings)
     for name, payload in normalized_snapshot.items():
@@ -761,6 +915,9 @@ def run_live(args: argparse.Namespace) -> int:
             "since": run_cfg.since,
             "until": run_cfg.until,
             "session_context": session_context,
+            "auth_context_path": "normalized/auth_context.json",
+            "capability_matrix_path": "normalized/capability_matrix.json",
+            "coverage_ledger_path": "normalized/coverage_ledger.json",
             "command_line": command_line,
             "coverage_count": len(coverage_rows),
         }

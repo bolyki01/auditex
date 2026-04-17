@@ -31,6 +31,7 @@ def _build_probe_parser() -> argparse.ArgumentParser:
     live.add_argument("--top", type=int, default=5, help="Per-surface result limit for probe requests.")
     live.add_argument("--page-size", type=int, default=5, help="Per-request page size for probe requests.")
     live.add_argument("--access-token", default=None, help="Optional preissued Graph access token.")
+    live.add_argument("--auth-context", default=None, help="Saved local auth context name to use for probe execution.")
     live.add_argument("--use-azure-cli-token", action="store_true", help="Use Azure CLI Graph token for delegated probes.")
     live.add_argument("--client-id", default=None, help="App registration ID for app probe mode.")
     live.add_argument("--client-secret", default=None, help="App secret for app probe mode.")
@@ -67,6 +68,19 @@ def _build_auth_parser() -> argparse.ArgumentParser:
     login.add_argument("--auth-type", default=None)
     login.add_argument("--app-id", default=None)
     login.add_argument("--client-secret", default=None)
+
+    import_token = subparsers.add_parser("import-token", help="Save a customer-provided Graph bearer token as a local auth context.")
+    import_token.add_argument("--name", required=True, help="Saved auth context name.")
+    import_token.add_argument("--token", required=True, help="Bearer token or JWT access token.")
+    import_token.add_argument("--tenant-id", default=None)
+
+    inspect_token = subparsers.add_parser("inspect-token", help="Decode a Graph bearer token locally without sending it anywhere.")
+    inspect_token.add_argument("--token", required=True, help="Bearer token or JWT access token.")
+
+    capability = subparsers.add_parser("capability", help="Show collector capability for a saved auth context.")
+    capability.add_argument("--name", default=None, help="Saved auth context name. Defaults to active context.")
+    capability.add_argument("--collectors", required=True, help="Comma-separated collector IDs to evaluate.")
+    capability.add_argument("--auditor-profile", default="auto")
     return parser
 
 
@@ -93,6 +107,7 @@ def _build_response_parser() -> argparse.ArgumentParser:
     run.add_argument("--execute", action="store_true", help="Execute the command plan instead of dry-running it.")
     run.add_argument("--allow-write", action="store_true", help="Allow destructive actions when a response action is classified as write-capable.")
     run.add_argument("--allow-lab-response", action="store_true", help="Allow the response plane for configured lab tenants only.")
+    run.add_argument("--auth-context", default=None, help="Saved local auth context name to use for response execution.")
     run.add_argument("--adapter-override", default=None, help="Override the adapter used for the response action.")
     run.add_argument("--command-override", default=None, help="Override the command template used for the response action.")
 
@@ -133,6 +148,33 @@ def main(argv: list[str] | None = None) -> int:
                 app_id=args.app_id,
                 client_secret=args.client_secret,
             )
+        if args.auth_command == "import-token":
+            print(
+                json.dumps(
+                    auditex_auth.import_token_context(
+                        name=args.name,
+                        token=args.token,
+                        tenant_id=args.tenant_id,
+                    ),
+                    indent=2,
+                )
+            )
+            return 0
+        if args.auth_command == "inspect-token":
+            print(json.dumps(auditex_auth.inspect_token_claims(args.token), indent=2))
+            return 0
+        if args.auth_command == "capability":
+            print(
+                json.dumps(
+                    auditex_auth.capability_for_context(
+                        name=args.name,
+                        collectors=[item.strip() for item in args.collectors.split(",") if item.strip()],
+                        auditor_profile=args.auditor_profile,
+                    ),
+                    indent=2,
+                )
+            )
+            return 0
         return 2
     if argv[0] == "run":
         return tenant_audit_main(argv[1:])
@@ -175,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
             top=args.top,
             page_size=args.page_size,
             access_token=args.access_token,
+            auth_context=args.auth_context,
             use_azure_cli_token=args.use_azure_cli_token,
             client_id=args.client_id,
             client_secret=args.client_secret,
@@ -206,6 +249,7 @@ def main(argv: list[str] | None = None) -> int:
             execute=args.execute,
             allow_write=args.allow_write,
             allow_lab_response=args.allow_lab_response,
+            auth_context=args.auth_context,
             adapter_override=args.adapter_override,
             command_override=args.command_override,
         )

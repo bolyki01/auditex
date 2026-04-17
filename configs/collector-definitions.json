@@ -60,6 +60,19 @@
         "secureScoreControlProfiles"
       ]
     },
+    "service_health": {
+      "enabled": true,
+      "description": "Microsoft 365 service health, issues, and message center posture.",
+      "required_permissions": [
+        "ServiceHealth.Read.All",
+        "ServiceMessage.Read.All"
+      ],
+      "query_plan": [
+        "healthOverviews",
+        "serviceIssues",
+        "messages"
+      ]
+    },
     "auth_methods": {
       "enabled": true,
       "description": "Authentication methods policy and MFA registration posture",
@@ -70,6 +83,57 @@
       "query_plan": [
         "authenticationMethodsPolicy",
         "userRegistrationDetails"
+      ]
+    },
+    "reports_usage": {
+      "enabled": true,
+      "description": "Microsoft 365 usage report samples for Exchange, SharePoint, and OneDrive.",
+      "required_permissions": [
+        "Reports.Read.All"
+      ],
+      "query_plan": [
+        "office365ActiveUserCounts",
+        "sharePointSiteUsageDetail",
+        "oneDriveUsageAccountDetail",
+        "mailboxUsageDetail"
+      ]
+    },
+    "external_identity": {
+      "enabled": true,
+      "description": "Cross-tenant access, invitation policy, and authentication flow posture.",
+      "required_permissions": [
+        "Policy.Read.All",
+        "Directory.Read.All"
+      ],
+      "query_plan": [
+        "crossTenantAccessPolicy",
+        "authorizationPolicy",
+        "authenticationFlowsPolicy"
+      ]
+    },
+    "consent_policy": {
+      "enabled": true,
+      "description": "Admin consent workflow, user consent, and permission grant policy posture.",
+      "required_permissions": [
+        "Policy.Read.All",
+        "Directory.Read.All"
+      ],
+      "query_plan": [
+        "adminConsentRequestPolicy",
+        "permissionGrantPolicies",
+        "authorizationPolicy"
+      ]
+    },
+    "domains_hybrid": {
+      "enabled": true,
+      "description": "Domain posture and sampled hybrid sync signals.",
+      "required_permissions": [
+        "Directory.Read.All"
+      ],
+      "query_plan": [
+        "organization",
+        "domains",
+        "syncSampleUsers"
       ]
     },
     "intune": {
@@ -97,6 +161,30 @@
         "sites"
       ]
     },
+    "sharepoint_access": {
+      "enabled": true,
+      "description": "SharePoint and OneDrive sharing posture plus sampled site permission inventory",
+      "required_permissions": [
+        "Sites.Read.All"
+      ],
+      "query_plan": [
+        "sharePointSettings",
+        "sites",
+        "sitePermissionsBySite"
+      ]
+    },
+    "onedrive_posture": {
+      "enabled": true,
+      "description": "OneDrive sharing posture and sampled personal site inventory.",
+      "required_permissions": [
+        "Sites.Read.All"
+      ],
+      "query_plan": [
+        "sharePointSettings",
+        "sites",
+        "oneDriveSites"
+      ]
+    },
     "teams": {
       "enabled": true,
       "description": "Teams and channel configuration",
@@ -109,6 +197,119 @@
         "teamGroups",
         "teamChannels",
         "teamsByTeam"
+      ]
+    },
+    "teams_policy": {
+      "enabled": true,
+      "description": "Teams federation, messaging, meeting, and app policy posture",
+      "required_permissions": [
+        "TeamSettings.Read.All"
+      ],
+      "query_plan": [
+        "tenantFederationConfiguration",
+        "messagingPolicies",
+        "meetingPolicies",
+        "appPermissionPolicies",
+        "appSetupPolicies"
+      ],
+      "command_collectors": [
+        {
+          "name": "tenantFederationConfiguration",
+          "category": "policy",
+          "commands": [
+            "Get-CsTenantFederationConfiguration | Select-Object AllowFederatedUsers,AllowTeamsConsumer,AllowPublicUsers"
+          ]
+        },
+        {
+          "name": "messagingPolicies",
+          "category": "policy",
+          "commands": [
+            "Get-CsTeamsMessagingPolicy | Select-Object Identity,AllowOwnerDeleteMessage,AllowUserDeleteMessage,AllowUserEditMessage"
+          ]
+        },
+        {
+          "name": "meetingPolicies",
+          "category": "policy",
+          "commands": [
+            "Get-CsTeamsMeetingPolicy | Select-Object Identity,AllowCloudRecording,AllowIPVideo,ScreenSharingMode"
+          ]
+        },
+        {
+          "name": "appPermissionPolicies",
+          "category": "policy",
+          "commands": [
+            "Get-CsTeamsAppPermissionPolicy | Select-Object Identity,GlobalCatalogAppsType"
+          ]
+        },
+        {
+          "name": "appSetupPolicies",
+          "category": "policy",
+          "commands": [
+            "Get-CsTeamsAppSetupPolicy | Select-Object Identity,AllowSideLoading"
+          ]
+        }
+      ]
+    },
+    "app_consent": {
+      "enabled": true,
+      "description": "Enterprise application delegated consent, owners, and app role assignments",
+      "required_permissions": [
+        "Directory.Read.All",
+        "DelegatedPermissionGrant.Read.All",
+        "AppRoleAssignment.Read.All"
+      ],
+      "query_plan": [
+        "servicePrincipals",
+        "oauth2PermissionGrants",
+        "servicePrincipalOwners",
+        "servicePrincipalAppRoleAssignments"
+      ]
+    },
+    "licensing": {
+      "enabled": true,
+      "description": "Subscribed SKU inventory and sampled direct and group-based license assignment posture",
+      "required_permissions": [
+        "Organization.Read.All",
+        "Directory.Read.All"
+      ],
+      "query_plan": [
+        "subscribedSkus",
+        "licensedUsers",
+        "licensedGroups"
+      ]
+    },
+    "identity_governance": {
+      "enabled": true,
+      "description": "Identity governance, entitlement management, and privileged schedule inventory",
+      "required_permissions": [
+        "AccessReview.Read.All",
+        "EntitlementManagement.Read.All",
+        "RoleManagement.Read.Directory",
+        "Directory.Read.All"
+      ],
+      "query_plan": [
+        "accessReviews",
+        "entitlementCatalogs",
+        "accessPackages",
+        "roleAssignmentSchedules",
+        "roleEligibilitySchedules",
+        "administrativeUnits"
+      ]
+    },
+    "intune_depth": {
+      "enabled": true,
+      "description": "Deeper Intune policy, script, app protection, and sampled assignment inventory",
+      "required_permissions": [
+        "DeviceManagementConfiguration.Read.All",
+        "DeviceManagementApps.Read.All"
+      ],
+      "query_plan": [
+        "deviceConfigurations",
+        "groupPolicyConfigurations",
+        "deviceManagementScripts",
+        "androidManagedAppProtections",
+        "iosManagedAppProtections",
+        "deviceConfigurationAssignments"
       ]
     },
     "purview": {
@@ -313,19 +514,91 @@
           ]
         }
       ]
+    },
+    "exchange_policy": {
+      "enabled": true,
+      "description": "Exchange transport, connector, domain, and mailbox forwarding policy posture",
+      "required_permissions": [
+        "Exchange.ManageAsApp"
+      ],
+      "query_plan": [
+        "transportRules",
+        "inboundConnectors",
+        "outboundConnectors",
+        "acceptedDomains",
+        "remoteDomains",
+        "mailboxForwarding"
+      ],
+      "command_collectors": [
+        {
+          "name": "transportRules",
+          "category": "policy",
+          "commands": [
+            "Get-TransportRule | Select-Object Name,State,Priority,Mode"
+          ]
+        },
+        {
+          "name": "inboundConnectors",
+          "category": "policy",
+          "commands": [
+            "Get-InboundConnector | Select-Object Name,Enabled,ConnectorType"
+          ]
+        },
+        {
+          "name": "outboundConnectors",
+          "category": "policy",
+          "commands": [
+            "Get-OutboundConnector | Select-Object Name,Enabled,ConnectorType"
+          ]
+        },
+        {
+          "name": "acceptedDomains",
+          "category": "policy",
+          "commands": [
+            "Get-AcceptedDomain | Select-Object Name,DomainName,DomainType,Default"
+          ]
+        },
+        {
+          "name": "remoteDomains",
+          "category": "policy",
+          "commands": [
+            "Get-RemoteDomain | Select-Object Name,DomainName,TrustedMailOutboundEnabled,AutoReplyEnabled"
+          ]
+        },
+        {
+          "name": "mailboxForwarding",
+          "category": "policy",
+          "commands": [
+            "Get-EXOMailbox -ResultSize 50 | Select-Object DisplayName,PrimarySmtpAddress,ForwardingSmtpAddress,DeliverToMailboxAndForward"
+          ]
+        }
+      ]
     }
   },
-    "default_order": [
-      "identity",
-      "security",
-      "conditional_access",
-      "defender",
-      "auth_methods",
-      "intune",
-      "sharepoint",
-      "teams",
-      "purview",
-      "ediscovery",
-      "exchange"
+  "default_order": [
+    "identity",
+    "app_consent",
+    "security",
+    "conditional_access",
+    "defender",
+    "service_health",
+    "auth_methods",
+    "reports_usage",
+    "external_identity",
+    "consent_policy",
+    "domains_hybrid",
+    "licensing",
+    "identity_governance",
+    "intune",
+    "intune_depth",
+    "sharepoint",
+    "sharepoint_access",
+    "onedrive_posture",
+    "teams",
+    "teams_policy",
+    "purview",
+    "ediscovery",
+      "exchange",
+      "exchange_policy"
     ]
 }

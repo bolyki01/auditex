@@ -21,8 +21,18 @@ from azure_tenant_audit.profiles import get_profile, profile_choices
 
 def test_profile_choices_include_global_reader() -> None:
     assert "global-reader" in profile_choices()
+    assert "reports-reader" in profile_choices()
     assert get_profile("global-reader").name == "global-reader"
     assert "inventory" in get_profile("global-reader").supported_planes
+    assert "sharepoint_access" in get_profile("global-reader").default_collectors
+    assert "app_consent" in get_profile("global-reader").default_collectors
+    assert "licensing" in get_profile("global-reader").default_collectors
+    assert "service_health" in get_profile("global-reader").default_collectors
+    assert "reports_usage" in get_profile("global-reader").default_collectors
+    assert "external_identity" in get_profile("global-reader").default_collectors
+    assert "consent_policy" in get_profile("global-reader").default_collectors
+    assert "domains_hybrid" in get_profile("global-reader").default_collectors
+    assert "onedrive_posture" in get_profile("global-reader").default_collectors
 
 
 def test_parser_accepts_auditor_profile() -> None:
@@ -97,7 +107,25 @@ def test_list_collectors_tool_shape_matches_definitions() -> None:
     assert result["path"].endswith("configs/collector-definitions.json")
     assert isinstance(result["collectors"], list)
     collector_names = {item["name"] for item in result["collectors"]}
-    assert {"identity", "security", "conditional_access", "defender"}.issubset(collector_names)
+    assert {
+        "identity",
+        "security",
+        "conditional_access",
+        "defender",
+        "service_health",
+        "reports_usage",
+        "external_identity",
+        "consent_policy",
+        "domains_hybrid",
+        "onedrive_posture",
+        "sharepoint_access",
+        "app_consent",
+        "licensing",
+        "identity_governance",
+        "intune_depth",
+        "teams_policy",
+        "exchange_policy",
+    }.issubset(collector_names)
 
 
 def test_list_adapters_tool_shape() -> None:
@@ -176,6 +204,34 @@ def test_build_probe_command_includes_app_credentials() -> None:
     assert "app-secret" in command
 
 
+def test_build_probe_command_supports_saved_auth_context() -> None:
+    command = build_probe_command(
+        tenant_name="ACME",
+        out_dir="outputs/probes",
+        auditor_profile="global-reader",
+        mode="delegated",
+        auth_context="customer-token",
+    )
+    assert "--auth-context" in command
+    assert "customer-token" in command
+    assert "--use-azure-cli-token" not in command
+
+
+def test_probe_parser_accepts_saved_auth_context() -> None:
+    from auditex.cli import _build_probe_parser
+
+    args = _build_probe_parser().parse_args(
+        [
+            "live",
+            "--tenant-name",
+            "ACME",
+            "--auth-context",
+            "customer-token",
+        ]
+    )
+    assert args.auth_context == "customer-token"
+
+
 def test_list_response_actions_shape() -> None:
     result = list_response_actions()
     assert result["count"] >= 1
@@ -191,6 +247,7 @@ def test_build_response_command_uses_guarded_namespace() -> None:
         auditor_profile="exchange-reader",
         target="user@contoso.com",
         intent="triage mail flow",
+        auth_context="customer-token",
     )
     assert command[:3] == [command[0], "-m", "auditex"]
     assert "response" in command
@@ -199,6 +256,61 @@ def test_build_response_command_uses_guarded_namespace() -> None:
     assert "message_trace" in command
     assert "--intent" in command
     assert "triage mail flow" in command
+
+
+def test_build_response_command_supports_saved_auth_context() -> None:
+    command = build_response_command(
+        tenant_name="ACME",
+        out_dir="outputs/response",
+        action="message_trace",
+        tenant_id="contoso.onmicrosoft.com",
+        auditor_profile="exchange-reader",
+        target="user@contoso.com",
+        intent="triage mail flow",
+        auth_context="customer-token",
+    )
+    assert "--auth-context" in command
+    assert "customer-token" in command
+
+
+def test_response_parser_accepts_saved_auth_context() -> None:
+    from auditex.cli import _build_response_parser
+
+    args = _build_response_parser().parse_args(
+        [
+            "run",
+            "--tenant-name",
+            "ACME",
+            "--action",
+            "message_trace",
+            "--intent",
+            "triage mail flow",
+            "--auth-context",
+            "customer-token",
+        ]
+    )
+    assert args.auth_context == "customer-token"
+    assert "--auth-context" in command
+    assert "customer-token" in command
+
+
+def test_response_parser_accepts_saved_auth_context() -> None:
+    from auditex.cli import _build_response_parser
+
+    args = _build_response_parser().parse_args(
+        [
+            "run",
+            "--tenant-name",
+            "ACME",
+            "--action",
+            "message_trace",
+            "--intent",
+            "triage mail flow",
+            "--auth-context",
+            "customer-token",
+        ]
+    )
+    assert args.auth_context == "customer-token"
 
 
 def test_summarize_run_reads_manifest(tmp_path: Path) -> None:
@@ -222,3 +334,41 @@ def test_summarize_run_reads_probe_artifacts(tmp_path: Path) -> None:
     summary = summarize_run(str(run_dir))
     assert summary["capability_matrix"][0]["surface"] == "identity"
     assert summary["toolchain_readiness"]["m365_cli"]["status"] == "blocked"
+
+
+def test_summarize_run_reads_probe_auth_context_artifact(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "run-manifest.json").write_text(json.dumps({"tenant_name": "acme"}), encoding="utf-8")
+    (run_dir / "summary.json").write_text(json.dumps({"collectors": []}), encoding="utf-8")
+    (run_dir / "auth-context.json").write_text(json.dumps({"name": "customer-token"}), encoding="utf-8")
+
+    summary = summarize_run(str(run_dir))
+    assert summary["auth_context"]["name"] == "customer-token"
+
+
+def test_summarize_run_reads_response_auth_context_artifact(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "run-manifest.json").write_text(
+        json.dumps({"tenant_name": "acme", "auth_context_path": "auth-context.json"}),
+        encoding="utf-8",
+    )
+    (run_dir / "summary.json").write_text(json.dumps({"collectors": []}), encoding="utf-8")
+    (run_dir / "session-context.json").write_text(json.dumps({"tenant_id": "tenant-saved"}), encoding="utf-8")
+    (run_dir / "auth-context.json").write_text(
+        json.dumps(
+            {
+                "name": "customer-token",
+                "auth_type": "imported_token",
+                "tenant_id": "tenant-saved",
+                "token_claims": {"delegated_scopes": ["Directory.Read.All"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = summarize_run(str(run_dir))
+    assert summary["auth_context_path"].endswith("auth-context.json")
+    assert summary["auth_context"]["name"] == "customer-token"
+    assert summary["auth_context"]["tenant_id"] == "tenant-saved"

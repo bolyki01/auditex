@@ -98,6 +98,21 @@ def tool_specs() -> list[dict[str, Any]]:
             "readOnlyHint": False,
         },
         {
+            "name": "auditex_auth_import_token",
+            "description": "Store a customer-provided Graph bearer token as a local auth context.",
+            "readOnlyHint": False,
+        },
+        {
+            "name": "auditex_auth_inspect_token",
+            "description": "Decode a Graph bearer token locally and return its claims summary.",
+            "readOnlyHint": True,
+        },
+        {
+            "name": "auditex_auth_capability",
+            "description": "Map a saved auth context to collector capability and missing read permissions.",
+            "readOnlyHint": True,
+        },
+        {
             "name": "auditex_run_offline_validation",
             "description": "Run the offline sample audit to validate local packaging without tenant access.",
             "readOnlyHint": False,
@@ -199,6 +214,7 @@ def build_probe_command(
     allow_lab_response: bool = False,
     use_azure_cli_token: bool = True,
     access_token: str | None = None,
+    auth_context: str | None = None,
     client_id: str | None = None,
     client_secret: str | None = None,
 ) -> list[str]:
@@ -216,6 +232,8 @@ def build_probe_command(
         command.append("--allow-lab-response")
     if access_token:
         command.extend(["--access-token", access_token])
+    elif auth_context:
+        command.extend(["--auth-context", auth_context])
     elif use_azure_cli_token and mode == "delegated":
         command.append("--use-azure-cli-token")
     if client_id:
@@ -240,6 +258,7 @@ def build_response_command(
     execute: bool = False,
     allow_write: bool = False,
     allow_lab_response: bool = False,
+    auth_context: str | None = None,
     adapter_override: str | None = None,
     command_override: str | None = None,
 ) -> list[str]:
@@ -265,6 +284,8 @@ def build_response_command(
         command.append("--allow-write")
     if allow_lab_response:
         command.append("--allow-lab-response")
+    if auth_context:
+        command.extend(["--auth-context", auth_context])
     if adapter_override:
         command.extend(["--adapter-override", adapter_override])
     if command_override:
@@ -301,13 +322,29 @@ def summarize_run(run_dir: str) -> dict[str, Any]:
         result["diagnostics"] = json.loads(diagnostics_path.read_text(encoding="utf-8"))
     capability_matrix_path = path / "capability-matrix.json"
     toolchain_readiness_path = path / "toolchain-readiness.json"
+    probe_auth_context_path = path / "auth-context.json"
+    normalized_capability_path = path / "normalized" / "capability_matrix.json"
+    normalized_auth_context_path = path / "normalized" / "auth_context.json"
+    normalized_coverage_ledger_path = path / "normalized" / "coverage_ledger.json"
     blockers_path = path / "blockers" / "blockers.json"
     if capability_matrix_path.exists():
         result["capability_matrix_path"] = str(capability_matrix_path)
         result["capability_matrix"] = json.loads(capability_matrix_path.read_text(encoding="utf-8"))
+    elif normalized_capability_path.exists():
+        result["capability_matrix_path"] = str(normalized_capability_path)
+        result["capability_matrix"] = json.loads(normalized_capability_path.read_text(encoding="utf-8"))
     if toolchain_readiness_path.exists():
         result["toolchain_readiness_path"] = str(toolchain_readiness_path)
         result["toolchain_readiness"] = json.loads(toolchain_readiness_path.read_text(encoding="utf-8"))
+    if probe_auth_context_path.exists():
+        result["auth_context_path"] = str(probe_auth_context_path)
+        result["auth_context"] = json.loads(probe_auth_context_path.read_text(encoding="utf-8"))
+    elif normalized_auth_context_path.exists():
+        result["auth_context_path"] = str(normalized_auth_context_path)
+        result["auth_context"] = json.loads(normalized_auth_context_path.read_text(encoding="utf-8"))
+    if normalized_coverage_ledger_path.exists():
+        result["coverage_ledger_path"] = str(normalized_coverage_ledger_path)
+        result["coverage_ledger"] = json.loads(normalized_coverage_ledger_path.read_text(encoding="utf-8"))
     if blockers_path.exists():
         result["blockers_path"] = str(blockers_path)
         result["blockers"] = json.loads(blockers_path.read_text(encoding="utf-8"))
@@ -362,6 +399,23 @@ def main() -> int:
     @server.tool
     def auditex_auth_use(connection_name: str) -> dict[str, Any]:
         return auditex_auth.use_connection(connection_name)
+
+    @server.tool
+    def auditex_auth_import_token(name: str, token: str, tenant_id: str = "") -> dict[str, Any]:
+        return auditex_auth.import_token_context(name=name, token=token, tenant_id=tenant_id or None)
+
+    @server.tool
+    def auditex_auth_inspect_token(token: str) -> dict[str, Any]:
+        return auditex_auth.inspect_token_claims(token)
+
+    @server.tool
+    def auditex_auth_capability(name: str = "", collectors: str = "", auditor_profile: str = "auto") -> dict[str, Any]:
+        selected_collectors = [item.strip() for item in collectors.split(",") if item.strip()]
+        return auditex_auth.capability_for_context(
+            name=name or None,
+            collectors=selected_collectors,
+            auditor_profile=auditor_profile,
+        )
 
     @server.tool
     def auditex_run_offline_validation(
@@ -423,6 +477,7 @@ def main() -> int:
         since: str = "",
         until: str = "",
         allow_lab_response: bool = False,
+        auth_context: str = "",
         client_id: str = "",
         client_secret: str = "",
     ) -> dict[str, Any]:
@@ -436,6 +491,7 @@ def main() -> int:
             since=since or None,
             until=until or None,
             allow_lab_response=allow_lab_response,
+            auth_context=auth_context or None,
             client_id=client_id or None,
             client_secret=client_secret or None,
         )
@@ -464,6 +520,7 @@ def main() -> int:
         execute: bool = False,
         allow_write: bool = False,
         allow_lab_response: bool = False,
+        auth_context: str = "",
         adapter_override: str = "",
         command_override: str = "",
     ) -> dict[str, Any]:
@@ -481,6 +538,7 @@ def main() -> int:
             execute=execute,
             allow_write=allow_write,
             allow_lab_response=allow_lab_response,
+            auth_context=auth_context or None,
             adapter_override=adapter_override or None,
             command_override=command_override or None,
         )

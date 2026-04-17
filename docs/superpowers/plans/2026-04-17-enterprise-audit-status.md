@@ -4,6 +4,10 @@
 
 2026-04-17
 
+## Release
+
+v0.9
+
 ## Plan status mapping
 
 ### Productization plan
@@ -65,6 +69,8 @@
   - diff
   - probe + probe summarize
   - blockers listing
+
+The base collector families, guarded response namespace, and normalized/AI-safe output model are already implemented. Saved auth contexts already work with `auditex probe live --auth-context <name>` and `auditex response run --auth-context <name>`. Operator control remains CLI/MCP-first, with no GUI surface.
 
 ## Remaining enterprise targets (post-MVP)
 

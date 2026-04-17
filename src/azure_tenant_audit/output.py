@@ -431,9 +431,11 @@ class AuditWriter:
             "probe_mode",
             "probe_surface",
             "capability_matrix_path",
+            "coverage_ledger_path",
             "toolchain_readiness_path",
             "evidence_index_path",
             "auth_path",
+            "auth_context_path",
             "data_handling_events",
             "lab_guard_state",
         ):
@@ -445,10 +447,10 @@ class AuditWriter:
         self._manifest["audit_command_log_path"] = "audit-command-log.jsonl"
         self._manifest["debug_log_path"] = "audit-debug.log"
         if self._manifest.get("session_context"):
-            auth_context_path = self.run_dir / "auth-context.json"
-            self._write_json_atomic(auth_context_path, self._manifest["session_context"])
-            self._manifest["session_context_path"] = str(auth_context_path.relative_to(self.run_dir))
-            self._record_artifact(auth_context_path)
+            session_context_path = self.run_dir / "session-context.json"
+            self._write_json_atomic(session_context_path, self._manifest["session_context"])
+            self._manifest["session_context_path"] = str(session_context_path.relative_to(self.run_dir))
+            self._record_artifact(session_context_path)
 
         if self.coverage:
             coverage_path = self.run_dir / "coverage.json"

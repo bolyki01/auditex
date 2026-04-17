@@ -69,6 +69,185 @@ def _ensure_placeholder_skipped(values: list[str]) -> list[str]:
     return normalized
 
 
+def _iter_permission_targets(permission: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    targets: list[tuple[str, dict[str, Any]]] = []
+    granted_v2 = permission.get("grantedToIdentitiesV2")
+    if isinstance(granted_v2, list):
+        identity_items = granted_v2
+    else:
+        identity_items = []
+        granted_to_v2 = permission.get("grantedToV2")
+        if isinstance(granted_to_v2, dict):
+            identity_items = [granted_to_v2]
+
+    for item in identity_items:
+        if not isinstance(item, dict):
+            continue
+        for target_type in ("user", "group", "application", "siteUser", "device"):
+            target = item.get(target_type)
+            if isinstance(target, dict):
+                targets.append((target_type, target))
+                break
+    return targets
+
+
+def _first_non_empty(item: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key not in item:
+            continue
+        value = item.get(key)
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def _site_kind_from_web_url(web_url: Any) -> str:
+    url = str(web_url or "").lower()
+    if "-my.sharepoint.com" in url:
+        return "personal"
+    if "/sites/" in url or "/teams/" in url:
+        return "team"
+    return "other"
+
+
+def _site_permission_summary(
+    item: dict[str, Any],
+    *,
+    default_sharing_capability: Any = None,
+) -> dict[str, Any]:
+    permissions = item.get("permissions")
+    if not isinstance(permissions, list):
+        permissions = []
+
+    user_targets: set[str] = set()
+    group_targets: set[str] = set()
+    application_targets: set[str] = set()
+    link_permission_count = 0
+    anonymous_link_count = 0
+    organization_link_count = 0
+    write_like_permission_count = 0
+
+    for permission in permissions:
+        if not isinstance(permission, dict):
+            continue
+
+        raw_roles = permission.get("roles")
+        roles = [str(role).lower() for role in raw_roles if role is not None] if isinstance(raw_roles, list) else []
+        if any(role not in {"read", "view"} for role in roles):
+            write_like_permission_count += 1
+
+        link = permission.get("link") if isinstance(permission.get("link"), dict) else {}
+        link_scope = str(link.get("scope") or "").lower()
+        if link_scope:
+            link_permission_count += 1
+            if link_scope == "anonymous":
+                anonymous_link_count += 1
+            elif link_scope == "organization":
+                organization_link_count += 1
+
+        for target_type, target in _iter_permission_targets(permission):
+            target_id = str(target.get("id") or target.get("userPrincipalName") or target.get("displayName") or "")
+            if not target_id:
+                continue
+            if target_type == "user":
+                user_targets.add(target_id)
+            elif target_type == "group":
+                group_targets.add(target_id)
+            elif target_type == "application":
+                application_targets.add(target_id)
+
+    permission_count = _first_non_empty(item, "permissionCount", "permission_count")
+    if permission_count is None:
+        permission_count = len(permissions)
+    else:
+        permission_count = int(permission_count)
+
+    principal_count = _first_non_empty(item, "principalCount", "principal_count")
+    if principal_count is None:
+        principal_count = len(user_targets | group_targets | application_targets)
+    else:
+        principal_count = int(principal_count)
+
+    user_principal_count = _first_non_empty(item, "userPrincipalCount", "user_principal_count")
+    if user_principal_count is None:
+        user_principal_count = len(user_targets)
+    else:
+        user_principal_count = int(user_principal_count)
+
+    group_principal_count = _first_non_empty(item, "groupPrincipalCount", "group_principal_count")
+    if group_principal_count is None:
+        group_principal_count = len(group_targets)
+    else:
+        group_principal_count = int(group_principal_count)
+
+    application_principal_count = _first_non_empty(item, "applicationPrincipalCount", "application_principal_count")
+    if application_principal_count is None:
+        application_principal_count = len(application_targets)
+    else:
+        application_principal_count = int(application_principal_count)
+
+    link_permission_count_value = _first_non_empty(item, "linkPermissionCount", "link_permission_count")
+    if link_permission_count_value is None:
+        link_permission_count_value = link_permission_count
+    else:
+        link_permission_count_value = int(link_permission_count_value)
+
+    anonymous_link_count_value = _first_non_empty(item, "anonymousLinkCount", "anonymous_link_count")
+    if anonymous_link_count_value is None:
+        anonymous_link_count_value = anonymous_link_count
+    else:
+        anonymous_link_count_value = int(anonymous_link_count_value)
+
+    organization_link_count_value = _first_non_empty(item, "organizationLinkCount", "organization_link_count")
+    if organization_link_count_value is None:
+        organization_link_count_value = organization_link_count
+    else:
+        organization_link_count_value = int(organization_link_count_value)
+
+    write_like_permission_count_value = _first_non_empty(item, "writeLikePermissionCount", "write_like_permission_count")
+    if write_like_permission_count_value is None:
+        write_like_permission_count_value = write_like_permission_count
+    else:
+        write_like_permission_count_value = int(write_like_permission_count_value)
+
+    site_kind = _first_non_empty(item, "siteKind", "site_kind")
+    if isinstance(site_kind, str) and site_kind:
+        site_kind = site_kind.lower()
+    else:
+        site_kind = _site_kind_from_web_url(_first_non_empty(item, "webUrl", "web_url"))
+
+    sharing_capability = _first_non_empty(item, "sharingCapability", "sharing_capability")
+    if sharing_capability is None:
+        sharing_capability = default_sharing_capability
+
+    ownership_state = _first_non_empty(item, "ownershipState", "ownership_state")
+    if not ownership_state:
+        if permission_count:
+            if principal_count == 0:
+                ownership_state = "orphaned"
+            elif principal_count <= 1:
+                ownership_state = "weak"
+            else:
+                ownership_state = "sampled"
+        else:
+            ownership_state = "unknown"
+
+    return {
+        "site_kind": site_kind,
+        "sharing_capability": sharing_capability,
+        "permission_count": permission_count,
+        "principal_count": principal_count,
+        "user_principal_count": user_principal_count,
+        "group_principal_count": group_principal_count,
+        "application_principal_count": application_principal_count,
+        "link_permission_count": link_permission_count_value,
+        "anonymous_link_count": anonymous_link_count_value,
+        "organization_link_count": organization_link_count_value,
+        "write_like_permission_count": write_like_permission_count_value,
+        "ownership_state": ownership_state,
+    }
+
+
 def _build_break_glass_candidates(
     role_assignments: list[dict[str, Any]],
     role_definitions: list[dict[str, Any]],
@@ -694,6 +873,360 @@ def build_normalized_snapshot(
         for item in _values(collector_payloads.get("sharepoint", {}), "sites")
         if item.get("id")
     ]
+    sharepoint_site_posture_objects: list[dict[str, Any]] = []
+    sharepoint_permission_edges: list[dict[str, Any]] = []
+    sharepoint_sharing_findings: list[dict[str, Any]] = []
+    for item in _values(collector_payloads.get("sharepoint_access", {}), "sitePermissionsBySite"):
+        site_id = str(item.get("siteId") or "")
+        site_name = item.get("siteName")
+        web_url = item.get("webUrl")
+        site_kind = item.get("siteKind") or _site_kind_from_web_url(web_url)
+        sharing_capability = item.get("sharingCapability")
+        permissions = item.get("permissions")
+        if not site_id:
+            continue
+        sharepoint_site_posture_objects.append(
+            _record(
+                "sharepoint_site_posture",
+                "sharepoint_access.sitePermissionsBySite",
+                site_id,
+                site_name=site_name,
+                web_url=web_url,
+                site_kind=site_kind,
+                sharing_capability=sharing_capability,
+                permission_count=item.get("permissionCount"),
+                principal_count=item.get("principalCount"),
+                user_principal_count=item.get("userPrincipalCount"),
+                group_principal_count=item.get("groupPrincipalCount"),
+                application_principal_count=item.get("applicationPrincipalCount"),
+                link_permission_count=item.get("linkPermissionCount"),
+                anonymous_link_count=item.get("anonymousLinkCount"),
+                organization_link_count=item.get("organizationLinkCount"),
+                write_like_permission_count=item.get("writeLikePermissionCount"),
+                ownership_state=item.get("ownershipState"),
+            )
+        )
+        if not isinstance(permissions, list):
+            continue
+        for permission in permissions:
+            if not isinstance(permission, dict):
+                continue
+            permission_id = str(permission.get("id") or f"{site_id}:permission")
+            roles = _to_str_list(permission.get("roles"))
+            link = permission.get("link") if isinstance(permission.get("link"), dict) else {}
+            link_scope = link.get("scope")
+            targets = _iter_permission_targets(permission)
+            if not targets:
+                sharepoint_permission_edges.append(
+                    _record(
+                        "sharepoint_permission_edge",
+                        "sharepoint_access.sitePermissionsBySite",
+                        f"{site_id}:{permission_id}",
+                        site_id=site_id,
+                        site_name=site_name,
+                        web_url=web_url,
+                        permission_id=permission_id,
+                        target_type="link" if link_scope else "unknown",
+                        target_id=permission_id,
+                        target_name=link.get("type") or link_scope or permission_id,
+                        roles=roles,
+                        link_scope=link_scope,
+                    )
+                )
+            for target_type, target in targets:
+                target_id = str(target.get("id") or target.get("userPrincipalName") or target.get("displayName") or permission_id)
+                sharepoint_permission_edges.append(
+                    _record(
+                        "sharepoint_permission_edge",
+                        "sharepoint_access.sitePermissionsBySite",
+                        f"{site_id}:{permission_id}:{target_id}",
+                        site_id=site_id,
+                        site_name=site_name,
+                        web_url=web_url,
+                        permission_id=permission_id,
+                        target_type=target_type,
+                        target_id=target_id,
+                        target_name=target.get("displayName") or target.get("userPrincipalName") or target_id,
+                        roles=roles,
+                        link_scope=link_scope,
+                    )
+                )
+            if isinstance(link_scope, str) and link_scope.lower() in {"anonymous", "organization"}:
+                sharepoint_sharing_findings.append(
+                    _record(
+                        "sharepoint_sharing_finding",
+                        "sharepoint_access.sitePermissionsBySite",
+                        f"{site_id}:{permission_id}:sharing",
+                        finding_type="broad_sharing_link",
+                        site_id=site_id,
+                        site_name=site_name,
+                        permission_id=permission_id,
+                        link_scope=link_scope,
+                        roles=roles,
+                        severity="high" if link_scope.lower() == "anonymous" else "medium",
+                    )
+                )
+    app_consent_payload = collector_payloads.get("app_consent", {})
+    app_service_principals = _values(app_consent_payload, "servicePrincipals")
+    app_service_principal_by_id = _build_index(app_service_principals)
+    app_owners_by_sp_id = {
+        str(item.get("servicePrincipalId")): item.get("owners", [])
+        for item in _values(app_consent_payload, "servicePrincipalOwners")
+        if item.get("servicePrincipalId")
+    }
+    application_consents = [
+        _record(
+            "application_consent",
+            "app_consent.oauth2PermissionGrants",
+            str(item.get("id")),
+            service_principal_id=item.get("clientId"),
+            service_principal_name=(app_service_principal_by_id.get(str(item.get("clientId"))) or {}).get("displayName"),
+            resource_id=item.get("resourceId"),
+            scope=item.get("scope"),
+            consent_type=item.get("consentType"),
+            principal_id=item.get("principalId"),
+            owner_count=len(app_owners_by_sp_id.get(str(item.get("clientId")), [])),
+            source_name="oauth2PermissionGrants",
+        )
+        for item in _values(app_consent_payload, "oauth2PermissionGrants")
+        if item.get("id")
+    ]
+    for item in _values(app_consent_payload, "servicePrincipalAppRoleAssignments"):
+        service_principal_id = str(item.get("servicePrincipalId") or "")
+        assignments = item.get("assignments")
+        if not service_principal_id or not isinstance(assignments, list):
+            continue
+        for assignment in assignments:
+            if not isinstance(assignment, dict):
+                continue
+            object_id = str(assignment.get("id") or f"{service_principal_id}:assignment")
+            application_consents.append(
+                _record(
+                    "application_consent",
+                    "app_consent.servicePrincipalAppRoleAssignments",
+                    object_id,
+                    service_principal_id=service_principal_id,
+                    service_principal_name=(app_service_principal_by_id.get(service_principal_id) or {}).get("displayName"),
+                    principal_display_name=assignment.get("principalDisplayName"),
+                    principal_type=assignment.get("principalType"),
+                    source_name="servicePrincipalAppRoleAssignments",
+                )
+            )
+    license_inventory = [
+        _record(
+            "license_sku",
+            "licensing.subscribedSkus",
+            str(item.get("skuId") or item.get("id")),
+            sku_part_number=item.get("skuPartNumber"),
+            consumed_units=item.get("consumedUnits"),
+            enabled_units=(item.get("prepaidUnits") or {}).get("enabled") if isinstance(item.get("prepaidUnits"), dict) else None,
+            warning_units=(item.get("prepaidUnits") or {}).get("warning") if isinstance(item.get("prepaidUnits"), dict) else None,
+            suspended_units=(item.get("prepaidUnits") or {}).get("suspended") if isinstance(item.get("prepaidUnits"), dict) else None,
+            service_plan_count=len(item.get("servicePlans", [])) if isinstance(item.get("servicePlans"), list) else 0,
+        )
+        for item in _values(collector_payloads.get("licensing", {}), "subscribedSkus")
+        if item.get("skuId") or item.get("id")
+    ]
+    exchange_policy_objects: list[dict[str, Any]] = []
+    for source_name in (
+        "transportRules",
+        "inboundConnectors",
+        "outboundConnectors",
+        "acceptedDomains",
+        "remoteDomains",
+        "mailboxForwarding",
+    ):
+        for item in _values(collector_payloads.get("exchange_policy", {}), source_name):
+            object_id = str(item.get("Identity") or item.get("Name") or item.get("PrimarySmtpAddress") or source_name)
+            exchange_policy_objects.append(
+                _record(
+                    "exchange_policy_object",
+                    f"exchange_policy.{source_name}",
+                    object_id,
+                    source_name=source_name,
+                    display_name=item.get("Name") or item.get("Identity") or item.get("DisplayName"),
+                    primary_smtp_address=item.get("PrimarySmtpAddress"),
+                    forwarding_smtp_address=item.get("ForwardingSmtpAddress"),
+                    deliver_to_mailbox_and_forward=item.get("DeliverToMailboxAndForward"),
+                    state=item.get("State"),
+                    priority=item.get("Priority"),
+                )
+            )
+    governance_objects: list[dict[str, Any]] = []
+    for source_name, kind in (
+        ("accessReviews", "access_review"),
+        ("entitlementCatalogs", "entitlement_catalog"),
+        ("accessPackages", "access_package"),
+        ("roleAssignmentSchedules", "role_assignment_schedule"),
+        ("roleEligibilitySchedules", "role_eligibility_schedule"),
+        ("administrativeUnits", "administrative_unit"),
+    ):
+        for item in _values(collector_payloads.get("identity_governance", {}), source_name):
+            object_id = str(item.get("id") or item.get("displayName") or source_name)
+            governance_objects.append(
+                _record(
+                    kind,
+                    f"identity_governance.{source_name}",
+                    object_id,
+                    display_name=item.get("displayName"),
+                    description=item.get("description"),
+                    status=item.get("status"),
+                )
+            )
+    intune_assignment_objects: list[dict[str, Any]] = []
+    for item in _values(collector_payloads.get("intune_depth", {}), "deviceConfigurationAssignments"):
+        policy_id = str(item.get("policyId") or "")
+        assignments = item.get("assignments")
+        if not policy_id or not isinstance(assignments, list):
+            continue
+        for assignment in assignments:
+            if not isinstance(assignment, dict):
+                continue
+            target = assignment.get("target") if isinstance(assignment.get("target"), dict) else {}
+            assignment_id = str(assignment.get("id") or f"{policy_id}:assignment")
+            intune_assignment_objects.append(
+                _record(
+                    "intune_assignment_object",
+                    "intune_depth.deviceConfigurationAssignments",
+                    assignment_id,
+                    policy_id=policy_id,
+                    policy_name=item.get("displayName"),
+                    target_group_id=target.get("groupId"),
+                )
+            )
+    teams_policy_objects: list[dict[str, Any]] = []
+    for source_name in (
+        "tenantFederationConfiguration",
+        "messagingPolicies",
+        "meetingPolicies",
+        "appPermissionPolicies",
+        "appSetupPolicies",
+    ):
+        for item in _values(collector_payloads.get("teams_policy", {}), source_name):
+            object_id = str(item.get("Identity") or item.get("id") or source_name)
+            teams_policy_objects.append(
+                _record(
+                    "teams_policy_object",
+                    f"teams_policy.{source_name}",
+                    object_id,
+                    source_name=source_name,
+                    policy_name=item.get("Identity") or item.get("displayName"),
+                    allow_public_users=item.get("AllowPublicUsers"),
+                    allow_federated_users=item.get("AllowFederatedUsers"),
+                    allow_cloud_recording=item.get("AllowCloudRecording"),
+                )
+            )
+    service_health_objects: list[dict[str, Any]] = []
+    for source_name in ("healthOverviews", "serviceIssues", "messages"):
+        section = collector_payloads.get("service_health", {})
+        rows = _values(section, source_name)
+        for item in rows:
+            object_id = str(item.get("id") or item.get("service") or item.get("title") or source_name)
+            service_health_objects.append(
+                _record(
+                    "service_health_object",
+                    f"service_health.{source_name}",
+                    object_id,
+                    source_name=source_name,
+                    service=item.get("service"),
+                    title=item.get("title"),
+                    status=item.get("status"),
+                )
+            )
+    usage_report_objects: list[dict[str, Any]] = []
+    for source_name in (
+        "office365ActiveUserCounts",
+        "sharePointSiteUsageDetail",
+        "oneDriveUsageAccountDetail",
+        "mailboxUsageDetail",
+    ):
+        for idx, item in enumerate(_values(collector_payloads.get("reports_usage", {}), source_name), start=1):
+            object_id = str(item.get("Site Id") or item.get("Owner Principal Name") or item.get("User Principal Name") or f"{source_name}:{idx}")
+            usage_report_objects.append(
+                _record(
+                    "usage_report_object",
+                    f"reports_usage.{source_name}",
+                    object_id,
+                    source_name=source_name,
+                    report_refresh_date=item.get("Report Refresh Date"),
+                )
+            )
+    external_identity_objects: list[dict[str, Any]] = []
+    for source_name in ("crossTenantAccessPolicy", "authorizationPolicy", "authenticationFlowsPolicy"):
+        section = collector_payloads.get("external_identity", {})
+        value = section.get(source_name)
+        rows = value.get("value", []) if isinstance(value, dict) and isinstance(value.get("value"), list) else [value] if isinstance(value, dict) else []
+        for item in rows:
+            object_id = str(item.get("id") or item.get("displayName") or source_name)
+            external_identity_objects.append(
+                _record(
+                    "external_identity_object",
+                    f"external_identity.{source_name}",
+                    object_id,
+                    source_name=source_name,
+                    display_name=item.get("displayName"),
+                    allow_invites_from=item.get("allowInvitesFrom"),
+                )
+            )
+    consent_policy_objects: list[dict[str, Any]] = []
+    for source_name in ("adminConsentRequestPolicy", "permissionGrantPolicies", "authorizationPolicy"):
+        section = collector_payloads.get("consent_policy", {})
+        value = section.get(source_name)
+        rows = value.get("value", []) if isinstance(value, dict) and isinstance(value.get("value"), list) else [value] if isinstance(value, dict) else []
+        for item in rows:
+            object_id = str(item.get("id") or item.get("displayName") or source_name)
+            consent_policy_objects.append(
+                _record(
+                    "consent_policy_object",
+                    f"consent_policy.{source_name}",
+                    object_id,
+                    source_name=source_name,
+                    display_name=item.get("displayName"),
+                    is_enabled=item.get("isEnabled"),
+                )
+            )
+    domain_hybrid_objects: list[dict[str, Any]] = []
+    for item in _values(collector_payloads.get("domains_hybrid", {}), "domains"):
+        object_id = str(item.get("id") or item.get("name"))
+        if object_id:
+            domain_hybrid_objects.append(
+                _record(
+                    "domain_hybrid_object",
+                    "domains_hybrid.domains",
+                    object_id,
+                    source_name="domains",
+                    authentication_type=item.get("authenticationType"),
+                    is_default=item.get("isDefault"),
+                    is_verified=item.get("isVerified"),
+                )
+            )
+    sync_users = _values(collector_payloads.get("domains_hybrid", {}), "syncSampleUsers")
+    if any(bool(item.get("onPremisesSyncEnabled")) for item in sync_users):
+        domain_hybrid_objects.append(
+            _record(
+                "domain_hybrid_object",
+                "domains_hybrid.syncSampleUsers",
+                "sync-signal",
+                source_name="syncSampleUsers",
+                synced_user_count=sum(1 for item in sync_users if bool(item.get("onPremisesSyncEnabled"))),
+            )
+        )
+    onedrive_posture_objects: list[dict[str, Any]] = []
+    for source_name in ("oneDriveSites", "teamSites"):
+        for item in _values(collector_payloads.get("onedrive_posture", {}), source_name):
+            object_id = str(item.get("id") or item.get("webUrl"))
+            if object_id:
+                onedrive_posture_objects.append(
+                    _record(
+                        "onedrive_posture_object",
+                        f"onedrive_posture.{source_name}",
+                        object_id,
+                        site_name=item.get("displayName") or item.get("name"),
+                        web_url=item.get("webUrl"),
+                        site_kind=item.get("siteKind") or _site_kind_from_web_url(item.get("webUrl")),
+                        sharing_capability=item.get("sharingCapability"),
+                    )
+                )
     purview_audit_jobs = [
         _record(
             "purview_audit_job",
@@ -819,6 +1352,21 @@ def build_normalized_snapshot(
         "mailboxes": mailboxes,
         "policies": policies,
         "sites": sites,
+        "sharepoint_site_posture_objects": sharepoint_site_posture_objects,
+        "sharepoint_permission_edges": sharepoint_permission_edges,
+        "sharepoint_sharing_findings": sharepoint_sharing_findings,
+        "application_consents": application_consents,
+        "license_inventory": license_inventory,
+        "exchange_policy_objects": exchange_policy_objects,
+        "governance_objects": governance_objects,
+        "intune_assignment_objects": intune_assignment_objects,
+        "teams_policy_objects": teams_policy_objects,
+        "service_health_objects": service_health_objects,
+        "usage_report_objects": usage_report_objects,
+        "external_identity_objects": external_identity_objects,
+        "consent_policy_objects": consent_policy_objects,
+        "domain_hybrid_objects": domain_hybrid_objects,
+        "onedrive_posture_objects": onedrive_posture_objects,
         "purview_audit_jobs": purview_audit_jobs,
         "purview_audit_exports": purview_audit_exports,
         "purview_retention_labels": purview_retention_labels,

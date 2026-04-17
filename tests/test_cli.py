@@ -190,6 +190,71 @@ def test_run_live_logs_run_events(tmp_path: Path, monkeypatch) -> None:
     assert (output_dir / "index" / "coverage.jsonl").exists()
 
 
+def test_run_live_writes_auth_context_and_capability_artifacts(tmp_path: Path, monkeypatch) -> None:
+    class _FakeCollector:
+        name = "identity"
+
+        def run(self, context):
+            return CollectorResult(
+                name=self.name,
+                status="ok",
+                item_count=1,
+                message="ok",
+                payload={"users": {"value": [{"id": "1"}]}},
+                coverage=[{"collector": "identity", "name": "users", "type": "graph", "status": "ok", "item_count": 1}],
+            )
+
+    class _FakeClient:
+        def __init__(self, auth, audit_event=None):
+            self.auth = auth
+
+    monkeypatch.setattr(cli, "GraphClient", lambda auth, **kwargs: _FakeClient(auth))
+    monkeypatch.setattr(cli, "REGISTRY", {"identity": _FakeCollector()})
+    monkeypatch.setattr(
+        cli,
+        "_inspect_access_token",
+        lambda token: {
+            "tenant_id": "tenant-ctx",
+            "audience": "https://graph.microsoft.com",
+            "delegated_scopes": ["Directory.Read.All", "User.Read.All", "Group.Read.All", "Application.Read.All"],
+            "app_roles": [],
+            "expires_at_utc": "2030-01-01T00:00:00Z",
+        },
+    )
+    monkeypatch.delenv("AZURE_TENANT_ID", raising=False)
+
+    args = cli.build_parser().parse_args(
+        [
+            "--tenant-name",
+            "acme",
+            "--tenant-id",
+            "tenant-ctx",
+            "--access-token",
+            "token-value",
+            "--collectors",
+            "identity",
+            "--out",
+            str(tmp_path),
+        ]
+    )
+    rc = cli.run_live(args)
+
+    assert rc == 0
+    output_dir = next(tmp_path.glob("acme-*"))
+    auth_context = json.loads((output_dir / "normalized" / "auth_context.json").read_text(encoding="utf-8"))
+    capability_matrix = json.loads((output_dir / "normalized" / "capability_matrix.json").read_text(encoding="utf-8"))
+    coverage_ledger = json.loads((output_dir / "normalized" / "coverage_ledger.json").read_text(encoding="utf-8"))
+    manifest = json.loads((output_dir / "run-manifest.json").read_text(encoding="utf-8"))
+
+    assert auth_context["auth_mode"] == "access_token"
+    assert auth_context["token_claims"]["tenant_id"] == "tenant-ctx"
+    assert capability_matrix["records"][0]["collector"] == "identity"
+    assert coverage_ledger["records"][0]["collector"] == "identity"
+    assert manifest["auth_context_path"] == "normalized/auth_context.json"
+    assert manifest["capability_matrix_path"] == "normalized/capability_matrix.json"
+    assert manifest["coverage_ledger_path"] == "normalized/coverage_ledger.json"
+
+
 def test_run_live_writes_diagnostics(tmp_path: Path, monkeypatch) -> None:
     class _FailingCollector:
         name = "security"
