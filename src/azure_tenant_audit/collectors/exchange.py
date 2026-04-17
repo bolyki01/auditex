@@ -11,11 +11,12 @@ from ..graph import GraphError
 
 class ExchangeCollector(Collector):
     name = "exchange"
-    description = "Exchange checks via optional command execution."
+    description = "Exchange posture and readiness checks via optional command execution."
     required_permissions = ["Exchange.ManageAsApp"]
     command_collectors = [
         {
             "name": "exchangeConnectivityCheck",
+            "category": "readiness",
             "commands": [
                 "m365 status --output json",
                 "m365 tenant info get --output json",
@@ -23,11 +24,49 @@ class ExchangeCollector(Collector):
             ],
         },
         {
+            "name": "exchangeTenantInfo",
+            "category": "posture",
+            "commands": [
+                "m365 tenant info get --output json",
+                "m365 tenant status",
+            ],
+        },
+        {
             "name": "mailboxCount",
+            "category": "posture",
             "commands": [
                 "m365 outlook report mailboxusagemailboxcount --period D30 --output json",
                 "m365 outlook roomlist list --output json",
                 "m365 exo mailbox list --output json",
+            ],
+            "graph_fallback": "mailbox_count",
+        },
+        {
+            "name": "mailboxQuotaStatus",
+            "category": "posture",
+            "commands": [
+                "m365 outlook report mailboxusagequotastatusmailboxcounts --period D30 --output json",
+            ],
+        },
+        {
+            "name": "mailboxStorage",
+            "category": "posture",
+            "commands": [
+                "m365 outlook report mailboxusagestorage --period D30 --output json",
+            ],
+        },
+        {
+            "name": "mailActivityCounts",
+            "category": "posture",
+            "commands": [
+                "m365 outlook report mailactivitycounts --period D30 --output json",
+            ],
+        },
+        {
+            "name": "roomLists",
+            "category": "posture",
+            "commands": [
+                "m365 outlook roomlist list --output json",
             ],
         },
     ]
@@ -44,24 +83,24 @@ class ExchangeCollector(Collector):
 
         for command in self.command_collectors:
             start = time.perf_counter()
+            category = str(command.get("category", "posture"))
             command_variants = command.get("commands")
             if not isinstance(command_variants, list):
                 command_variants = [str(command.get("command", ""))]
 
             response = self._run_command_variants(command_variants, command["name"], log_event)
-            if response.get("error") and command["name"] == "mailboxCount":
+            if response.get("error") and command.get("graph_fallback") == "mailbox_count":
                 graph_response = self._run_mailbox_count_graph_fallback(graph_client, top=top)
                 if graph_response is not None:
                     graph_response["command_variants"] = command_variants
                     graph_response["operation"] = command["name"]
+                    graph_response["category"] = category
                     response = graph_response
             duration_ms = round((time.perf_counter() - start) * 1000, 2)
             payload[command["name"]] = response
 
-            value = response.get("value")
-            item_count = len(value) if isinstance(value, list) else 0
-            if isinstance(value, list):
-                total += len(value)
+            item_count = self._item_count(response)
+            total += item_count
 
             status = "failed" if response.get("error") else "ok"
             error_class = response.get("error_class") or ("command_error" if response.get("error") else None)
@@ -70,7 +109,9 @@ class ExchangeCollector(Collector):
                 {
                     "collector": self.name,
                     "type": "command",
+                    "category": category,
                     "name": command["name"],
+                    "source": response.get("source", "command"),
                     "command": response.get("command", ""),
                     "command_variants": response.get("command_variants"),
                     "status": status,
@@ -81,14 +122,13 @@ class ExchangeCollector(Collector):
                 }
             )
 
-        status = "ok" if all(not entry.get("error") for entry in payload.values()) else "partial"
-        message = "Exchange checks may require command tool availability."
+        partial = any(entry.get("status") != "ok" for entry in coverage)
         return CollectorResult(
             name=self.name,
-            status=status,
+            status="partial" if partial else "ok",
             payload=payload,
             item_count=total,
-            message=message,
+            message="Exchange posture collection partially completed" if partial else "",
             coverage=coverage,
         )
 
@@ -104,6 +144,7 @@ class ExchangeCollector(Collector):
             response = self._run_command(command, log_event)
             response["command_variants"] = commands
             response["operation"] = operation
+            response.setdefault("source", "command")
 
             if response.get("error") is None:
                 return response
@@ -116,6 +157,7 @@ class ExchangeCollector(Collector):
                 "error_class": "command_error",
                 "operation": operation,
                 "command_variants": commands,
+                "source": "command",
             }
 
         return last_response
@@ -148,11 +190,18 @@ class ExchangeCollector(Collector):
             return {
                 "command": "graph /users?filter=mail ne null",
                 "value": users,
+                "source": "graph",
                 "error_class": None,
             }
         except GraphError as exc:
             return {
                 "command": "graph /users?filter=mail ne null",
                 "error": str(exc),
+                "source": "graph",
                 "error_class": "insufficient_permissions",
             }
+
+    @staticmethod
+    def _item_count(response: dict[str, Any]) -> int:
+        value = response.get("value")
+        return len(value) if isinstance(value, list) else 0

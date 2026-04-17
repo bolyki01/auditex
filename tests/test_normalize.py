@@ -123,3 +123,55 @@ def test_build_ai_safe_summary_uses_normalized_snapshot_counts() -> None:
     assert ai_safe["object_counts"]["groups"] == 3
     assert ai_safe["findings_count"] == 1
     assert ai_safe["blocker_count"] == 1
+
+
+def test_build_normalized_snapshot_extracts_security_incidents_scores_and_exchange_mailboxes() -> None:
+    collector_payloads = {
+        "security": {
+            "securityIncidents": {
+                "value": [
+                    {
+                        "id": "incident-1",
+                        "displayName": "Suspicious Inbox Rule",
+                        "severity": "high",
+                        "status": "active",
+                    }
+                ]
+            },
+            "secureScores": {
+                "value": [
+                    {
+                        "id": "score-1",
+                        "currentScore": 41.5,
+                        "maxScore": 82.0,
+                        "createdDateTime": "2026-04-01T00:00:00Z",
+                    }
+                ]
+            },
+        },
+        "exchange": {
+            "mailboxCount": {
+                "value": [
+                    {
+                        "ExternalDirectoryObjectId": "mailbox-1",
+                        "DisplayName": "Alice Example",
+                        "PrimarySmtpAddress": "alice@example.com",
+                        "RecipientTypeDetails": "UserMailbox",
+                    }
+                ]
+            }
+        },
+    }
+
+    normalized = build_normalized_snapshot(
+        tenant_name="acme",
+        run_id="run-2",
+        collector_payloads=collector_payloads,
+    )
+
+    assert normalized["snapshot"]["object_counts"]["incidents"] == 1
+    assert normalized["snapshot"]["object_counts"]["security_scores"] == 1
+    assert normalized["snapshot"]["object_counts"]["mailboxes"] == 1
+    assert normalized["incidents"]["records"][0]["severity"] == "high"
+    assert normalized["security_scores"]["records"][0]["current_score"] == 41.5
+    assert normalized["mailboxes"]["records"][0]["primary_smtp_address"] == "alice@example.com"

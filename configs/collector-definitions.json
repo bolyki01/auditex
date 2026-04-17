@@ -26,7 +26,7 @@
       "required_permissions": [
         "SecurityEvents.Read.All",
         "SecurityActions.Read.All",
-        "SecurityEvents.Read.All",
+        "SecurityIncident.Read.All",
         "AuditLog.Read.All"
       ],
       "query_plan": [
@@ -34,6 +34,9 @@
         "namedLocations",
         "directoryAudits",
         "securityAlerts",
+        "defenderIncidents",
+        "secureScores",
+        "defenderRecommendations",
         "signIns"
       ]
     },
@@ -90,22 +93,74 @@
     },
     "exchange": {
       "enabled": false,
-      "description": "Optional Exchange readiness checks not fully covered by Graph",
+      "description": "Optional Exchange posture and readiness checks through Microsoft 365 CLI command execution",
       "required_permissions": [
         "Exchange.ManageAsApp"
       ],
       "query_plan": [
         "exchangeConnectivityCheck",
-        "mailboxCount"
+        "exchangeTenantInfo",
+        "mailboxCount",
+        "mailboxQuotaStatus",
+        "mailboxStorage",
+        "mailActivityCounts",
+        "roomLists"
       ],
       "command_collectors": [
         {
           "name": "exchangeConnectivityCheck",
-          "command": "m365 tenant info get --output json"
+          "category": "readiness",
+          "commands": [
+            "m365 status --output json",
+            "m365 tenant info get --output json",
+            "m365 tenant status"
+          ]
+        },
+        {
+          "name": "exchangeTenantInfo",
+          "category": "posture",
+          "commands": [
+            "m365 tenant info get --output json",
+            "m365 tenant status"
+          ]
         },
         {
           "name": "mailboxCount",
-          "command": "m365 outlook report mailboxusagemailboxcount --period D30 --output json"
+          "category": "posture",
+          "commands": [
+            "m365 outlook report mailboxusagemailboxcount --period D30 --output json",
+            "m365 outlook roomlist list --output json",
+            "m365 exo mailbox list --output json"
+          ],
+          "graph_fallback": "mailbox_count"
+        },
+        {
+          "name": "mailboxQuotaStatus",
+          "category": "posture",
+          "commands": [
+            "m365 outlook report mailboxusagequotastatusmailboxcounts --period D30 --output json"
+          ]
+        },
+        {
+          "name": "mailboxStorage",
+          "category": "posture",
+          "commands": [
+            "m365 outlook report mailboxusagestorage --period D30 --output json"
+          ]
+        },
+        {
+          "name": "mailActivityCounts",
+          "category": "posture",
+          "commands": [
+            "m365 outlook report mailactivitycounts --period D30 --output json"
+          ]
+        },
+        {
+          "name": "roomLists",
+          "category": "posture",
+          "commands": [
+            "m365 outlook roomlist list --output json"
+          ]
         }
       ]
     }

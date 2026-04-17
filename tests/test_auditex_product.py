@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from auditex.mcp_server import build_cli_command, summarize_run, tool_specs
+from auditex.mcp_server import build_cli_command, build_probe_command, summarize_run, tool_specs
 from azure_tenant_audit.cli import build_parser, run_offline
 from azure_tenant_audit.profiles import get_profile, profile_choices
 
@@ -74,6 +74,9 @@ def test_mcp_tool_specs_present() -> None:
     assert "auditex_run_delegated_audit" in names
     assert "auditex_summarize_run" in names
     assert "auditex_diff_runs" in names
+    assert "auditex_probe_live" in names
+    assert "auditex_probe_summarize" in names
+    assert "auditex_list_blockers" in names
 
 
 def test_build_cli_command_uses_profile_and_cli_token() -> None:
@@ -105,6 +108,45 @@ def test_build_cli_command_rejects_unimplemented_response_plane() -> None:
         )
 
 
+def test_build_probe_command_uses_mode_surface_and_lab_guard() -> None:
+    command = build_probe_command(
+        tenant_name="ACME",
+        out_dir="outputs/probes",
+        tenant_id="contoso.onmicrosoft.com",
+        auditor_profile="global-reader",
+        mode="response",
+        surface="exchange",
+        allow_lab_response=True,
+        since="2026-04-01T00:00:00Z",
+        until="2026-04-02T00:00:00Z",
+    )
+    assert command[:3] == [command[0], "-m", "auditex"]
+    assert "probe" in command
+    assert "live" in command
+    assert "--mode" in command
+    assert "response" in command
+    assert "--surface" in command
+    assert "exchange" in command
+    assert "--allow-lab-response" in command
+    assert "--since" in command
+    assert "--until" in command
+
+
+def test_build_probe_command_includes_app_credentials() -> None:
+    command = build_probe_command(
+        tenant_name="ACME",
+        out_dir="outputs/probes",
+        tenant_id="contoso.onmicrosoft.com",
+        mode="app",
+        client_id="app-id",
+        client_secret="app-secret",
+    )
+    assert "--client-id" in command
+    assert "app-id" in command
+    assert "--client-secret" in command
+    assert "app-secret" in command
+
+
 def test_summarize_run_reads_manifest(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
@@ -113,3 +155,16 @@ def test_summarize_run_reads_manifest(tmp_path: Path) -> None:
 
     summary = summarize_run(str(run_dir))
     assert summary["manifest"]["tenant_name"] == "acme"
+
+
+def test_summarize_run_reads_probe_artifacts(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "run-manifest.json").write_text(json.dumps({"tenant_name": "acme"}), encoding="utf-8")
+    (run_dir / "summary.json").write_text(json.dumps({"collectors": []}), encoding="utf-8")
+    (run_dir / "capability-matrix.json").write_text(json.dumps([{"surface": "identity"}]), encoding="utf-8")
+    (run_dir / "toolchain-readiness.json").write_text(json.dumps({"m365_cli": {"status": "blocked"}}), encoding="utf-8")
+
+    summary = summarize_run(str(run_dir))
+    assert summary["capability_matrix"][0]["surface"] == "identity"
+    assert summary["toolchain_readiness"]["m365_cli"]["status"] == "blocked"

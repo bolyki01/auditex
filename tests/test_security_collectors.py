@@ -18,6 +18,12 @@ class _SecurityClient:
             return [{"id": "si-1"}]
         if path == "/auditLogs/directoryAudits":
             return [{"id": "da-1"}]
+        if path == "/security/incidents":
+            return [{"id": "incident-1"}]
+        if path == "/security/secureScores":
+            return [{"id": "score-1"}]
+        if path == "/security/secureScoreControlProfiles":
+            return [{"id": "control-1"}]
         if path == "/security/alerts":
             return [{"id": "alert-1"}]
         raise AssertionError(f"unexpected path: {path}")
@@ -39,8 +45,12 @@ def test_security_collector_collects_directory_audits_and_time_filters() -> None
 
     assert result.status == "ok"
     assert result.payload["directoryAudits"]["value"][0]["id"] == "da-1"
+    assert result.payload["defenderIncidents"]["value"][0]["id"] == "incident-1"
+    assert result.payload["secureScores"]["value"][0]["id"] == "score-1"
+    assert result.payload["defenderRecommendations"]["value"][0]["id"] == "control-1"
     assert "createdDateTime ge 2026-04-01T00:00:00Z" in client.calls["/auditLogs/signIns"]["$filter"]
     assert "activityDateTime ge 2026-04-01T00:00:00Z" in client.calls["/auditLogs/directoryAudits"]["$filter"]
+    assert "createdDateTime ge 2026-04-01T00:00:00Z" in client.calls["/security/incidents"]["$filter"]
 
 
 class _PartialSecurityClient(_SecurityClient):
@@ -57,3 +67,24 @@ def test_security_collector_marks_partial_when_directory_audits_are_blocked() ->
     assert result.status == "partial"
     failed_items = [row for row in (result.coverage or []) if row["status"] != "ok"]
     assert any(row["name"] == "directoryAudits" for row in failed_items)
+
+
+class _BlockedDefenderSecurityClient(_SecurityClient):
+    def get_all(self, path, params=None):  # noqa: ANN001
+        if path in {"/security/incidents", "/security/secureScoreControlProfiles"}:
+            raise GraphError("Forbidden", status=403)
+        return super().get_all(path, params=params)
+
+
+def test_security_collector_marks_partial_for_blocked_defender_posture_surfaces() -> None:
+    collector = SecurityCollector()
+    result = collector.run({"client": _BlockedDefenderSecurityClient(), "top": 100, "audit_logger": None})
+
+    assert result.status == "partial"
+    failed_items = {
+        row["name"]: row["error_class"]
+        for row in (result.coverage or [])
+        if row["status"] != "ok"
+    }
+    assert failed_items["defenderIncidents"] == "insufficient_permissions"
+    assert failed_items["defenderRecommendations"] == "insufficient_permissions"

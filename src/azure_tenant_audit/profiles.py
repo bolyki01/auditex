@@ -11,6 +11,9 @@ class AuditProfile:
     delegated_role_hints: tuple[str, ...]
     app_escalation_permissions: tuple[str, ...]
     supported_planes: tuple[str, ...]
+    supported_probe_modes: tuple[str, ...]
+    adapter_requirements: tuple[str, ...]
+    response_allowed: bool
     notes: str
 
 
@@ -22,6 +25,9 @@ PROFILES: dict[str, AuditProfile] = {
         delegated_role_hints=("Global Reader",),
         app_escalation_permissions=(),
         supported_planes=("inventory", "full"),
+        supported_probe_modes=("delegated", "app"),
+        adapter_requirements=(),
+        response_allowed=False,
         notes="Use for unknown delegated tokens and let diagnostics describe missing visibility.",
     ),
     "global-reader": AuditProfile(
@@ -38,6 +44,9 @@ PROFILES: dict[str, AuditProfile] = {
             "Sites.Read.All",
         ),
         supported_planes=("inventory", "full"),
+        supported_probe_modes=("delegated", "app"),
+        adapter_requirements=(),
+        response_allowed=False,
         notes="Preferred first-pass profile for customer-led browser login without app consent.",
     ),
     "security-reader": AuditProfile(
@@ -47,6 +56,9 @@ PROFILES: dict[str, AuditProfile] = {
         delegated_role_hints=("Security Reader", "Global Reader"),
         app_escalation_permissions=("SecurityEvents.Read.All", "AuditLog.Read.All", "Reports.Read.All", "Policy.Read.All"),
         supported_planes=("inventory", "full"),
+        supported_probe_modes=("delegated", "app"),
+        adapter_requirements=(),
+        response_allowed=False,
         notes="Use when the customer grants Security Reader but not broader workload access.",
     ),
     "exchange-reader": AuditProfile(
@@ -56,6 +68,9 @@ PROFILES: dict[str, AuditProfile] = {
         delegated_role_hints=("Exchange Reader", "Global Reader"),
         app_escalation_permissions=("Exchange.ManageAsApp",),
         supported_planes=("inventory", "full"),
+        supported_probe_modes=("delegated", "app", "response"),
+        adapter_requirements=("m365_cli", "powershell_graph"),
+        response_allowed=True,
         notes="Uses command-based Exchange collection where Graph coverage is limited.",
     ),
     "intune-reader": AuditProfile(
@@ -68,6 +83,9 @@ PROFILES: dict[str, AuditProfile] = {
             "DeviceManagementManagedDevices.Read.All",
         ),
         supported_planes=("inventory", "full"),
+        supported_probe_modes=("delegated", "app"),
+        adapter_requirements=(),
+        response_allowed=False,
         notes="Useful when Global Reader does not expose the device-management surfaces needed.",
     ),
     "app-readonly-full": AuditProfile(
@@ -86,6 +104,9 @@ PROFILES: dict[str, AuditProfile] = {
             "Sites.Read.All",
         ),
         supported_planes=("inventory", "full"),
+        supported_probe_modes=("delegated", "app"),
+        adapter_requirements=("m365_cli", "powershell_graph"),
+        response_allowed=False,
         notes="Secondary pass only. Use a customer-local app registration and keep permissions read-only.",
     ),
 }

@@ -78,6 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--page-size", type=int, default=100, help="Per-request page size for paged Graph endpoints.")
     parser.add_argument("--run-name", default=None, help="Optional run subfolder identifier.")
     parser.add_argument(
+        "--resume-from",
+        default=None,
+        help="Resume into an existing run directory and skip already completed collectors.",
+    )
+    parser.add_argument(
         "--plane",
         default="inventory",
         choices=PLANE_CHOICES,
@@ -460,7 +465,29 @@ def run_live(args: argparse.Namespace) -> int:
     if args.interactive and not auth_scopes:
         auth_scopes = ["User.Read"]
 
-    writer = AuditWriter(run_cfg.output_dir, run_cfg.tenant_name, run_name=run_cfg.run_name)
+    resume_from = Path(args.resume_from).expanduser().resolve() if args.resume_from else None
+    writer = AuditWriter(
+        run_cfg.output_dir,
+        run_cfg.tenant_name,
+        run_name=run_cfg.run_name,
+        run_dir=resume_from,
+    )
+    completed_state = writer.load_checkpoint_state() if resume_from else {}
+    completed_collectors = {
+        name
+        for name, state in completed_state.items()
+        if state.get("status") in {"ok", "partial", "skipped"}
+    }
+    if resume_from:
+        writer.log_event(
+            "run.resume",
+            "Resuming from existing run state",
+            {
+                "resume_from": str(resume_from),
+                "checkpoint_entries": len(completed_state),
+                "completed_collectors": sorted(completed_collectors),
+            },
+        )
 
     if args.use_azure_cli_token:
         if not args.access_token:
@@ -554,6 +581,21 @@ def run_live(args: argparse.Namespace) -> int:
         if name == "exchange" and not args.include_exchange:
             continue
 
+        if resume_from and name in completed_collectors:
+            skipped_row: dict[str, object] = {
+                "name": name,
+                "status": "skipped",
+                "item_count": completed_state.get(name, {}).get("item_count", 0),
+                "message": "Collector skipped due to checkpoint resume.",
+                "error": None,
+                "coverage_rows": 0,
+            }
+            result_rows.append(skipped_row)
+            writer.write_summary(skipped_row)
+            writer.write_checkpoint(name, skipped_row)
+            writer.log_event("collector.skipped", "Collector skipped", {"collector": name})
+            continue
+
         try:
             writer.log_event("collector.started", "Collector started", {"collector": name})
             result: CollectorResult = collector.run(
@@ -604,6 +646,7 @@ def run_live(args: argparse.Namespace) -> int:
                     "coverage_rows": len(collector_coverage),
                 }
             )
+            writer.write_checkpoint(name, result_rows[-1])
         except Exception as exc:  # noqa: BLE001
             failures += 1
             LOG.exception("Collector failed: %s", name)
@@ -622,6 +665,7 @@ def run_live(args: argparse.Namespace) -> int:
                     "coverage_rows": 0,
                 }
             )
+            writer.write_checkpoint(name, result_rows[-1])
 
     duration = round(time.time() - start, 2)
     for row in result_rows:

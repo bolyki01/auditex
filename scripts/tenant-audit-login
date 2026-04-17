@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${CURRENT_DIR}/load-local-auth.sh"
+
 usage() {
   cat <<'USAGE'
 Usage: tenant-audit-login [tenant-id-or-domain|organizations]
@@ -19,7 +23,7 @@ USAGE
 TENANT="organizations"
 BROWSER_COMMAND="firefox"
 M365_LOGIN=0
-M365_APP_ID=""
+M365_APP_ID="${M365_CLI_APP_ID:-${M365_CLI_CLIENT_ID:-}}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

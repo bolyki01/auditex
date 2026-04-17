@@ -47,11 +47,30 @@ class AuditLogger:
 
 
 class AuditWriter:
-    def __init__(self, base_dir: Path, tenant_name: str, run_name: Optional[str] = None):
+    def __init__(
+        self,
+        base_dir: Path,
+        tenant_name: str,
+        run_name: Optional[str] = None,
+        *,
+        run_dir: Path | None = None,
+    ):
         self.base_dir = base_dir
         ts = time.strftime("%Y%m%d_%H%M%S", time.gmtime())
-        self.run_id = run_name or f"run_{ts}"
-        self.run_dir = base_dir / f"{tenant_name}-{self.run_id}"
+        if run_dir is None:
+            self.run_id = run_name or f"run_{ts}"
+            self.run_dir = base_dir / f"{tenant_name}-{self.run_id}"
+        else:
+            self.run_dir = run_dir
+            normalized = run_dir.name
+            prefix = f"{tenant_name}-"
+            if normalized.startswith(prefix):
+                self.run_id = normalized[len(prefix) :] if len(normalized) > len(prefix) else f"run_{ts}"
+            else:
+                self.run_id = normalized
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+
+        self.resume_from_path = None
         self.raw_dir = self.run_dir / "raw"
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.chunks_dir = self.run_dir / "chunks"
@@ -72,9 +91,14 @@ class AuditWriter:
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         self.checkpoints_dir = self.run_dir / "checkpoints"
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
+        self.checkpoint_state_path = self.checkpoints_dir / "checkpoint-state.json"
+        existing_manifest_path = self.run_dir / "run-manifest.json"
+        existing_manifest = self._safe_load_json(existing_manifest_path)
+        self._checkpoint_state: dict[str, dict[str, Any]] = self._load_checkpoint_state()
         self.coverage_index_path = self.index_dir / "coverage.jsonl"
         self.summary: dict[str, Any] = {"collectors": []}
         self.coverage: list[dict[str, Any]] = []
+        self._seed_existing_run_artifacts(existing_manifest)
         self.audit = AuditLogger(self.run_dir)
         self._manifest = {
             "tenant_name": tenant_name,
@@ -90,16 +114,98 @@ class AuditWriter:
                 "findings/",
                 "reports/",
                 "checkpoints/",
+                "checkpoints/checkpoint-state.json",
                 "audit-log.jsonl",
                 "audit-command-log.jsonl",
                 "audit-debug.log",
             ],
         }
+        if isinstance(existing_manifest, dict):
+            for key, value in existing_manifest.items():
+                if key in {"created_utc", "run_dir", "audit_log_path", "audit_command_log_path", "debug_log_path", "collectors"}:
+                    continue
+                self._manifest[key] = value
+            if existing_manifest.get("tenant_name"):
+                self._manifest["tenant_name"] = existing_manifest["tenant_name"]
+
+    def _safe_load_json(self, path: Path) -> Any:
+        if not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, ValueError):
+            return None
+
+    def _seed_existing_run_artifacts(self, existing_manifest: Any) -> None:
+        if not isinstance(existing_manifest, dict):
+            return
+
+        existing_summary = self._safe_load_json(self.run_dir / "summary.json")
+        if isinstance(existing_summary, dict):
+            existing_collectors = existing_summary.get("collectors")
+            if isinstance(existing_collectors, list):
+                self.summary["collectors"] = [item for item in existing_collectors if isinstance(item, dict)]
+
+        existing_coverage = self._safe_load_json(self.run_dir / "coverage.json")
+        if isinstance(existing_coverage, list):
+            self.coverage = [item for item in existing_coverage if isinstance(item, dict)]
+
+        existing_state = self._safe_load_json(self.checkpoint_state_path)
+        if isinstance(existing_state, dict):
+            state = existing_state.get("collectors")
+            if isinstance(state, dict):
+                self._checkpoint_state = {str(k): v for k, v in state.items() if isinstance(v, dict)}
 
     def _record_artifact(self, target: Path) -> None:
         relative = str(target.relative_to(self.run_dir))
         if relative not in self._manifest["artifacts"]:
             self._manifest["artifacts"].append(relative)
+
+    def _load_checkpoint_state(self) -> dict[str, dict[str, Any]]:
+        if not self.checkpoint_state_path.exists():
+            return {}
+        try:
+            payload = json.loads(self.checkpoint_state_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                return {}
+            state = payload.get("collectors")
+            if isinstance(state, dict):
+                return {str(k): v for k, v in state.items() if isinstance(v, dict)}
+            return {}
+        except (OSError, json.JSONDecodeError, ValueError):
+            return {}
+
+    def load_checkpoint_state(self) -> dict[str, dict[str, Any]]:
+        return self._checkpoint_state
+
+    def write_checkpoint(self, collector_name: str, payload: dict[str, Any]) -> Path:
+        state = self.load_checkpoint_state()
+        state[collector_name] = {
+            "status": payload.get("status"),
+            "item_count": payload.get("item_count"),
+            "message": payload.get("message"),
+            "error": payload.get("error"),
+            "error_class": payload.get("error_class"),
+            "ts_utc": _now_iso(),
+        }
+        self._checkpoint_state = state
+        checkpoint_payload = {
+            "run_dir": str(self.run_dir),
+            "run_id": self.run_id,
+            "collectors": state,
+        }
+        path = self.checkpoint_state_path
+        path.write_text(json.dumps(checkpoint_payload, indent=2), encoding="utf-8")
+        self._record_artifact(path)
+        self._manifest["checkpoint_state_path"] = str(path.relative_to(self.run_dir))
+        return path
+
+    def write_json_artifact(self, relative_path: str, payload: Any) -> Path:
+        target = self.run_dir / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self._record_artifact(target)
+        return target
 
     def write_raw(self, name: str, payload: dict[str, Any]) -> Path:
         target = self.raw_dir / f"{name}.json"
@@ -201,6 +307,19 @@ class AuditWriter:
             "since": metadata.get("since"),
             "until": metadata.get("until"),
         }
+        for key in (
+            "probe_mode",
+            "probe_surface",
+            "capability_matrix_path",
+            "toolchain_readiness_path",
+            "evidence_index_path",
+            "auth_path",
+            "data_handling_events",
+            "lab_guard_state",
+        ):
+            value = metadata.get(key)
+            if value is not None:
+                self._manifest[key] = value
         self._manifest["run_dir"] = str(self.run_dir)
         self._manifest["audit_log_path"] = "audit-log.jsonl"
         self._manifest["audit_command_log_path"] = "audit-command-log.jsonl"

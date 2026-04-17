@@ -318,6 +318,116 @@ def test_run_live_with_azure_cli_token_uses_azure_cli_mode(tmp_path: Path, monke
     monkeypatch.setattr(cli, "REGISTRY", {"identity": _FakeCollector()})
 
     monkeypatch.setattr(sys, "argv", ["audit", "--tenant-name", "acme", "--tenant-id", "t-123", "--use-azure-cli-token", "--collectors", "identity", "--out", str(tmp_path)])
+
+
+def test_run_live_resume_skips_completed_collectors(tmp_path: Path, monkeypatch) -> None:
+    class _IdentityCollector:
+        name = "identity"
+        run_calls = 0
+
+        def run(self, context):
+            self.__class__.run_calls += 1
+            return CollectorResult(
+                name=self.name,
+                status="ok",
+                item_count=1,
+                message="ok",
+                payload={"value": [{"id": "identity"}]},
+            )
+
+    class _SecurityCollector:
+        name = "security"
+        run_calls = 0
+
+        def run(self, context):
+            self.__class__.run_calls += 1
+            return CollectorResult(
+                name=self.name,
+                status="ok",
+                item_count=2,
+                message="ok",
+                payload={"value": [{"id": "1"}, {"id": "2"}]},
+            )
+
+    class _FakeClient:
+        def __init__(self, auth, audit_event=None):
+            self.audit_event = audit_event
+
+        def get_json(self, path):
+            return {}
+
+        def get_all(self, path, params=None):  # noqa: ARG002
+            return []
+
+    identity_collector = _IdentityCollector()
+    security_collector = _SecurityCollector()
+
+    run_dir = tmp_path / "acme-resume-run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "checkpoints").mkdir(exist_ok=True)
+    (run_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "collectors": [
+                    {
+                        "name": "identity",
+                        "status": "ok",
+                        "item_count": 1,
+                        "message": "identity already collected",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "checkpoints" / "checkpoint-state.json").write_text(
+        json.dumps(
+            {
+                "run_id": "resume-run",
+                "collectors": {
+                    "identity": {
+                        "status": "ok",
+                        "item_count": 1,
+                        "message": "previous successful identity",
+                        "ts_utc": "2026-04-17T00:00:00Z",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    args = cli.build_parser().parse_args(
+        [
+            "--tenant-name",
+            "acme",
+            "--tenant-id",
+            "t-123",
+            "--use-azure-cli-token",
+            "--collectors",
+            "identity,security",
+            "--out",
+            str(tmp_path),
+            "--resume-from",
+            str(run_dir),
+        ]
+    )
+
+    monkeypatch.setattr(cli, "GraphClient", _FakeClient)
+    monkeypatch.setattr(cli, "REGISTRY", {"identity": identity_collector, "security": security_collector})
+    monkeypatch.setattr(cli, "_acquire_azure_cli_access_token", lambda *_, **__: "cached-token")
+
+    rc = cli.run_live(args)
+
+    assert rc == 0
+    assert identity_collector.run_calls == 0
+    assert security_collector.run_calls == 1
+
+    output_dir = run_dir
+    manifest = json.loads((output_dir / "run-manifest.json").read_text(encoding="utf-8"))
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    assert manifest["run_id"] == "resume-run"
+    assert any(item.get("name") == "identity" and item.get("status") == "skipped" for item in summary.get("collectors", []))
     args = cli.build_parser().parse_args(
         [
             "--tenant-name",

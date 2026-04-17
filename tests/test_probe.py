@@ -1,0 +1,142 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from azure_tenant_audit.collectors.base import CollectorResult
+from azure_tenant_audit.probe import ProbeConfig, run_live_probe
+
+
+class _FakeCollector:
+    name = "identity"
+
+    def run(self, _context):
+        return CollectorResult(
+            name="identity",
+            status="ok",
+            item_count=1,
+            message="ok",
+            payload={"users": {"value": [{"id": "1", "displayName": "User One"}]}},
+            coverage=[
+                {
+                    "collector": "identity",
+                    "type": "graph",
+                    "name": "users",
+                    "endpoint": "/users",
+                    "status": "ok",
+                    "item_count": 1,
+                }
+            ],
+        )
+
+
+class _FakeClient:
+    def __init__(self, auth, audit_event=None):
+        self.auth = auth
+        self.audit_event = audit_event
+
+
+def test_probe_live_writes_capability_and_toolchain_artifacts(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("azure_tenant_audit.probe.GraphClient", _FakeClient)
+    monkeypatch.setattr("azure_tenant_audit.probe._acquire_azure_cli_access_token", lambda *_, **__: "token")
+    monkeypatch.setattr(
+        "azure_tenant_audit.probe._capture_signed_in_context",
+        lambda *_, **__: {"user_principal_name": "auditor@contoso.test", "roles": ["Global Reader"]},
+    )
+    monkeypatch.setattr(
+        "azure_tenant_audit.probe._probe_toolchain_statuses",
+        lambda **_: [
+            {
+                "collector": "toolchain",
+                "surface": "az_cli_graph",
+                "type": "toolchain",
+                "name": "az_cli_graph",
+                "toolchain": "az",
+                "status": "supported",
+                "item_count": 1,
+                "message": "Azure CLI Graph token available",
+            }
+        ],
+    )
+    monkeypatch.setattr("azure_tenant_audit.probe.REGISTRY", {"identity": _FakeCollector()})
+
+    rc = run_live_probe(
+        ProbeConfig(
+            tenant_name="contoso",
+            output_dir=tmp_path,
+            tenant_id="tenant-id",
+            mode="delegated",
+            surface="identity",
+            run_name="probe-live",
+        )
+    )
+    assert rc == 0
+
+    run_dir = tmp_path / "contoso-probe-live"
+    capability_matrix = json.loads((run_dir / "capability-matrix.json").read_text(encoding="utf-8"))
+    toolchain = json.loads((run_dir / "toolchain-readiness.json").read_text(encoding="utf-8"))
+    manifest = json.loads((run_dir / "run-manifest.json").read_text(encoding="utf-8"))
+
+    assert capability_matrix[0]["surface"] == "identity"
+    assert capability_matrix[0]["toolchain"] == "graph"
+    assert toolchain["az_cli_graph"]["status"] == "supported"
+    assert manifest["probe_mode"] == "delegated"
+    assert manifest["probe_surface"] == "identity"
+    assert manifest["capability_matrix_path"] == "capability-matrix.json"
+    assert manifest["toolchain_readiness_path"] == "toolchain-readiness.json"
+
+
+def test_response_probe_requires_lab_guard_but_still_writes_blockers(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "azure_tenant_audit.probe._probe_toolchain_statuses",
+        lambda **_: [],
+    )
+
+    rc = run_live_probe(
+        ProbeConfig(
+            tenant_name="contoso",
+            output_dir=tmp_path,
+            tenant_id="not-lab-tenant",
+            auditor_profile="exchange-reader",
+            mode="response",
+            surface="all",
+            run_name="probe-response",
+            allow_lab_response=True,
+        )
+    )
+    assert rc == 1
+
+    run_dir = tmp_path / "contoso-probe-response"
+    blockers = json.loads((run_dir / "blockers" / "blockers.json").read_text(encoding="utf-8"))
+    capability_matrix = json.loads((run_dir / "capability-matrix.json").read_text(encoding="utf-8"))
+    manifest = json.loads((run_dir / "run-manifest.json").read_text(encoding="utf-8"))
+
+    assert blockers[0]["error_class"] == "lab_guard"
+    assert capability_matrix[0]["surface"] == "response.lab_guard"
+    assert capability_matrix[0]["status"] == "blocked"
+    assert manifest["lab_guard_state"] == "blocked"
+
+
+def test_delegated_probe_without_token_source_writes_auth_blocker(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "azure_tenant_audit.probe._probe_toolchain_statuses",
+        lambda **_: [],
+    )
+
+    rc = run_live_probe(
+        ProbeConfig(
+            tenant_name="contoso",
+            output_dir=tmp_path,
+            tenant_id="tenant-id",
+            mode="delegated",
+            surface="identity",
+            run_name="probe-missing-auth",
+            use_azure_cli_token=False,
+        )
+    )
+    assert rc == 1
+
+    run_dir = tmp_path / "contoso-probe-missing-auth"
+    blockers = json.loads((run_dir / "blockers" / "blockers.json").read_text(encoding="utf-8"))
+    assert blockers[0]["collector"] == "probe_auth"
+    assert blockers[0]["error_class"] == "unauthenticated"

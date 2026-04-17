@@ -12,6 +12,7 @@ class SecurityCollector(Collector):
     required_permissions = [
         "SecurityEvents.Read.All",
         "SecurityActions.Read.All",
+        "SecurityIncident.Read.All",
         "AuditLog.Read.All",
     ]
 
@@ -27,6 +28,7 @@ class SecurityCollector(Collector):
         if until:
             filter_clauses.append(f"createdDateTime le {until}")
         sign_in_params = {"$filter": " and ".join(filter_clauses)} if filter_clauses else {}
+        incident_params = {"$filter": " and ".join(filter_clauses)} if filter_clauses else {}
         directory_filter_clauses: list[str] = []
         if since:
             directory_filter_clauses.append(f"activityDateTime ge {since}")
@@ -52,6 +54,18 @@ class SecurityCollector(Collector):
             },
             "securityAlerts": {
                 "endpoint": "/security/alerts",
+                "params": {},
+            },
+            "defenderIncidents": {
+                "endpoint": "/security/incidents",
+                "params": incident_params,
+            },
+            "secureScores": {
+                "endpoint": "/security/secureScores",
+                "params": {},
+            },
+            "defenderRecommendations": {
+                "endpoint": "/security/secureScoreControlProfiles",
                 "params": {},
             },
         }

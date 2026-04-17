@@ -127,6 +127,51 @@ def build_normalized_snapshot(
         for item in _values(collector_payloads.get("intune", {}), "managedDevices")
         if item.get("id")
     ]
+    incidents = [
+        _record(
+            "incident",
+            "security.securityIncidents",
+            str(item.get("id")),
+            display_name=item.get("displayName"),
+            severity=item.get("severity"),
+            status=item.get("status"),
+            classification=item.get("classification"),
+            determination=item.get("determination"),
+        )
+        for item in _values(collector_payloads.get("security", {}), "securityIncidents")
+        if item.get("id")
+    ]
+    security_scores = [
+        _record(
+            "security_score",
+            "security.secureScores",
+            str(item.get("id")),
+            current_score=item.get("currentScore"),
+            max_score=item.get("maxScore"),
+            created=item.get("createdDateTime"),
+        )
+        for item in _values(collector_payloads.get("security", {}), "secureScores")
+        if item.get("id")
+    ]
+    exchange_mailbox_records: list[dict[str, Any]] = []
+    for source_name in ("mailboxInventory", "mailboxCount"):
+        for item in _values(collector_payloads.get("exchange", {}), source_name):
+            mailbox_id = item.get("ExternalDirectoryObjectId") or item.get("id")
+            if not mailbox_id:
+                continue
+            exchange_mailbox_records.append(
+                _record(
+                    "mailbox",
+                    f"exchange.{source_name}",
+                    str(mailbox_id),
+                    display_name=item.get("DisplayName") or item.get("displayName"),
+                    primary_smtp_address=item.get("PrimarySmtpAddress")
+                    or item.get("primarySmtpAddress")
+                    or item.get("mail"),
+                    recipient_type=item.get("RecipientTypeDetails") or item.get("recipientTypeDetails"),
+                )
+            )
+    mailboxes = list({record["key"]: record for record in exchange_mailbox_records}.values())
 
     policies: list[dict[str, Any]] = []
     for source_name in ("conditionalAccessPolicies",):
@@ -186,6 +231,9 @@ def build_normalized_snapshot(
         "role_definitions": role_definitions,
         "role_assignments": role_assignments,
         "devices": devices,
+        "incidents": incidents,
+        "security_scores": security_scores,
+        "mailboxes": mailboxes,
         "policies": policies,
         "sites": sites,
     }

@@ -17,12 +17,13 @@
       "graph_scopes": [
         "SecurityEvents.Read.All",
         "SecurityActions.Read.All",
+        "SecurityIncident.Read.All",
         "AuditLog.Read.All"
       ],
       "minimum_role_hints": [
         "Security Reader"
       ],
-      "notes": "Sign-in and security alerts can require extra privileges in tightly governed environments."
+      "notes": "Sign-in, Defender incidents, secure score, and security alerts can require extra privileges in tightly governed environments."
     },
     "auth_methods": {
       "graph_scopes": [
@@ -72,10 +73,11 @@
     "exchange": {
       "graph_scopes": [],
       "minimum_role_hints": [
+        "Exchange Reader",
         "Global Reader",
         "Exchange Administrator"
       ],
-      "notes": "Command-based collectors rely on Microsoft 365 CLI / Exchange tooling outside Graph.",
+      "notes": "Command-based Exchange posture relies on Microsoft 365 CLI tenant and report commands; mailbox presence falls back to Graph only when CLI reporting is unavailable.",
       "command_tools": [
         "m365"
       ],
@@ -84,6 +86,9 @@
         "m365 tenant info get --output json",
         "m365 tenant status",
         "m365 outlook report mailboxusagemailboxcount --period D30 --output json",
+        "m365 outlook report mailboxusagequotastatusmailboxcounts --period D30 --output json",
+        "m365 outlook report mailboxusagestorage --period D30 --output json",
+        "m365 outlook report mailactivitycounts --period D30 --output json",
         "m365 outlook roomlist list --output json",
         "m365 exo mailbox list --output json"
       ]
@@ -94,6 +99,7 @@
     "User.Read.All",
     "AuditLog.Read.All",
     "SecurityEvents.Read.All",
+    "SecurityIncident.Read.All",
     "DeviceManagementManagedDevices.Read.All",
     "DeviceManagementConfiguration.Read.All",
     "Team.ReadBasic.All",
