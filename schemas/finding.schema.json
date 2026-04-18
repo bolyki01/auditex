@@ -5,14 +5,51 @@
   "required": ["id", "severity", "title", "status", "category"],
   "properties": {
     "id": { "type": "string" },
+    "rule_id": { "type": "string" },
     "severity": { "type": "string" },
     "category": { "type": "string" },
     "title": { "type": "string" },
     "status": { "type": "string" },
     "collector": { "type": "string" },
+    "description": { "type": ["string", "null"] },
+    "impact": { "type": ["string", "null"] },
+    "remediation": { "type": ["string", "null"] },
+    "expected_value": {},
+    "returned_value": {},
+    "risk_rating": { "type": ["string", "null"] },
+    "references": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "framework_mappings": {
+      "type": "object",
+      "properties": {
+        "cis": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "nist": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "attack": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "control_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
     "error_class": { "type": ["string", "null"] },
     "error": { "type": ["string", "null"] },
     "recommendations": { "type": "object" },
+    "waiver_applied": { "type": "boolean" },
+    "waiver": {
+      "type": ["object", "null"]
+    },
     "affected_objects": {
       "type": "array",
       "items": { "type": "string" }

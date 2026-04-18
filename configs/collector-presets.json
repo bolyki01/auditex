@@ -1,0 +1,66 @@
+{
+  "presets": {
+    "config-only": {
+      "description": "Configuration-heavy collectors without the deeper export surfaces.",
+      "include": [
+        "identity",
+        "app_consent",
+        "conditional_access",
+        "auth_methods",
+        "external_identity",
+        "consent_policy",
+        "domains_hybrid",
+        "licensing",
+        "sharepoint",
+        "teams"
+      ],
+      "exclude": [],
+      "plane": "inventory"
+    },
+    "full": {
+      "description": "Broad first-pass collector set for delegated reader audits.",
+      "include": [
+        "identity",
+        "app_consent",
+        "security",
+        "conditional_access",
+        "defender",
+        "service_health",
+        "auth_methods",
+        "reports_usage",
+        "external_identity",
+        "consent_policy",
+        "domains_hybrid",
+        "licensing",
+        "intune",
+        "sharepoint",
+        "sharepoint_access",
+        "onedrive_posture",
+        "teams"
+      ],
+      "exclude": [],
+      "plane": "full"
+    },
+    "identity-only": {
+      "description": "Small identity-only sweep for permissions, roles, and apps.",
+      "include": [
+        "identity",
+        "app_consent"
+      ],
+      "exclude": [],
+      "plane": "inventory"
+    },
+    "security-only": {
+      "description": "Security-centric collectors for incidents, policies, and auth posture.",
+      "include": [
+        "security",
+        "conditional_access",
+        "defender",
+        "auth_methods",
+        "identity_governance"
+      ],
+      "exclude": [],
+      "plane": "full"
+    }
+  }
+}

@@ -19,8 +19,10 @@ from .findings import build_findings, build_report_pack
 from .graph import GraphClient
 from .normalize import build_ai_safe_summary, build_normalized_snapshot
 from .output import AuditWriter
+from .presets import load_collector_presets, resolve_collector_selection
 from .profiles import get_profile, profile_choices
 from .utils import load_env_file, parse_csv_list
+from auditex.evidence_db import build_run_evidence_index
 
 LOG = logging.getLogger("azure_tenant_audit")
 
@@ -73,11 +75,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--browser-command", default="firefox", help="Browser command used by interactive auth.")
     parser.add_argument("--out", default="audit-output", help="Base output directory.")
     parser.add_argument("--config", default="configs/collector-definitions.json", help="Collector configuration file.")
+    parser.add_argument(
+        "--collector-preset",
+        default=None,
+        help="Optional named collector preset from configs/collector-presets.json.",
+    )
+    parser.add_argument(
+        "--waiver-file",
+        default=None,
+        help="Optional JSON waiver file for accepted findings.",
+    )
     parser.add_argument("--collectors", default=None, help="Comma-separated collectors to run.")
     parser.add_argument("--exclude", default=None, help="Comma-separated collectors to skip.")
     parser.add_argument("--include-exchange", action="store_true", help="Enable optional exchange collectors.")
     parser.add_argument("--top", type=int, default=500, help="Per-endpoint result limit.")
     parser.add_argument("--page-size", type=int, default=100, help="Per-request page size for paged Graph endpoints.")
+    parser.add_argument(
+        "--throttle-mode",
+        choices=("fast", "safe", "ultra-safe"),
+        default="safe",
+        help="Graph pacing mode used to reduce bursts and retry more carefully.",
+    )
+    parser.add_argument("--probe-first", dest="probe_first", action="store_true", default=False, help="Run a low-volume preflight before full collection.")
+    parser.add_argument("--no-probe-first", dest="probe_first", action="store_false", help="Skip the low-volume preflight step.")
+    parser.add_argument("--include-blocked", action="store_true", help="Run collectors even if preflight marks them as known blocked.")
     parser.add_argument("--run-name", default=None, help="Optional run subfolder identifier.")
     parser.add_argument(
         "--resume-from",
@@ -530,7 +551,151 @@ def _build_diagnostics(
     return failures
 
 
-def run_live(args: argparse.Namespace) -> int:
+def _collector_pause_seconds(throttle_mode: str) -> float:
+    if throttle_mode == "ultra-safe":
+        return 1.5
+    if throttle_mode == "safe":
+        return 0.5
+    return 0.0
+
+
+def _run_preflight_probe(
+    *,
+    selected_collectors: list[str],
+    completed_collectors: set[str],
+    client: GraphClient,
+    run_cfg: RunConfig,
+    writer: AuditWriter,
+    include_blocked: bool,
+) -> tuple[list[str], list[dict[str, Any]], str]:
+    rows: list[dict[str, Any]] = []
+    runnable: list[str] = []
+    preflight_top = max(1, min(5, run_cfg.top_items))
+    preflight_page_size = max(1, min(5, run_cfg.page_size))
+    writer.log_event(
+        "preflight.started",
+        "Collector preflight started",
+        {
+            "collector_count": len(selected_collectors),
+            "top": preflight_top,
+            "page_size": preflight_page_size,
+            "include_blocked": include_blocked,
+        },
+    )
+    for name in selected_collectors:
+        if name in completed_collectors:
+            runnable.append(name)
+            rows.append(
+                {
+                    "collector": name,
+                    "decision": "run",
+                    "reason": "already_completed",
+                    "status": "ok",
+                    "item_count": 0,
+                }
+            )
+            continue
+        collector = REGISTRY.get(name)
+        if collector is None:
+            rows.append(
+                {
+                    "collector": name,
+                    "decision": "skip",
+                    "reason": "unknown_collector",
+                    "status": "failed",
+                    "item_count": 0,
+                    "error": "unknown collector",
+                }
+            )
+            continue
+
+        writer.log_event("preflight.collector.started", "Preflight collector started", {"collector": name})
+        try:
+            result = collector.run(
+                {
+                    "client": client,
+                    "top": preflight_top,
+                    "page_size": preflight_page_size,
+                    "plane": "inventory",
+                    "since": run_cfg.since,
+                    "until": run_cfg.until,
+                    "collector_checkpoint_state": {},
+                    "operation_checkpoint_state": {},
+                    "chunk_writer": None,
+                    "audit_logger": writer.log_event,
+                }
+            )
+            coverage = result.coverage or []
+            has_ok = any(item.get("status") == "ok" for item in coverage)
+            decision = "run" if include_blocked or result.item_count > 0 or has_ok else "skip"
+            reason = "supported" if decision == "run" else "known_blocked"
+            rows.append(
+                {
+                    "collector": name,
+                    "decision": decision,
+                    "reason": reason,
+                    "status": result.status,
+                    "item_count": result.item_count,
+                    "coverage_rows": len(coverage),
+                    "message": result.message,
+                }
+            )
+            if decision == "run":
+                runnable.append(name)
+            writer.log_event(
+                "preflight.collector.finished",
+                "Preflight collector finished",
+                {
+                    "collector": name,
+                    "decision": decision,
+                    "status": result.status,
+                    "item_count": result.item_count,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            rows.append(
+                {
+                    "collector": name,
+                    "decision": "skip" if not include_blocked else "run",
+                    "reason": "preflight_exception",
+                    "status": "failed",
+                    "item_count": 0,
+                    "error": str(exc),
+                }
+            )
+            if include_blocked:
+                runnable.append(name)
+            writer.log_event(
+                "preflight.collector.finished",
+                "Preflight collector failed",
+                {
+                    "collector": name,
+                    "decision": "run" if include_blocked else "skip",
+                    "status": "failed",
+                    "error": str(exc),
+                },
+            )
+
+    artifact = writer.write_json_artifact(
+        "preflight-plan.json",
+        {
+            "collectors": rows,
+            "runnable_collectors": runnable,
+            "skipped_collectors": [row["collector"] for row in rows if row.get("decision") == "skip"],
+        },
+    )
+    writer.log_event(
+        "preflight.completed",
+        "Collector preflight completed",
+        {
+            "run_count": len(runnable),
+            "skip_count": len([row for row in rows if row.get("decision") == "skip"]),
+        },
+    )
+    return runnable, rows, str(artifact.relative_to(writer.run_dir))
+
+
+def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]], None] | None = None) -> int:
     out = Path(args.out).expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
 
@@ -570,9 +735,17 @@ def run_live(args: argparse.Namespace) -> int:
     )
 
     available = [name for name in config.default_order if name in config.collectors]
-    selected = run_cfg.selected_collectors(available)
-    if not selected:
-        LOG.error("No collectors selected.")
+    try:
+        selected = resolve_collector_selection(
+            available=available,
+            profile_default_collectors=profile.default_collectors,
+            preset_name=args.collector_preset,
+            presets=load_collector_presets(),
+            explicit_collectors=selected_collector_names,
+            excluded_collectors=exclude_collector_names,
+        )
+    except ValueError as exc:
+        LOG.error("%s", exc)
         return 2
     if run_cfg.plane not in profile.supported_planes:
         LOG.error("Audit profile '%s' does not support plane '%s'.", run_cfg.auditor_profile, run_cfg.plane)
@@ -591,6 +764,7 @@ def run_live(args: argparse.Namespace) -> int:
         run_cfg.tenant_name,
         run_name=run_cfg.run_name,
         run_dir=resume_from,
+        event_listener=event_listener,
     )
     completed_state = writer.load_checkpoint_state() if resume_from else {}
     completed_collectors = {
@@ -665,6 +839,7 @@ def run_live(args: argparse.Namespace) -> int:
         authority=args.authority,
         graph_scope=args.graph_scope,
         interactive_scopes=auth_scopes,
+        throttle_mode=args.throttle_mode,
     )
     client = GraphClient(auth, audit_event=writer.log_event)
     session_context: dict[str, Any] = {}
@@ -695,7 +870,44 @@ def run_live(args: argparse.Namespace) -> int:
         collector_config=config,
         permission_hints=permission_hints,
     )
-    command_line = _scrub_command_line(list(sys.argv))
+    selected_before_preflight = list(selected)
+    preflight_rows: list[dict[str, Any]] = []
+    preflight_path: str | None = None
+    if args.probe_first:
+        selected, preflight_rows, preflight_path = _run_preflight_probe(
+            selected_collectors=selected_before_preflight,
+            completed_collectors=completed_collectors,
+            client=client,
+            run_cfg=run_cfg,
+            writer=writer,
+            include_blocked=args.include_blocked,
+        )
+        if not selected:
+            writer.log_event(
+                "run.aborted",
+                "No runnable collectors remained after preflight.",
+                {"preflight_path": preflight_path},
+            )
+            writer.write_bundle(
+                {
+                    "executed_by": "azure_tenant_audit",
+                    "collectors": [],
+                    "overall_status": "partial",
+                    "duration_seconds": 0,
+                    "mode": auth_mode,
+                    "auditor_profile": run_cfg.auditor_profile,
+                    "plane": run_cfg.plane,
+                    "since": run_cfg.since,
+                    "until": run_cfg.until,
+                    "session_context": session_context,
+                    "command_line": _scrub_command_line(list(getattr(args, "_command_line", sys.argv))),
+                    "coverage_count": 0,
+                    "throttle_mode": args.throttle_mode,
+                    "preflight_path": preflight_path,
+                }
+            )
+            return 1
+    command_line = _scrub_command_line(list(getattr(args, "_command_line", sys.argv)))
     writer.log_event(
         "run.started",
         "Live run started",
@@ -713,6 +925,8 @@ def run_live(args: argparse.Namespace) -> int:
             "session_context": session_context,
             "auth_context": auth_context_payload,
             "command_line": command_line,
+            "throttle_mode": args.throttle_mode,
+            "preflight_path": preflight_path,
         },
     )
     start = time.time()
@@ -721,6 +935,33 @@ def run_live(args: argparse.Namespace) -> int:
     summary_rows: list[dict[str, object]] = []
     coverage_rows: list[dict[str, Any]] = list(writer.coverage) if resume_from else []
     collector_payloads: dict[str, dict[str, Any]] = {}
+    preflight_skipped = {
+        row["collector"]: row
+        for row in preflight_rows
+        if row.get("decision") == "skip" and row.get("collector")
+    }
+    collector_pause_seconds = _collector_pause_seconds(args.throttle_mode)
+
+    for name, skip in preflight_skipped.items():
+        skip_row: dict[str, object] = {
+            "name": name,
+            "status": "skipped",
+            "item_count": 0,
+            "message": "Collector skipped after preflight marked it as known blocked.",
+            "error": skip.get("error"),
+            "coverage_rows": 0,
+        }
+        result_rows.append(skip_row)
+        summary_rows.append(skip_row)
+        writer.write_checkpoint(name, skip_row)
+        writer.log_event(
+            "collector.skipped",
+            "Collector skipped after preflight",
+            {
+                "collector": name,
+                "reason": skip.get("reason"),
+            },
+        )
 
     for name in selected:
         collector = REGISTRY.get(name)
@@ -842,6 +1083,14 @@ def run_live(args: argparse.Namespace) -> int:
             summary_rows.append(result_rows[-1])
             writer.write_checkpoint(name, result_rows[-1])
 
+        if collector_pause_seconds > 0:
+            writer.log_event(
+                "run.collector.pause",
+                "Pausing before next collector",
+                {"collector": name, "delay_seconds": collector_pause_seconds},
+            )
+            time.sleep(collector_pause_seconds)
+
     duration = round(time.time() - start, 2)
     for row in summary_rows:
         writer.write_summary(row)
@@ -872,7 +1121,11 @@ def run_live(args: argparse.Namespace) -> int:
         result_rows=result_rows,
         coverage_rows=coverage_rows,
     )
-    findings = build_findings(diagnostics, normalized_snapshot=normalized_snapshot)
+    findings = build_findings(
+        diagnostics,
+        normalized_snapshot=normalized_snapshot,
+        waiver_file=args.waiver_file,
+    )
     writer.write_normalized("auth_context", auth_context_payload)
     writer.write_normalized("capability_matrix", {"kind": "capability_matrix", "records": capability_rows})
     writer.write_normalized("coverage_ledger", {"kind": "coverage_ledger", "records": coverage_ledger})
@@ -892,7 +1145,7 @@ def run_live(args: argparse.Namespace) -> int:
     writer.write_report_pack(
         build_report_pack(
             tenant_name=run_cfg.tenant_name,
-            overall_status="partial" if failures else "ok",
+            overall_status="partial" if failures or preflight_skipped else "ok",
             findings=findings,
             evidence_paths=evidence_paths,
             blocker_count=len(diagnostics),
@@ -903,15 +1156,19 @@ def run_live(args: argparse.Namespace) -> int:
         "Live run completed",
         {"failures": failures, "collectors": len(result_rows), "coverage_rows": len(coverage_rows)},
     )
+    evidence_db_path = build_run_evidence_index(writer.run_dir)
+    writer._record_artifact(evidence_db_path)
     writer.write_bundle(
         {
             "executed_by": "azure_tenant_audit",
             "collectors": selected,
-            "overall_status": "partial" if failures else "ok",
+            "overall_status": "partial" if failures or preflight_skipped else "ok",
             "duration_seconds": duration,
             "mode": auth_mode,
             "auditor_profile": run_cfg.auditor_profile,
             "plane": run_cfg.plane,
+            "collector_preset": args.collector_preset,
+            "waiver_path": args.waiver_file,
             "since": run_cfg.since,
             "until": run_cfg.until,
             "session_context": session_context,
@@ -920,15 +1177,20 @@ def run_live(args: argparse.Namespace) -> int:
             "coverage_ledger_path": "normalized/coverage_ledger.json",
             "command_line": command_line,
             "coverage_count": len(coverage_rows),
+            "throttle_mode": args.throttle_mode,
+            "preflight_path": preflight_path,
+            "evidence_db_path": str(evidence_db_path.relative_to(writer.run_dir)),
         }
     )
     LOG.info("Completed in %.2fs. Output in %s", duration, writer.run_dir)
-    return 1 if failures else 0
+    return 1 if failures or preflight_skipped else 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, event_listener: Callable[[dict[str, Any]], None] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    parsed_argv = list(argv if argv is not None else sys.argv[1:])
+    args = parser.parse_args(parsed_argv)
+    args._command_line = ["azure-tenant-audit", *parsed_argv]
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(levelname)s: %(message)s")
 
     if args.env:
@@ -955,7 +1217,6 @@ def main(argv: list[str] | None = None) -> int:
         os.environ["BROWSER"] = args.browser_command
     if args.scopes:
         args.scopes = args.scopes.strip()
-
     if args.offline:
         return run_offline(
             Path(args.sample),
@@ -967,7 +1228,7 @@ def main(argv: list[str] | None = None) -> int:
             since=args.since,
             until=args.until,
         )
-    return run_live(args)
+    return run_live(args, event_listener=event_listener)
 
 
 if __name__ == "__main__":

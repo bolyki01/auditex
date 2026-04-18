@@ -1,4 +1,4 @@
-PYTHON := python
+PYTHON := $(shell ./scripts/select-python.sh)
 TENANT ?= organizations
 
 .PHONY: test
@@ -8,7 +8,7 @@ test:
 .PHONY: login
 login:
 	@if command -v az >/dev/null 2>&1; then \
-		BROWSER=firefox az login --tenant "$(TENANT)"; \
+		BROWSER=firefox az login --tenant "$(TENANT)" --allow-no-subscriptions; \
 	else \
 		echo "Azure CLI is required. Install it with: brew install azure-cli"; \
 		exit 2; \
@@ -28,4 +28,20 @@ audit-full:
 
 .PHONY: install
 install:
-	$(PYTHON) -m pip install -r requirements.txt
+	$(PYTHON) -m pip install -e .
+
+.PHONY: bootstrap
+bootstrap:
+	@./scripts/bootstrap-local-tools.sh
+
+.PHONY: setup
+setup:
+	@auditex setup
+
+.PHONY: doctor
+doctor:
+	@auditex doctor
+
+.PHONY: research-competitors
+research-competitors:
+	@auditex research competitors all

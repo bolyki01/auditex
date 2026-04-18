@@ -25,6 +25,7 @@ class LicensingCollector(Collector):
                 "subscribedSkus": {
                     "endpoint": "/subscribedSkus",
                     "params": {},
+                    "apply_top": False,
                 },
                 "licensedUsers": {
                     "endpoint": "/users",

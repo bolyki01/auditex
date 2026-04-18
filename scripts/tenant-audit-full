@@ -182,7 +182,7 @@ fi
 
 if [[ "${FORCE_LOGIN}" -eq 1 ]] || ! az account show >/dev/null 2>&1; then
   echo "Starting browser login in ${BROWSER_COMMAND}..."
-  BROWSER="${BROWSER_COMMAND}" az login --tenant "${TENANT_ID}"
+  BROWSER="${BROWSER_COMMAND}" az login --tenant "${TENANT_ID}" --allow-no-subscriptions
 fi
 
 if [[ "${INCLUDE_EXCHANGE}" -eq 1 ]]; then

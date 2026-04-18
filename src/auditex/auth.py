@@ -86,6 +86,69 @@ def _json_command(command: list[str]) -> dict[str, Any]:
     }
 
 
+def _pwsh_exchange_module_status() -> dict[str, Any]:
+    pwsh_exe = shutil.which("pwsh")
+    if pwsh_exe is None:
+        return {
+            "status": "blocked",
+            "error_class": "command_not_found",
+            "error": "pwsh not installed",
+        }
+    completed = subprocess.run(
+        [
+            pwsh_exe,
+            "-NoLogo",
+            "-NoProfile",
+            "-Command",
+            "Get-Module -ListAvailable ExchangeOnlineManagement | "
+            "Select-Object -First 1 Name,Version | ConvertTo-Json -Compress",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    stdout = (completed.stdout or "").strip()
+    stderr = (completed.stderr or "").strip()
+    if completed.returncode == 0 and stdout and stdout != "null":
+        payload: dict[str, Any] | None = None
+        try:
+            decoded = json.loads(stdout)
+            if isinstance(decoded, dict):
+                payload = decoded
+        except json.JSONDecodeError:
+            payload = None
+        return {
+            "status": "supported",
+            "pwsh_path": pwsh_exe,
+            "module_name": (payload or {}).get("Name") or "ExchangeOnlineManagement",
+            "module_version": (payload or {}).get("Version"),
+        }
+    return {
+        "status": "blocked",
+        "pwsh_path": pwsh_exe,
+        "error_class": "module_not_found",
+        "error": stderr or stdout or f"return_code:{completed.returncode}",
+    }
+
+
+def ensure_exchange_online_module() -> int:
+    status = _pwsh_exchange_module_status()
+    if status.get("status") == "supported":
+        return 0
+    pwsh_exe = status.get("pwsh_path")
+    if not pwsh_exe:
+        return 2
+    command = [
+        str(pwsh_exe),
+        "-NoLogo",
+        "-NoProfile",
+        "-Command",
+        "Set-PSRepository PSGallery -InstallationPolicy Trusted; "
+        "Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber",
+    ]
+    return subprocess.run(command, check=False).returncode
+
+
 def _load_json(path: Path, *, default: Any) -> Any:
     if not path.exists():
         return default
@@ -330,6 +393,7 @@ def get_auth_status() -> dict[str, Any]:
     azure = _json_command(["az", "account", "show", "--output", "json"])
     m365 = _json_command(["m365", "status", "--output", "json"])
     connections = _json_command(["m365", "connection", "list", "--output", "json"])
+    exchange = _pwsh_exchange_module_status()
 
     result: dict[str, Any] = {
         "local_auth": _masked_local_auth_values(path),
@@ -339,6 +403,7 @@ def get_auth_status() -> dict[str, Any]:
         "m365": {
             "status": m365["status"],
         },
+        "exchange": exchange,
         "auth_contexts": list_auth_contexts(),
     }
     if azure.get("payload"):
@@ -362,10 +427,12 @@ def get_auth_status() -> dict[str, Any]:
                     "app_id": payload.get("appId"),
                     "tenant_id": payload.get("appTenant"),
                     "cloud_type": payload.get("cloudType"),
+                    "authenticated": bool(payload.get("connectionName") or payload.get("connectedAs")),
                 }
             )
     else:
         result["m365"]["error"] = (m365.get("stderr") or m365.get("stdout") or "").strip()
+        result["m365"]["authenticated"] = False
 
     if connections.get("payload") is not None:
         result["m365"]["saved_connections"] = connections.get("payload")

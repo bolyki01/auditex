@@ -12,6 +12,7 @@ from azure_tenant_audit.diffing import diff_run_directories
 from azure_tenant_audit.profiles import PROFILES
 from azure_tenant_audit.adapters import ADAPTERS, list_adapters as _list_adapters
 from azure_tenant_audit.response import response_actions
+from .rules import list_rule_inventory
 SUPPORTED_PLANES = ("inventory", "full", "export")
 SUPPORTED_PROBE_MODES = ("delegated", "app", "response")
 
@@ -133,6 +134,11 @@ def tool_specs() -> list[dict[str, Any]]:
             "readOnlyHint": True,
         },
         {
+            "name": "auditex_compare_runs",
+            "description": "Compare multiple completed runs with same-tenant gating and timeline output.",
+            "readOnlyHint": True,
+        },
+        {
             "name": "auditex_probe_live",
             "description": "Run a live capability probe against a tenant and emit capability/toolchain/blocker artifacts.",
             "readOnlyHint": False,
@@ -145,6 +151,26 @@ def tool_specs() -> list[dict[str, Any]]:
         {
             "name": "auditex_list_blockers",
             "description": "Read blocker artifacts from a completed audit or probe run.",
+            "readOnlyHint": True,
+        },
+        {
+            "name": "auditex_report_preview",
+            "description": "Build an in-memory report preview for a completed run without writing files.",
+            "readOnlyHint": True,
+        },
+        {
+            "name": "auditex_export_list",
+            "description": "List available report exporters.",
+            "readOnlyHint": True,
+        },
+        {
+            "name": "auditex_notify_preview",
+            "description": "Build the dry-run notification payload for a completed run.",
+            "readOnlyHint": True,
+        },
+        {
+            "name": "auditex_rules_inventory",
+            "description": "List built-in rule inventory rows with optional routing filters.",
             "readOnlyHint": True,
         },
         {
@@ -327,6 +353,8 @@ def summarize_run(run_dir: str) -> dict[str, Any]:
     normalized_auth_context_path = path / "normalized" / "auth_context.json"
     normalized_coverage_ledger_path = path / "normalized" / "coverage_ledger.json"
     blockers_path = path / "blockers" / "blockers.json"
+    report_pack_path = path / "reports" / "report-pack.json"
+    action_plan_path = path / "reports" / "action-plan.json"
     if capability_matrix_path.exists():
         result["capability_matrix_path"] = str(capability_matrix_path)
         result["capability_matrix"] = json.loads(capability_matrix_path.read_text(encoding="utf-8"))
@@ -348,6 +376,12 @@ def summarize_run(run_dir: str) -> dict[str, Any]:
     if blockers_path.exists():
         result["blockers_path"] = str(blockers_path)
         result["blockers"] = json.loads(blockers_path.read_text(encoding="utf-8"))
+    if report_pack_path.exists():
+        result["report_pack_path"] = str(report_pack_path)
+        result["report_pack"] = json.loads(report_pack_path.read_text(encoding="utf-8"))
+    if action_plan_path.exists():
+        result["action_plan_path"] = str(action_plan_path)
+        result["action_plan"] = json.loads(action_plan_path.read_text(encoding="utf-8"))
     return result
 
 
@@ -361,6 +395,59 @@ def list_blockers(run_dir: str) -> dict[str, Any]:
     if path.exists():
         result["blockers"] = json.loads(path.read_text(encoding="utf-8"))
     return result
+
+
+def compare_many_runs(run_dirs: list[str], allow_cross_tenant: bool = False) -> dict[str, Any]:
+    from .compare import compare_runs
+
+    return compare_runs(run_dirs, allow_cross_tenant=allow_cross_tenant)
+
+
+def preview_report(
+    run_dir: str,
+    format_name: str = "json",
+    include_sections: str = "",
+    exclude_sections: str = "",
+) -> dict[str, Any]:
+    from .reporting import preview_report as _preview_report
+
+    include = [item.strip() for item in include_sections.split(",") if item.strip()]
+    exclude = [item.strip() for item in exclude_sections.split(",") if item.strip()]
+    return _preview_report(
+        run_dir=run_dir,
+        format_name=format_name,
+        include_sections=include or None,
+        exclude_sections=exclude or None,
+    )
+
+
+def list_available_exporters() -> dict[str, Any]:
+    from .exporters import list_exporters
+
+    return {"exporters": list_exporters()}
+
+
+def preview_notification(run_dir: str, sink: str = "teams") -> dict[str, Any]:
+    from .notify import send_notification
+
+    return send_notification(run_dir=run_dir, sink=sink, dry_run=True)
+
+
+def rules_inventory(
+    tag: str = "",
+    path_prefix: str = "",
+    product_family: str = "",
+    license_tier: str = "",
+    audit_level: str = "",
+) -> dict[str, Any]:
+    rows = list_rule_inventory(
+        tag=tag or None,
+        path_prefix=path_prefix or None,
+        product_family=product_family or None,
+        license_tier=license_tier or None,
+        audit_level=audit_level or None,
+    )
+    return {"count": len(rows), "rules": rows}
 
 
 def main() -> int:
@@ -467,6 +554,10 @@ def main() -> int:
         return diff_runs(run_a, run_b)
 
     @server.tool
+    def auditex_compare_runs(run_dirs: list[str], allow_cross_tenant: bool = False) -> dict[str, Any]:
+        return compare_many_runs(run_dirs, allow_cross_tenant=allow_cross_tenant)
+
+    @server.tool
     def auditex_probe_live(
         tenant_name: str,
         tenant_id: str = "organizations",
@@ -504,6 +595,44 @@ def main() -> int:
     @server.tool
     def auditex_list_blockers(run_dir: str) -> dict[str, Any]:
         return list_blockers(run_dir)
+
+    @server.tool
+    def auditex_report_preview(
+        run_dir: str,
+        format_name: str = "json",
+        include_sections: str = "",
+        exclude_sections: str = "",
+    ) -> dict[str, Any]:
+        return preview_report(
+            run_dir=run_dir,
+            format_name=format_name,
+            include_sections=include_sections,
+            exclude_sections=exclude_sections,
+        )
+
+    @server.tool
+    def auditex_export_list() -> dict[str, Any]:
+        return list_available_exporters()
+
+    @server.tool
+    def auditex_notify_preview(run_dir: str, sink: str = "teams") -> dict[str, Any]:
+        return preview_notification(run_dir=run_dir, sink=sink)
+
+    @server.tool
+    def auditex_rules_inventory(
+        tag: str = "",
+        path_prefix: str = "",
+        product_family: str = "",
+        license_tier: str = "",
+        audit_level: str = "",
+    ) -> dict[str, Any]:
+        return rules_inventory(
+            tag=tag,
+            path_prefix=path_prefix,
+            product_family=product_family,
+            license_tier=license_tier,
+            audit_level=audit_level,
+        )
 
     @server.tool
     def auditex_run_response_action(

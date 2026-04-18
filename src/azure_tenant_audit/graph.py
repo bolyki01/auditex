@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, Optional
+from urllib.parse import urlencode, urlparse
 
 import requests
 from requests.exceptions import RequestException
@@ -13,7 +15,46 @@ from .config import AuthConfig
 
 LOG = logging.getLogger(__name__)
 GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
+GRAPH_BATCH_CHUNK_SIZE = 20
 TOKEN_URL_TEMPLATE = "{authority}{tenant_id}/oauth2/v2.0/token"
+
+
+@dataclass(frozen=True)
+class ThrottlePolicy:
+    min_delay_seconds: float
+    jitter_seconds: float
+    rate_limit_retries: int
+    server_error_retries: int
+    permission_stop_after: int
+    base_backoff_seconds: float
+
+
+THROTTLE_POLICIES: dict[str, ThrottlePolicy] = {
+    "fast": ThrottlePolicy(
+        min_delay_seconds=0.0,
+        jitter_seconds=0.0,
+        rate_limit_retries=3,
+        server_error_retries=2,
+        permission_stop_after=0,
+        base_backoff_seconds=1.0,
+    ),
+    "safe": ThrottlePolicy(
+        min_delay_seconds=0.2,
+        jitter_seconds=0.1,
+        rate_limit_retries=4,
+        server_error_retries=3,
+        permission_stop_after=2,
+        base_backoff_seconds=1.5,
+    ),
+    "ultra-safe": ThrottlePolicy(
+        min_delay_seconds=0.75,
+        jitter_seconds=0.25,
+        rate_limit_retries=5,
+        server_error_retries=4,
+        permission_stop_after=1,
+        base_backoff_seconds=2.0,
+    ),
+}
 
 
 class GraphError(RuntimeError):
@@ -37,6 +78,8 @@ class GraphClient:
     session: requests.Session = field(default_factory=requests.Session)
     _token: Optional[str] = None
     audit_event: Optional[Callable[[str, str, Optional[dict[str, Any]]], None]] = None
+    _next_request_not_before: float = field(default=0.0, init=False)
+    _permission_failures: dict[str, int] = field(default_factory=dict, init=False)
 
     def _emit(self, event: str, message: str, details: Optional[dict[str, Any]] = None) -> None:
         if self.audit_event is None:
@@ -64,6 +107,54 @@ class GraphClient:
             authority=self.auth.authority.rstrip("/") + "/",
             tenant_id=self.auth.tenant_id,
         )
+
+    def _throttle_policy(self) -> ThrottlePolicy:
+        return THROTTLE_POLICIES.get(self.auth.throttle_mode, THROTTLE_POLICIES["safe"])
+
+    def _request_family(self, url: str) -> str:
+        path = urlparse(url).path
+        parts = [item for item in path.split("/") if item]
+        if parts and parts[0] in {"v1.0", "beta"}:
+            parts = parts[1:]
+        return parts[0] if parts else "root"
+
+    def _apply_pacing(self, *, method: str, url: str, attempt: int) -> None:
+        policy = self._throttle_policy()
+        now = time.monotonic()
+        if self._next_request_not_before <= now:
+            return
+        wait_seconds = round(self._next_request_not_before - now, 3)
+        if wait_seconds <= 0:
+            return
+        self._emit(
+            "graph.request.pacing",
+            "Waiting before next Graph request",
+            {
+                "method": method,
+                "url": url,
+                "attempt": attempt,
+                "delay_seconds": wait_seconds,
+                "mode": self.auth.throttle_mode,
+            },
+        )
+        time.sleep(wait_seconds)
+        self._next_request_not_before = 0.0
+
+    def _arm_next_request_delay(self) -> None:
+        policy = self._throttle_policy()
+        delay_seconds = policy.min_delay_seconds
+        if policy.jitter_seconds > 0:
+            delay_seconds += random.uniform(0.0, policy.jitter_seconds)
+        self._next_request_not_before = time.monotonic() + delay_seconds
+
+    def _retry_delay(self, attempt: int, *, retry_after: str | None = None) -> float:
+        policy = self._throttle_policy()
+        if retry_after:
+            try:
+                return max(float(retry_after), policy.base_backoff_seconds)
+            except ValueError:
+                pass
+        return round(policy.base_backoff_seconds * (2 ** max(0, attempt - 1)), 2)
 
     def _authority(self) -> str:
         tenant_id = self.auth.tenant_id or "organizations"
@@ -174,11 +265,27 @@ class GraphClient:
             {
                 "Authorization": f"Bearer {token}",
                 "Accept": "application/json",
+                "User-Agent": "auditex/1.0.0",
             }
         )
         attempt = 0
+        family = self._request_family(url)
+        permission_stop_after = self._throttle_policy().permission_stop_after
         while True:
             attempt += 1
+            if permission_stop_after and self._permission_failures.get(family, 0) >= permission_stop_after:
+                self._emit(
+                    "graph.request.permission_stop",
+                    "Skipping request after repeated permission failures",
+                    {"method": method, "url": url, "family": family, "attempt": attempt},
+                )
+                raise GraphError(
+                    f"Permission stop triggered for Graph family '{family}'.",
+                    status=403,
+                    request=url,
+                    error_code="PermissionStop",
+                )
+            self._apply_pacing(method=method, url=url, attempt=attempt)
             request_start = time.time()
             self._emit(
                 "graph.request.started",
@@ -212,25 +319,51 @@ class GraphClient:
                     "response_length": len(response.text),
                 },
             )
-            if response.status_code == 429 and attempt <= 3:
-                retry_after = int(response.headers.get("Retry-After", "5"))
+            if response.status_code == 403 and permission_stop_after:
+                self._permission_failures[family] = self._permission_failures.get(family, 0) + 1
+            elif response.status_code < 400:
+                self._permission_failures.pop(family, None)
+
+            if response.status_code == 429 and attempt <= self._throttle_policy().rate_limit_retries:
+                retry_after = self._retry_delay(attempt, retry_after=response.headers.get("Retry-After"))
                 LOG.warning("Graph rate limit. Retry in %s seconds.", retry_after)
                 self._emit(
                     "graph.request.retry",
                     "Rate limited, retrying request",
-                    {"method": method, "url": url, "retry_after_sec": retry_after, "attempt": attempt},
+                    {
+                        "method": method,
+                        "url": url,
+                        "retry_after_sec": retry_after,
+                        "backoff_seconds": retry_after,
+                        "attempt": attempt,
+                        "reason": "rate_limit",
+                    },
                 )
                 time.sleep(retry_after)
                 continue
-            if response.status_code >= 500 and attempt <= 2:
-                LOG.warning("Graph server error (%s). Retrying (%s/2).", response.status_code, attempt)
+            if response.status_code >= 500 and attempt <= self._throttle_policy().server_error_retries:
+                backoff_seconds = self._retry_delay(attempt)
+                LOG.warning(
+                    "Graph server error (%s). Retrying (%s/%s).",
+                    response.status_code,
+                    attempt,
+                    self._throttle_policy().server_error_retries,
+                )
                 self._emit(
                     "graph.request.retry",
                     "Server error, retrying request",
-                    {"method": method, "url": url, "status": response.status_code, "attempt": attempt},
+                    {
+                        "method": method,
+                        "url": url,
+                        "status": response.status_code,
+                        "attempt": attempt,
+                        "backoff_seconds": backoff_seconds,
+                        "reason": "server_error",
+                    },
                 )
-                time.sleep(1)
+                time.sleep(backoff_seconds)
                 continue
+            self._arm_next_request_delay()
             return response
 
     def get_json(self, path: str, params: Optional[Dict[str, Any]] = None, full_url: bool = False) -> Dict[str, Any]:
@@ -301,3 +434,114 @@ class GraphClient:
 
     def get_all(self, path: str, params: Optional[Dict[str, Any]] = None) -> list[Dict[str, Any]]:
         return list(self.iter_items(path, params=params))
+
+    @staticmethod
+    def _batch_request_url(path: str, params: Optional[Dict[str, Any]] = None, *, full_url: bool = False) -> str:
+        parsed = urlparse(path)
+        batch_path = parsed.path or "/"
+        parts = [item for item in batch_path.split("/") if item]
+        if parts and parts[0] in {"v1.0", "beta"}:
+            batch_path = "/" + "/".join(parts[1:])
+        query_parts: list[str] = []
+        if parsed.query:
+            query_parts.append(parsed.query)
+        if params:
+            query_parts.append(urlencode(params, doseq=True))
+        if query_parts:
+            return f"{batch_path}?{'&'.join(part for part in query_parts if part)}"
+        return batch_path
+
+    def get_batch(self, requests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not requests:
+            return []
+
+        results: list[dict[str, Any]] = []
+        for offset in range(0, len(requests), GRAPH_BATCH_CHUNK_SIZE):
+            chunk = requests[offset : offset + GRAPH_BATCH_CHUNK_SIZE]
+            batch_requests: list[dict[str, Any]] = []
+            for index, request_spec in enumerate(chunk):
+                method = str(request_spec.get("method", "GET")).upper()
+                if method != "GET":
+                    raise GraphError("Graph batch helper only supports GET requests.")
+                path = request_spec.get("path")
+                if not isinstance(path, str) or not path:
+                    raise GraphError("Graph batch request requires a path.")
+                batch_requests.append(
+                    {
+                        "id": str(index),
+                        "method": "GET",
+                        "url": self._batch_request_url(
+                            path,
+                            request_spec.get("params"),
+                            full_url=bool(request_spec.get("full_url", False)),
+                        ),
+                    }
+                )
+
+            response = self._request("POST", f"{GRAPH_ROOT}/$batch", json={"requests": batch_requests})
+            if response.status_code >= 400:
+                payload: dict[str, Any]
+                error_code: str | None = None
+                reason = response.text
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = {}
+                if isinstance(payload, dict):
+                    error = payload.get("error")
+                    if isinstance(error, dict):
+                        error_code = error.get("code")
+                        reason = str(error.get("message") or reason)
+                    elif isinstance(error, str):
+                        reason = error
+                raise GraphError(reason, status=response.status_code, request=response.url, error_code=error_code)
+
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise GraphError("Graph batch returned a non-dict payload.", request=response.url)
+            responses = payload.get("responses")
+            if not isinstance(responses, list):
+                raise GraphError("Graph batch returned no responses array.", request=response.url)
+
+            responses_by_id: dict[str, dict[str, Any]] = {}
+            for response_item in responses:
+                if isinstance(response_item, dict):
+                    response_id = response_item.get("id")
+                    if response_id is not None:
+                        responses_by_id[str(response_id)] = response_item
+
+            for index, request_spec in enumerate(chunk):
+                response_item = responses_by_id.get(str(index))
+                if not isinstance(response_item, dict):
+                    results.append(
+                        {
+                            "request": request_spec,
+                            "status": 502,
+                            "body": {},
+                            "error_code": "BatchMissingResponse",
+                            "error": "Graph batch response was missing an entry.",
+                        }
+                    )
+                    continue
+
+                status = response_item.get("status")
+                body = response_item.get("body")
+                entry: dict[str, Any] = {
+                    "request": request_spec,
+                    "status": status if isinstance(status, int) else 0,
+                    "body": body if isinstance(body, dict) else body,
+                }
+                if isinstance(body, dict):
+                    error = body.get("error")
+                    if isinstance(error, dict):
+                        error_code = error.get("code")
+                        error_message = error.get("message")
+                        if error_code is not None:
+                            entry["error_code"] = error_code
+                        if error_message is not None:
+                            entry["error"] = str(error_message)
+                    elif isinstance(error, str):
+                        entry["error"] = error
+                results.append(entry)
+
+        return results

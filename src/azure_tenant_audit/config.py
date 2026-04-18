@@ -17,6 +17,7 @@ class AuthConfig:
     graph_scope: str = "https://graph.microsoft.com/.default"
     interactive_scopes: Optional[list[str]] = None
     timeout_seconds: int = 60
+    throttle_mode: str = "safe"
 
 
 @dataclass

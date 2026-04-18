@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from ..graph import GraphClient
+from ..graph import GraphClient, GraphError
 from ..normalize import _iter_permission_targets
 from .base import Collector, CollectorResult, _classify_graph_error, run_graph_endpoints
 
@@ -119,44 +119,93 @@ class SharePointAccessCollector(Collector):
         sharing_capability = sharepoint_settings.get("sharingCapability")
 
         sampled_permissions: list[dict[str, Any]] = []
+        fanout_specs: list[dict[str, Any]] = []
         for site in site_rows[:10]:
             site_id = site.get("id")
             if not isinstance(site_id, str) or not site_id:
                 continue
-            endpoint = f"/sites/{site_id}/permissions"
-            start = time.perf_counter()
+            fanout_specs.append(
+                {
+                    "site": site,
+                    "site_id": site_id,
+                    "endpoint": f"/sites/{site_id}/permissions",
+                }
+            )
+
+        batch_results: list[dict[str, Any]] | None = None
+        if fanout_specs and hasattr(client, "get_batch"):
+            batch_start = time.perf_counter()
             try:
-                permissions = client.get_all(endpoint, params={"$top": "50"})
-                if not isinstance(permissions, list):
-                    permissions = []
-                summary = _summarize_permissions(permissions)
-                sampled_permissions.append(
-                    {
-                        "siteId": site_id,
-                        "siteName": site.get("displayName") or site.get("name"),
-                        "webUrl": site.get("webUrl"),
-                        "siteKind": _site_kind_from_web_url(site.get("webUrl")),
-                        "sharingCapability": sharing_capability,
-                        "permissions": permissions,
-                        **summary,
-                    }
+                batch_results = client.get_batch(
+                    [
+                        {
+                            "path": spec["endpoint"],
+                            "params": {"$top": "50"},
+                        }
+                        for spec in fanout_specs
+                    ]
                 )
-                coverage.append(
-                    {
-                        "collector": self.name,
-                        "type": "graph",
-                        "name": "sitePermissions",
-                        "endpoint": endpoint,
-                        "site_id": site_id,
-                        "status": "ok",
-                        "item_count": len(permissions),
-                        "duration_ms": round((time.perf_counter() - start) * 1000, 2),
-                        "error_class": None,
-                        "error": None,
-                    }
+            except Exception:  # noqa: BLE001
+                batch_results = None
+
+        if batch_results is not None and len(batch_results) == len(fanout_specs):
+            for spec, result in zip(fanout_specs, batch_results):
+                endpoint = spec["endpoint"]
+                site = spec["site"]
+                site_id = spec["site_id"]
+                status = result.get("status") if isinstance(result, dict) else None
+                body = result.get("body") if isinstance(result, dict) else None
+                if status == 200 and isinstance(body, dict):
+                    permissions = body.get("value", [])
+                    if not isinstance(permissions, list):
+                        permissions = []
+                    next_link = body.get("@odata.nextLink")
+                    if isinstance(next_link, str) and next_link:
+                        permissions = permissions + list(client.iter_items(next_link))
+                    summary = _summarize_permissions(permissions)
+                    sampled_permissions.append(
+                        {
+                            "siteId": site_id,
+                            "siteName": site.get("displayName") or site.get("name"),
+                            "webUrl": site.get("webUrl"),
+                            "siteKind": _site_kind_from_web_url(site.get("webUrl")),
+                            "sharingCapability": sharing_capability,
+                            "permissions": permissions,
+                            **summary,
+                        }
+                    )
+                    coverage.append(
+                        {
+                            "collector": self.name,
+                            "type": "graph",
+                            "name": "sitePermissions",
+                            "endpoint": endpoint,
+                            "site_id": site_id,
+                            "status": "ok",
+                            "item_count": len(permissions),
+                            "duration_ms": round((time.perf_counter() - batch_start) * 1000, 2),
+                            "error_class": None,
+                            "error": None,
+                        }
+                    )
+                    continue
+
+                error_code = result.get("error_code") if isinstance(result, dict) else None
+                error_message = result.get("error") if isinstance(result, dict) else None
+                if isinstance(body, dict):
+                    error = body.get("error")
+                    if isinstance(error, dict):
+                        error_code = error_code or error.get("code")
+                        error_message = error_message or error.get("message")
+                    elif isinstance(error, str):
+                        error_message = error_message or error
+                error_exc = GraphError(
+                    str(error_message or "Graph batch request failed."),
+                    status=status if isinstance(status, int) else None,
+                    request=endpoint,
+                    error_code=error_code if isinstance(error_code, str) else None,
                 )
-            except Exception as exc:  # noqa: BLE001
-                error_class, error = _classify_graph_error(exc)
+                error_class, error = _classify_graph_error(error_exc)
                 coverage.append(
                     {
                         "collector": self.name,
@@ -166,11 +215,64 @@ class SharePointAccessCollector(Collector):
                         "site_id": site_id,
                         "status": "failed",
                         "item_count": 0,
-                        "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+                        "duration_ms": round((time.perf_counter() - batch_start) * 1000, 2),
                         "error_class": error_class,
                         "error": error,
                     }
                 )
+        else:
+            for site in site_rows[:10]:
+                site_id = site.get("id")
+                if not isinstance(site_id, str) or not site_id:
+                    continue
+                endpoint = f"/sites/{site_id}/permissions"
+                start = time.perf_counter()
+                try:
+                    permissions = client.get_all(endpoint, params={"$top": "50"})
+                    if not isinstance(permissions, list):
+                        permissions = []
+                    summary = _summarize_permissions(permissions)
+                    sampled_permissions.append(
+                        {
+                            "siteId": site_id,
+                            "siteName": site.get("displayName") or site.get("name"),
+                            "webUrl": site.get("webUrl"),
+                            "siteKind": _site_kind_from_web_url(site.get("webUrl")),
+                            "sharingCapability": sharing_capability,
+                            "permissions": permissions,
+                            **summary,
+                        }
+                    )
+                    coverage.append(
+                        {
+                            "collector": self.name,
+                            "type": "graph",
+                            "name": "sitePermissions",
+                            "endpoint": endpoint,
+                            "site_id": site_id,
+                            "status": "ok",
+                            "item_count": len(permissions),
+                            "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+                            "error_class": None,
+                            "error": None,
+                        }
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    error_class, error = _classify_graph_error(exc)
+                    coverage.append(
+                        {
+                            "collector": self.name,
+                            "type": "graph",
+                            "name": "sitePermissions",
+                            "endpoint": endpoint,
+                            "site_id": site_id,
+                            "status": "failed",
+                            "item_count": 0,
+                            "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+                            "error_class": error_class,
+                            "error": error,
+                        }
+                    )
 
         payload["sitePermissionsBySite"] = {"value": sampled_permissions}
         total = sum(item.get("item_count", 0) for item in coverage)

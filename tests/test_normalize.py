@@ -112,6 +112,7 @@ def test_build_ai_safe_summary_uses_normalized_snapshot_counts() -> None:
             "object_counts": {"users": 2, "groups": 3, "devices": 1},
             "blocker_count": 1,
         },
+        "translation_catalog": {"records": [{"key": "translation:user:user-1"}]},
         "users": {"records": [{"key": "user:user-1"}, {"key": "user:user-2"}]},
     }
     findings = [{"id": "security:securityAlerts", "severity": "high"}]
@@ -123,6 +124,7 @@ def test_build_ai_safe_summary_uses_normalized_snapshot_counts() -> None:
     assert ai_safe["object_counts"]["groups"] == 3
     assert ai_safe["findings_count"] == 1
     assert ai_safe["blocker_count"] == 1
+    assert ai_safe["translation_catalog_count"] == 1
 
 
 def test_build_normalized_snapshot_extracts_security_incidents_scores_and_exchange_mailboxes() -> None:
@@ -175,6 +177,54 @@ def test_build_normalized_snapshot_extracts_security_incidents_scores_and_exchan
     assert normalized["incidents"]["records"][0]["severity"] == "high"
     assert normalized["security_scores"]["records"][0]["current_score"] == 41.5
     assert normalized["mailboxes"]["records"][0]["primary_smtp_address"] == "alice@example.com"
+
+
+def test_build_normalized_snapshot_orders_records_and_builds_translation_catalog() -> None:
+    collector_payloads = {
+        "identity": {
+            "users": {
+                "value": [
+                    {"id": "user-2", "displayName": "Zulu User", "userPrincipalName": "zulu@example.com"},
+                    {"id": "user-1", "displayName": "Alpha User", "userPrincipalName": "alpha@example.com"},
+                ]
+            },
+            "groups": {
+                "value": [
+                    {"id": "group-2", "displayName": "Zulu Group"},
+                    {"id": "group-1", "displayName": "Alpha Group"},
+                ]
+            },
+            "applications": {
+                "value": [
+                    {"id": "app-2", "displayName": "Zulu App"},
+                    {"id": "app-1", "displayName": "Alpha App"},
+                ]
+            },
+        },
+        "sharepoint": {
+            "sites": {
+                "value": [
+                    {"id": "site-2", "displayName": "Zulu Site", "webUrl": "https://contoso.sharepoint.com/sites/zulu"},
+                    {"id": "site-1", "displayName": "Alpha Site", "webUrl": "https://contoso.sharepoint.com/sites/alpha"},
+                ]
+            }
+        },
+    }
+
+    normalized = build_normalized_snapshot(
+        tenant_name="acme",
+        run_id="run-order",
+        collector_payloads=collector_payloads,
+    )
+
+    assert [item["id"] for item in normalized["users"]["records"]] == ["user-1", "user-2"]
+    assert [item["id"] for item in normalized["groups"]["records"]] == ["group-1", "group-2"]
+    assert [item["id"] for item in normalized["sites"]["records"]] == ["site-1", "site-2"]
+    translation_records = normalized["translation_catalog"]["records"]
+    assert any(item["object_id"] == "user-1" and item["display_name"] == "Alpha User" for item in translation_records)
+    assert any(item["object_id"] == "group-1" and item["display_name"] == "Alpha Group" for item in translation_records)
+    assert any(item["object_id"] == "app-1" and item["display_name"] == "Alpha App" for item in translation_records)
+    assert any(item["object_id"] == "site-1" and item["display_name"] == "Alpha Site" for item in translation_records)
 
 
 def test_build_normalized_snapshot_extracts_enterprise_depth_sections() -> None:
@@ -336,7 +386,10 @@ def test_build_normalized_snapshot_extracts_enterprise_depth_sections() -> None:
     assert normalized["license_inventory"]["records"][0]["sku_part_number"] == "ENTERPRISEPREMIUM"
     assert normalized["teams_policy_objects"]["records"][0]["policy_name"] == "Global"
     assert normalized["service_health_objects"]["records"][1]["status"] == "serviceDegradation"
-    assert normalized["external_identity_objects"]["records"][0]["source_name"] == "crossTenantAccessPolicy"
+    assert any(
+        item["source_name"] == "crossTenantAccessPolicy"
+        for item in normalized["external_identity_objects"]["records"]
+    )
 
 
 def _make_large_identity_payload(*, users: int, groups: int, applications: int) -> dict:

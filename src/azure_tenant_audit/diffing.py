@@ -5,6 +5,16 @@ from pathlib import Path
 from typing import Any
 
 
+def _load_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def _load_records(path: Path) -> tuple[str, list[dict[str, Any]]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     kind = str(payload.get("kind") or path.stem)
@@ -34,11 +44,27 @@ def _records_for_run(run_dir: Path) -> tuple[dict[str, str], dict[str, list[dict
     return files, records_by_kind
 
 
+def _run_metadata(run_dir: Path) -> dict[str, Any]:
+    manifest = _load_json(run_dir / "run-manifest.json")
+    snapshot = _load_json(run_dir / "normalized" / "snapshot.json")
+    snapshot_meta = snapshot if isinstance(snapshot, dict) else {}
+    return {
+        "path": str(run_dir),
+        "tenant_name": manifest.get("tenant_name") or snapshot_meta.get("tenant_name"),
+        "run_id": manifest.get("run_id") or snapshot_meta.get("run_id"),
+        "created_utc": manifest.get("created_utc"),
+        "overall_status": manifest.get("overall_status"),
+        "auditor_profile": manifest.get("auditor_profile"),
+    }
+
+
 def diff_run_directories(run_a: str | Path, run_b: str | Path) -> dict[str, Any]:
     left = Path(run_a)
     right = Path(run_b)
     left_files, left_records = _records_for_run(left)
     right_files, right_records = _records_for_run(right)
+    left_info = _run_metadata(left)
+    right_info = _run_metadata(right)
 
     compared_files = sorted(set(left_files.values()) | set(right_files.values()))
     changes: dict[str, dict[str, list[dict[str, Any]]]] = {}
@@ -69,6 +95,11 @@ def diff_run_directories(run_a: str | Path, run_b: str | Path) -> dict[str, Any]
     return {
         "run_a": str(left),
         "run_b": str(right),
+        "run_a_info": left_info,
+        "run_b_info": right_info,
+        "compare_context": {
+            "same_tenant": left_info.get("tenant_name") == right_info.get("tenant_name"),
+        },
         "compared_files": compared_files,
         "summary": {
             "added": total_added,

@@ -41,19 +41,88 @@ Supported but secondary:
 
 The core runtime stays Python-only. `pwsh` and `m365` are optional adapters, not part of the critical path.
 
+## Prereqs
+
+- Python 3.11+
+- Azure CLI (`az`) for delegated sign-in
+- `m365` only for Exchange-backed collectors
+
+Local setup:
+
+```bash
+auditex setup
+```
+
+If you need the MCP server:
+
+```bash
+auditex setup --mcp
+```
+
+If you need Exchange-backed or PowerShell-backed paths:
+
+```bash
+auditex setup --exchange
+auditex setup --pwsh
+```
+
+The local login flow uses `make login TENANT=<tenant>` or `./scripts/tenant-audit-login <tenant>`. For tenant-level reader accounts, that path now uses `az login --allow-no-subscriptions`.
+
+Readiness check:
+
+```bash
+auditex doctor
+```
+
+JSON doctor output:
+
+```bash
+auditex doctor --json
+```
+
+Guided first run:
+
+```bash
+auditex guided-run
+```
+
+The guided flow can bootstrap local tools, walk Azure login, optionally prepare Exchange tooling, run a low-volume preflight, and then stream collector progress.
+Supported guided flags:
+
+- `--tenant-id`
+- `--tenant-name`
+- `--auditor-profile`
+- `--out`
+- `--run-name`
+- `--top`
+- `--page-size`
+- `--browser-command`
+- `--collectors`
+- `--include-exchange`
+- `--throttle-mode`
+- `--include-blocked`
+- `--with-mcp`
+- `--non-interactive`
+- `--local-mode`
+- `--skip-login-check`
+- `--skip-tool-check`
+- `--report-format`
+- `--probe-first` / `--no-probe-first`
+
+For the full first-run path, see `docs/audit-runbook.md`.
+
+Competitor harvest:
+
+```bash
+auditex research competitors sync
+auditex research competitors pack
+```
+
+This mirrors selected upstream repos into `~/dev/library/auditex/competitors/repos` and refreshes the tracked analysis pack in `docs/research/`.
+
 ## Install
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
-
-Optional MCP support:
-
-```bash
-pip install -e '.[mcp]'
-```
+Use the `Prereqs` commands above. Keep `.venv/` local; it is already ignored.
 
 ## Main flows
 
@@ -62,6 +131,24 @@ Offline validation:
 ```bash
 auditex --offline --tenant-name demo --out outputs/offline
 ```
+
+Raw CLI surface:
+
+```bash
+auditex compare --run-dir run-a --run-dir run-b
+auditex report render <run-dir> --format md
+auditex export list
+auditex export run <exporter-name> <run-dir>
+auditex notify send <run-dir> --sink teams
+```
+
+Supported flags:
+
+- `auditex compare`: `--allow-cross-tenant`
+- `auditex report render`: `--include-section`, `--exclude-section`, `--output`
+- `auditex export run`: `--include-section`, `--exclude-section`, `--output`
+- `auditex notify send`: `--execute`
+- `auditex notify send --sink`: `teams`, `slack`, `smtp`
 
 Delegated one-off audit with Azure CLI token reuse:
 
@@ -100,6 +187,12 @@ auditex \
   --out outputs/live
 ```
 
+Safer live runs can use:
+
+```bash
+auditex run --probe-first --throttle-mode safe
+```
+
 ## Profiles
 
 Built-in profiles:
@@ -117,6 +210,17 @@ These profiles do not force permissions into existence. They shape:
 - default collector intent
 - escalation guidance in diagnostics
 - report wording about blocked coverage
+
+Quick support matrix:
+
+| Path | CLI profile | Sign-in | Exchange-assisted | Response |
+| --- | --- | --- | --- | --- |
+| Global Reader | `global-reader` | Delegated | Optional with `--include-exchange` | No |
+| Security Reader | `security-reader` | Delegated | No | No |
+| App read-only full | `app-readonly-full` | App-only or delegated token | Yes, with `m365` and `powershell_graph` adapters | No |
+| Exchange-assisted | `exchange-reader` | Delegated | Yes, built in | Yes |
+
+Use `auditex probe live --mode delegated|app` for probe runs and `auditex response run --auditor-profile <profile>` for guarded response planning. `exchange-reader` is the only built-in response-capable profile.
 
 ## Output contract
 
@@ -159,9 +263,14 @@ Current MCP tools:
 - `auditex_run_delegated_audit`
 - `auditex_summarize_run`
 - `auditex_diff_runs`
+- `auditex_compare_runs`
 - `auditex_probe_live`
 - `auditex_probe_summarize`
 - `auditex_list_blockers`
+- `auditex_report_preview`
+- `auditex_export_list`
+- `auditex_notify_preview`
+- `auditex_rules_inventory`
 - `auditex_list_response_actions`
 - `auditex_run_response_action`
 - `auditex_auth_status`

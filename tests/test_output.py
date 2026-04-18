@@ -31,6 +31,8 @@ def test_writer(tmp_path: Path):
             "collectors": ["identity"],
             "duration_seconds": 1.2,
             "overall_status": "ok",
+            "collector_preset": "identity-only",
+            "waiver_path": "configs/waivers.json",
             "session_context": {"user_principal_name": "admin@contoso.com"},
         }
     )
@@ -44,6 +46,10 @@ def test_writer(tmp_path: Path):
     assert (writer.run_dir / "coverage.json").exists()
     assert (writer.run_dir / "index" / "coverage.jsonl").exists()
     assert (writer.run_dir / "session-context.json").exists()
+    manifest = json.loads((writer.run_dir / "run-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == "2026-04-18"
+    assert manifest["collector_preset"] == "identity-only"
+    assert manifest["waiver_path"] == "configs/waivers.json"
 
     json_lines = (writer.run_dir / "audit-log.jsonl").read_text(encoding="utf-8").splitlines()
     assert any('"run.completed"' in line for line in json_lines)

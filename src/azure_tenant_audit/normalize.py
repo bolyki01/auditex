@@ -4,6 +4,8 @@ from collections import Counter
 from collections import defaultdict
 from typing import Any
 
+from .friendly_names import build_friendly_name_catalog
+
 
 _BREAK_GLASS_ROLE_KEYWORDS = (
     "global administrator",
@@ -37,6 +39,24 @@ def _record(kind: str, source: str, object_id: str, **fields: Any) -> dict[str, 
     }
     payload.update(fields)
     return _compact(payload)
+
+
+def _ordered_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _ordered_value(value[key]) for key in sorted(value)}
+    if isinstance(value, list):
+        normalized = [_ordered_value(item) for item in value]
+        if normalized and all(isinstance(item, dict) for item in normalized):
+            return sorted(
+                normalized,
+                key=lambda item: (
+                    str(item.get("key") or ""),
+                    str(item.get("id") or ""),
+                    str(item.get("display_name") or item.get("title") or ""),
+                ),
+            )
+        return normalized
+    return value
 
 
 def _build_index(items: list[dict[str, Any]], key: str = "id") -> dict[str, dict[str, Any]]:
@@ -1398,6 +1418,10 @@ def build_normalized_snapshot(
             # Make graph summary available in snapshot-level counts without inventing a separate section.
             pass
 
+    translation_catalog, translation_warning_count = build_friendly_name_catalog(records_by_section)
+    if translation_catalog:
+        records_by_section["translation_catalog"] = translation_catalog
+
     object_counts = {name: len(records) for name, records in records_by_section.items() if records}
     diagnostic_classes = Counter(str(item.get("error_class") or "unknown") for item in diagnostics)
 
@@ -1410,12 +1434,13 @@ def build_normalized_snapshot(
             "coverage_row_count": len(coverage_rows),
             "blocker_count": len(diagnostics),
             "diagnostic_classes": dict(diagnostic_classes),
+            "friendly_name_warning_count": translation_warning_count,
         }
     }
     for section, records in records_by_section.items():
         if records:
-            normalized[section] = {"kind": section, "records": records}
-    return normalized
+            normalized[section] = {"kind": section, "records": _ordered_value(records)}
+    return _ordered_value(normalized)
 
 
 def build_ai_safe_summary(
@@ -1430,6 +1455,8 @@ def build_ai_safe_summary(
         "run_id": snapshot.get("run_id"),
         "object_counts": snapshot.get("object_counts", {}),
         "blocker_count": snapshot.get("blocker_count", 0),
+        "translation_catalog_count": len((normalized_snapshot.get("translation_catalog") or {}).get("records", [])),
+        "friendly_name_warning_count": snapshot.get("friendly_name_warning_count", 0),
         "findings_count": len(findings),
         "top_findings": [
             {

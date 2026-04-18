@@ -101,16 +101,16 @@ def test_exchange_collector_uses_fallbacks_and_marks_partial_for_failed_posture_
                 "error": "command_not_found:m365",
                 "error_class": "command_not_found",
             },
-            "m365 tenant status": {"value": [{"tenant": "ok"}]},
+            "m365 status --output json": {"value": [{"connectedAs": "user"}]},
             "m365 outlook report mailboxusagemailboxcount --period D30 --output json": {
                 "error": "command_output_empty",
                 "error_class": "command_output_empty",
             },
-            "m365 outlook roomlist list --output json": {
-                "error": "command_not_found:m365",
-                "error_class": "command_not_found",
+            "m365 outlook report mailboxusagedetail --period D30 --output json": {
+                "error": "command_output_empty",
+                "error_class": "command_output_empty",
             },
-            "m365 exo mailbox list --output json": {
+            "m365 outlook roomlist list --output json": {
                 "error": "command_not_found:m365",
                 "error_class": "command_not_found",
             },
@@ -139,9 +139,9 @@ def test_exchange_collector_uses_fallbacks_and_marks_partial_for_failed_posture_
     )
 
     assert result.status == "partial"
-    assert result.item_count == 6
-    assert result.payload["exchangeConnectivityCheck"]["command"] == "m365 tenant status"
-    assert result.payload["exchangeTenantInfo"]["command"] == "m365 tenant status"
+    assert result.item_count == 5
+    assert result.payload["exchangeConnectivityCheck"]["command"] == "m365 status --output json"
+    assert result.payload["exchangeTenantInfo"]["error_class"] == "command_not_found"
     assert result.payload["mailboxCount"]["command"] == "graph /users?filter=mail ne null"
     assert result.payload["mailboxCount"]["source"] == "graph"
     assert result.payload["roomLists"]["error_class"] == "command_not_found"
@@ -151,12 +151,11 @@ def test_exchange_collector_uses_fallbacks_and_marks_partial_for_failed_posture_
     assert coverage_by_name["exchangeConnectivityCheck"]["command_variants"] == [
         "m365 status --output json",
         "m365 tenant info get --output json",
-        "m365 tenant status",
     ]
     assert coverage_by_name["mailboxCount"]["command_variants"] == [
         "m365 outlook report mailboxusagemailboxcount --period D30 --output json",
+        "m365 outlook report mailboxusagedetail --period D30 --output json",
         "m365 outlook roomlist list --output json",
-        "m365 exo mailbox list --output json",
     ]
     assert coverage_by_name["mailboxCount"]["status"] == "ok"
     assert coverage_by_name["mailboxCount"]["source"] == "graph"

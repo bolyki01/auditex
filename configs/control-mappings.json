@@ -1,0 +1,17 @@
+{
+  "collector.issue.permission": {
+    "cis": ["6.3"],
+    "nist": ["PR.AC-4", "PR.AC-6"],
+    "attack": ["T1078"]
+  },
+  "sharepoint.broad_link": {
+    "cis": ["3.1", "3.2"],
+    "nist": ["PR.DS-5"],
+    "attack": ["T1098"]
+  },
+  "app_consent.high_privilege": {
+    "cis": ["5.2"],
+    "nist": ["PR.AC-6"],
+    "attack": ["T1098"]
+  }
+}

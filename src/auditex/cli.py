@@ -6,12 +6,95 @@ import sys
 from pathlib import Path
 
 from . import auth as auditex_auth
+from .bootstrap import print_doctor_report, run_setup
+from .guided import build_guided_parser, run_guided
+from .research import run_research_command
+from .rules import list_rule_inventory
 from azure_tenant_audit.cli import main as tenant_audit_main
 from azure_tenant_audit.diffing import diff_run_directories
 from azure_tenant_audit.probe import ProbeConfig, probe_mode_choices, run_live_probe
 from azure_tenant_audit.response import ResponseConfig, response_actions, run_response
 
 from .mcp_server import list_blockers, summarize_run
+
+
+def _build_root_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="auditex",
+        description="Auditex operator CLI.",
+        epilog="Use `auditex run ...` for explicit raw audit runs. Legacy raw flags like `auditex --tenant-name ...` still work.",
+    )
+    subparsers = parser.add_subparsers(dest="command")
+    subparsers.add_parser("setup", help="Bootstrap local runtime dependencies.")
+    subparsers.add_parser("doctor", help="Show local runtime and auth readiness.")
+    subparsers.add_parser("guided-run", help="Run the guided operator flow.")
+    subparsers.add_parser("run", help="Run a raw tenant audit.")
+    subparsers.add_parser("probe", help="Run or summarize capability probes.")
+    subparsers.add_parser("response", help="Run guarded response actions.")
+    subparsers.add_parser("compare", help="Compare completed runs.")
+    subparsers.add_parser("report", help="Preview or render reports from a run.")
+    subparsers.add_parser("export", help="List and run exporters.")
+    subparsers.add_parser("notify", help="Build or send post-run notifications.")
+    subparsers.add_parser("rules", help="Inspect built-in rule packs.")
+    subparsers.add_parser("research", help="Manage competitor research pack refresh.")
+    subparsers.add_parser("auth", help="Inspect and manage local auth state.")
+    return parser
+
+
+def compare_runs(run_dirs: list[str], *, allow_cross_tenant: bool = False) -> dict[str, object]:
+    from .compare import compare_runs as _compare_runs
+
+    return _compare_runs(run_dirs, allow_cross_tenant=allow_cross_tenant)
+
+
+def render_report(
+    *,
+    run_dir: str,
+    format_name: str,
+    include_sections: list[str] | None = None,
+    exclude_sections: list[str] | None = None,
+    output_path: str | None = None,
+) -> dict[str, object]:
+    from .reporting import render_report as _render_report
+
+    return _render_report(
+        run_dir=run_dir,
+        format_name=format_name,
+        include_sections=include_sections,
+        exclude_sections=exclude_sections,
+        output_path=output_path,
+    )
+
+
+def list_exporters() -> list[dict[str, object]]:
+    from .exporters import list_exporters as _list_exporters
+
+    return _list_exporters()
+
+
+def run_exporter(
+    *,
+    name: str,
+    run_dir: str,
+    include_sections: list[str] | None = None,
+    exclude_sections: list[str] | None = None,
+    output_path: str | None = None,
+) -> dict[str, object]:
+    from .exporters import run_exporter as _run_exporter
+
+    return _run_exporter(
+        name=name,
+        run_dir=run_dir,
+        include_sections=include_sections,
+        exclude_sections=exclude_sections,
+        output_path=output_path,
+    )
+
+
+def send_notification(*, run_dir: str, sink: str, dry_run: bool = True) -> dict[str, object]:
+    from .notify import send_notification as _send_notification
+
+    return _send_notification(run_dir=run_dir, sink=sink, dry_run=dry_run)
 
 
 def _build_probe_parser() -> argparse.ArgumentParser:
@@ -115,10 +198,166 @@ def _build_response_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _build_rules_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="auditex rules", description="Inspect built-in Auditex rule packs.")
+    subparsers = parser.add_subparsers(dest="rules_command", required=True)
+    inventory = subparsers.add_parser("inventory", help="List rule inventory rows.")
+    inventory.add_argument("--tag", default=None, help="Optional rule tag filter.")
+    inventory.add_argument("--path-prefix", default=None, help="Optional path prefix filter.")
+    inventory.add_argument("--product-family", default=None, help="Optional product family filter.")
+    inventory.add_argument("--license-tier", default=None, help="Optional license tier filter.")
+    inventory.add_argument("--audit-level", default=None, help="Optional audit level filter.")
+    return parser
+
+
+def _build_compare_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="auditex compare", description="Compare multiple completed run directories.")
+    parser.add_argument("--run-dir", action="append", required=True, dest="run_dirs", help="Run directory to compare.")
+    parser.add_argument("--allow-cross-tenant", action="store_true", help="Allow comparing runs from different tenants.")
+    return parser
+
+
+def _build_report_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="auditex report", description="Render reports from a completed run.")
+    subparsers = parser.add_subparsers(dest="report_command", required=True)
+    render = subparsers.add_parser("render", help="Render a report bundle in one format.")
+    render.add_argument("run_dir", help="Completed run directory.")
+    render.add_argument("--format", required=True, choices=("json", "md", "csv", "html"))
+    render.add_argument("--include-section", action="append", default=None)
+    render.add_argument("--exclude-section", action="append", default=None)
+    render.add_argument("--output", default=None)
+    return parser
+
+
+def _build_export_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="auditex export", description="List and run offline exporters.")
+    subparsers = parser.add_subparsers(dest="export_command", required=True)
+    subparsers.add_parser("list", help="List available exporters.")
+    run = subparsers.add_parser("run", help="Run one exporter.")
+    run.add_argument("exporter_name")
+    run.add_argument("run_dir")
+    run.add_argument("--include-section", action="append", default=None)
+    run.add_argument("--exclude-section", action="append", default=None)
+    run.add_argument("--output", default=None)
+    return parser
+
+
+def _build_notify_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="auditex notify", description="Create or send post-run notifications.")
+    subparsers = parser.add_subparsers(dest="notify_command", required=True)
+    send = subparsers.add_parser("send", help="Build or send a notification from a run bundle.")
+    send.add_argument("run_dir")
+    send.add_argument("--sink", required=True, choices=("teams", "slack", "smtp"))
+    send.add_argument("--execute", action="store_true", help="Send instead of dry-run.")
+    return parser
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
-    if not argv or argv[0].startswith("-"):
+    if not argv:
+        _build_root_parser().print_help()
+        return 0
+    if argv[0] in {"-h", "--help", "help"}:
+        _build_root_parser().print_help()
+        return 0
+    if argv[0].startswith("-"):
         return tenant_audit_main(argv)
+    if argv[0] == "setup":
+        parser = argparse.ArgumentParser(prog="auditex setup", description="Bootstrap local Auditex prerequisites.")
+        parser.add_argument("--mcp", action="store_true", help="Install optional MCP extras during bootstrap.")
+        parser.add_argument("--exchange", action="store_true", help="Install optional Exchange adapter tooling.")
+        parser.add_argument("--pwsh", action="store_true", help="Install optional PowerShell runtime.")
+        args = parser.parse_args(argv[1:])
+        setup_kwargs: dict[str, object] = {"with_mcp": args.mcp}
+        if args.exchange:
+            setup_kwargs["with_exchange"] = True
+        if args.pwsh:
+            setup_kwargs["with_pwsh"] = True
+        return run_setup(**setup_kwargs)
+    if argv[0] == "doctor":
+        parser = argparse.ArgumentParser(prog="auditex doctor", description="Inspect local tool and auth readiness.")
+        parser.add_argument("--json", action="store_true", help="Print JSON report.")
+        args = parser.parse_args(argv[1:])
+        return print_doctor_report(json_output=args.json)
+    if argv[0] == "guided-run":
+        parser = build_guided_parser()
+        args = parser.parse_args(argv[1:])
+        return run_guided(args)
+    if argv[0] == "research":
+        return run_research_command(argv[1:])
+    if argv[0] == "rules":
+        parser = _build_rules_parser()
+        args = parser.parse_args(argv[1:])
+        if args.rules_command == "inventory":
+            filters: dict[str, object] = {}
+            if args.tag is not None:
+                filters["tag"] = args.tag
+            if args.path_prefix is not None:
+                filters["path_prefix"] = args.path_prefix
+            if args.product_family is not None:
+                filters["product_family"] = args.product_family
+            if args.license_tier is not None:
+                filters["license_tier"] = args.license_tier
+            if args.audit_level is not None:
+                filters["audit_level"] = args.audit_level
+            rows = sorted(
+                list_rule_inventory(**filters),
+                key=lambda item: item.get("name", ""),
+            )
+            print(json.dumps({"count": len(rows), "rules": rows}, indent=2))
+            return 0
+        return 2
+    if argv[0] == "compare":
+        parser = _build_compare_parser()
+        args = parser.parse_args(argv[1:])
+        print(json.dumps(compare_runs(args.run_dirs, allow_cross_tenant=args.allow_cross_tenant), indent=2))
+        return 0
+    if argv[0] == "report":
+        parser = _build_report_parser()
+        args = parser.parse_args(argv[1:])
+        if args.report_command != "render":
+            return 2
+        print(
+            json.dumps(
+                render_report(
+                    run_dir=args.run_dir,
+                    format_name=args.format,
+                    include_sections=args.include_section,
+                    exclude_sections=args.exclude_section,
+                    output_path=args.output,
+                ),
+                indent=2,
+            )
+        )
+        return 0
+    if argv[0] == "export":
+        parser = _build_export_parser()
+        args = parser.parse_args(argv[1:])
+        if args.export_command == "list":
+            print(json.dumps({"exporters": list_exporters()}, indent=2))
+            return 0
+        if args.export_command == "run":
+            print(
+                json.dumps(
+                    run_exporter(
+                        name=args.exporter_name,
+                        run_dir=args.run_dir,
+                        include_sections=args.include_section,
+                        exclude_sections=args.exclude_section,
+                        output_path=args.output,
+                    ),
+                    indent=2,
+                )
+            )
+            return 0
+        return 2
+    if argv[0] == "notify":
+        parser = _build_notify_parser()
+        args = parser.parse_args(argv[1:])
+        if args.notify_command != "send":
+            return 2
+        print(json.dumps(send_notification(run_dir=args.run_dir, sink=args.sink, dry_run=not args.execute), indent=2))
+        return 0
     if argv[0] == "auth":
         parser = _build_auth_parser()
         args = parser.parse_args(argv[1:])

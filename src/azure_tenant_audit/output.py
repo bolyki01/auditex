@@ -10,6 +10,7 @@ from typing import Any, Optional
 import time
 
 LOG = logging.getLogger("azure_tenant_audit.output")
+RUN_MANIFEST_SCHEMA_VERSION = "2026-04-18"
 
 
 def _now_iso() -> str:
@@ -21,10 +22,11 @@ class AuditLogger:
 
     _command_events = frozenset({"command.started", "command.completed", "command.failed"})
 
-    def __init__(self, run_dir: Path) -> None:
+    def __init__(self, run_dir: Path, listener: Any = None) -> None:
         self.jsonl_path = run_dir / "audit-log.jsonl"
         self.command_log_path = run_dir / "audit-command-log.jsonl"
         self.debug_path = run_dir / "audit-debug.log"
+        self.listener = listener
         self.jsonl_path.touch(exist_ok=True)
         self.command_log_path.touch(exist_ok=True)
         self.debug_path.touch(exist_ok=True)
@@ -45,6 +47,11 @@ class AuditLogger:
         with self.debug_path.open("a", encoding="utf-8") as handle:
             handle.write(f"[{payload['ts_utc']}] {payload['event']}: {payload['message']} {payload['details']}\n")
         LOG.debug("%s: %s", payload["event"], payload["message"])
+        if self.listener is not None:
+            try:
+                self.listener(payload)
+            except Exception:  # noqa: BLE001
+                LOG.exception("Failed to dispatch audit event listener.")
 
 
 class AuditWriter:
@@ -55,6 +62,7 @@ class AuditWriter:
         run_name: Optional[str] = None,
         *,
         run_dir: Path | None = None,
+        event_listener: Any = None,
     ):
         self.base_dir = base_dir
         ts = time.strftime("%Y%m%d_%H%M%S", time.gmtime())
@@ -100,8 +108,9 @@ class AuditWriter:
         self.summary: dict[str, Any] = {"collectors": []}
         self.coverage: list[dict[str, Any]] = []
         self._seed_existing_run_artifacts(existing_manifest)
-        self.audit = AuditLogger(self.run_dir)
+        self.audit = AuditLogger(self.run_dir, listener=event_listener)
         self._manifest = {
+            "schema_version": RUN_MANIFEST_SCHEMA_VERSION,
             "tenant_name": tenant_name,
             "run_id": self.run_id,
             "created_utc": ts,
@@ -406,6 +415,12 @@ class AuditWriter:
         self._write_json_atomic(path, payload)
         self._record_artifact(path)
         self._manifest["report_pack_path"] = str(path.relative_to(self.run_dir))
+        action_plan = payload.get("action_plan")
+        if isinstance(action_plan, list):
+            action_plan_path = self.reports_dir / "action-plan.json"
+            self._write_json_atomic(action_plan_path, action_plan)
+            self._record_artifact(action_plan_path)
+            self._manifest["action_plan_path"] = str(action_plan_path.relative_to(self.run_dir))
         return path
 
     def write_summary(self, item: dict[str, Any]) -> None:
@@ -413,6 +428,7 @@ class AuditWriter:
 
     def write_bundle(self, metadata: dict[str, Any]) -> None:
         self._manifest["executed_by"] = metadata.get("executed_by")
+        self._manifest["schema_version"] = RUN_MANIFEST_SCHEMA_VERSION
         selected_collectors = metadata.get("collectors", [])
         self._manifest["selected_collectors"] = selected_collectors
         self._manifest["collectors"] = selected_collectors
@@ -432,8 +448,13 @@ class AuditWriter:
             "probe_surface",
             "capability_matrix_path",
             "coverage_ledger_path",
+            "preflight_path",
+            "throttle_mode",
+            "collector_preset",
+            "waiver_path",
             "toolchain_readiness_path",
             "evidence_index_path",
+            "evidence_db_path",
             "auth_path",
             "auth_context_path",
             "data_handling_events",

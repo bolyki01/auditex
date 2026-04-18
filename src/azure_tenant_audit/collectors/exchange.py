@@ -20,7 +20,6 @@ class ExchangeCollector(Collector):
             "commands": [
                 "m365 status --output json",
                 "m365 tenant info get --output json",
-                "m365 tenant status",
             ],
         },
         {
@@ -28,7 +27,6 @@ class ExchangeCollector(Collector):
             "category": "posture",
             "commands": [
                 "m365 tenant info get --output json",
-                "m365 tenant status",
             ],
         },
         {
@@ -36,8 +34,8 @@ class ExchangeCollector(Collector):
             "category": "posture",
             "commands": [
                 "m365 outlook report mailboxusagemailboxcount --period D30 --output json",
+                "m365 outlook report mailboxusagedetail --period D30 --output json",
                 "m365 outlook roomlist list --output json",
-                "m365 exo mailbox list --output json",
             ],
             "graph_fallback": "mailbox_count",
         },

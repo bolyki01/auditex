@@ -5,12 +5,18 @@ from pathlib import Path
 
 import pytest
 
+from auditex import cli as auditex_cli
 from auditex.mcp_server import (
     build_cli_command,
     build_response_command,
     build_probe_command,
+    compare_many_runs,
     list_adapters,
     list_collectors,
+    list_available_exporters,
+    preview_notification,
+    preview_report,
+    rules_inventory,
     list_response_actions,
     summarize_run,
     tool_specs,
@@ -93,11 +99,16 @@ def test_mcp_tool_specs_present() -> None:
     assert "auditex_run_delegated_audit" in names
     assert "auditex_summarize_run" in names
     assert "auditex_diff_runs" in names
+    assert "auditex_compare_runs" in names
     assert "auditex_probe_live" in names
     assert "auditex_probe_summarize" in names
     assert "auditex_list_collectors" in names
     assert "auditex_list_adapters" in names
     assert "auditex_list_blockers" in names
+    assert "auditex_report_preview" in names
+    assert "auditex_export_list" in names
+    assert "auditex_notify_preview" in names
+    assert "auditex_rules_inventory" in names
     assert "auditex_list_response_actions" in names
     assert "auditex_run_response_action" in names
 
@@ -372,3 +383,116 @@ def test_summarize_run_reads_response_auth_context_artifact(tmp_path: Path) -> N
     assert summary["auth_context_path"].endswith("auth-context.json")
     assert summary["auth_context"]["name"] == "customer-token"
     assert summary["auth_context"]["tenant_id"] == "tenant-saved"
+
+
+def test_summarize_run_reads_report_pack_and_action_plan_artifacts(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "run-manifest.json").write_text(json.dumps({"tenant_name": "acme"}), encoding="utf-8")
+    (run_dir / "summary.json").write_text(json.dumps({"collectors": []}), encoding="utf-8")
+    (run_dir / "reports").mkdir()
+    (run_dir / "reports" / "report-pack.json").write_text(
+        json.dumps({"summary": {"overall_status": "partial"}, "findings": [], "evidence_paths": []}),
+        encoding="utf-8",
+    )
+    (run_dir / "reports" / "action-plan.json").write_text(
+        json.dumps({"open_findings": [], "waived_findings": [], "blocked": []}),
+        encoding="utf-8",
+    )
+
+    summary = summarize_run(str(run_dir))
+
+    assert summary["report_pack_path"].endswith("reports/report-pack.json")
+    assert summary["report_pack"]["summary"]["overall_status"] == "partial"
+    assert summary["action_plan_path"].endswith("reports/action-plan.json")
+    assert summary["action_plan"]["blocked"] == []
+
+
+def test_compare_many_runs_uses_same_tenant_gate(tmp_path: Path) -> None:
+    run_a = tmp_path / "run-a"
+    run_b = tmp_path / "run-b"
+    for name, run_dir in (("run-a", run_a), ("run-b", run_b)):
+        run_dir.mkdir()
+        (run_dir / "run-manifest.json").write_text(
+            json.dumps(
+                {
+                    "tenant_name": "acme",
+                    "tenant_id": "tenant-1",
+                    "run_id": name,
+                    "created_utc": "2026-04-18T09:00:00Z",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (run_dir / "summary.json").write_text(json.dumps({"collectors": []}), encoding="utf-8")
+
+    result = compare_many_runs([str(run_a), str(run_b)])
+
+    assert result["compare_context"]["same_tenant"] is True
+    assert len(result["runs"]) == 2
+
+
+def test_preview_report_and_notification_are_read_only_helpers(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "run-manifest.json").write_text(json.dumps({"tenant_name": "acme"}), encoding="utf-8")
+    (run_dir / "summary.json").write_text(json.dumps({"collectors": []}), encoding="utf-8")
+    (run_dir / "reports").mkdir()
+    (run_dir / "findings").mkdir()
+    (run_dir / "reports" / "report-pack.json").write_text(
+        json.dumps(
+            {
+                "summary": {"tenant_name": "acme", "overall_status": "partial", "finding_count": 1},
+                "findings": [{"id": "finding-1", "title": "Fix sharing", "severity": "high", "status": "open"}],
+                "action_plan": [{"id": "finding-1", "title": "Fix sharing", "severity": "high"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "reports" / "action-plan.json").write_text(
+        json.dumps([{"id": "finding-1", "title": "Fix sharing", "severity": "high"}]),
+        encoding="utf-8",
+    )
+    (run_dir / "findings" / "findings.json").write_text(
+        json.dumps([{"id": "finding-1", "title": "Fix sharing", "severity": "high", "status": "open"}]),
+        encoding="utf-8",
+    )
+
+    report = preview_report(str(run_dir), format_name="json")
+    notification = preview_notification(str(run_dir), sink="teams")
+
+    assert report["format"] == "json"
+    assert "\"tenant_name\": \"acme\"" in report["content"]
+    assert notification["dry_run"] is True
+    assert notification["payload"]["tenant_name"] == "acme"
+
+
+def test_export_list_and_rules_inventory_helpers_return_rows() -> None:
+    exporters = list_available_exporters()
+    rules = rules_inventory(product_family="identity")
+
+    assert "exporters" in exporters
+    assert exporters["exporters"]
+    assert rules["count"] >= 1
+
+
+def test_rules_inventory_cli_exports_sorted_json(monkeypatch, capsys) -> None:
+    seen: dict[str, object] = {}
+
+    def _fake_list_rule_inventory(*, tag=None, path_prefix=None):  # noqa: ANN001
+        seen["tag"] = tag
+        seen["path_prefix"] = path_prefix
+        return [
+            {"name": "zeta", "path": "rules/zeta.json"},
+            {"name": "alpha", "path": "rules/alpha.json"},
+        ]
+
+    monkeypatch.setattr("auditex.cli.list_rule_inventory", _fake_list_rule_inventory)
+
+    rc = auditex_cli.main(["rules", "inventory", "--tag", "now", "--path-prefix", "rules/"])
+
+    assert rc == 0
+    assert seen == {"tag": "now", "path_prefix": "rules/"}
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["count"] == 2
+    assert [item["name"] for item in payload["rules"]] == ["alpha", "zeta"]

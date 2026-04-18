@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from ..graph import GraphClient
+from ..graph import GraphClient, GraphError
 from .base import Collector, CollectorResult, _classify_graph_error, run_graph_endpoints
 
 
@@ -49,37 +49,140 @@ class AppConsentCollector(Collector):
 
         owner_rows: list[dict[str, Any]] = []
         assignment_rows: list[dict[str, Any]] = []
+        fanout_specs: list[dict[str, Any]] = []
 
         for service_principal in service_principals[:10]:
             sp_id = service_principal.get("id")
             if not isinstance(sp_id, str) or not sp_id:
                 continue
-            owner_endpoint = f"/servicePrincipals/{sp_id}/owners"
-            assignment_endpoint = f"/servicePrincipals/{sp_id}/appRoleAssignedTo"
+            fanout_specs.extend(
+                [
+                    {
+                        "name": "servicePrincipalOwners",
+                        "endpoint": f"/servicePrincipals/{sp_id}/owners",
+                        "service_principal_id": sp_id,
+                        "displayName": service_principal.get("displayName"),
+                        "property_name": "owners",
+                        "target_list": owner_rows,
+                    },
+                    {
+                        "name": "servicePrincipalAppRoleAssignments",
+                        "endpoint": f"/servicePrincipals/{sp_id}/appRoleAssignedTo",
+                        "service_principal_id": sp_id,
+                        "displayName": service_principal.get("displayName"),
+                        "property_name": "assignments",
+                        "target_list": assignment_rows,
+                    },
+                ]
+            )
 
-            for endpoint_name, endpoint, target_list, property_name in (
-                ("servicePrincipalOwners", owner_endpoint, owner_rows, "owners"),
-                ("servicePrincipalAppRoleAssignments", assignment_endpoint, assignment_rows, "assignments"),
-            ):
-                start = time.perf_counter()
-                try:
-                    rows = client.get_all(endpoint, params={"$top": "50"})
+        batch_results: list[dict[str, Any]] | None = None
+        if fanout_specs and hasattr(client, "get_batch"):
+            batch_start = time.perf_counter()
+            try:
+                batch_results = client.get_batch(
+                    [
+                        {
+                            "path": spec["endpoint"],
+                            "params": {"$top": "50"},
+                        }
+                        for spec in fanout_specs
+                    ]
+                )
+            except Exception:  # noqa: BLE001
+                batch_results = None
+
+        if batch_results is not None and len(batch_results) == len(fanout_specs):
+            for spec, result in zip(fanout_specs, batch_results):
+                endpoint = spec["endpoint"]
+                target_list = spec["target_list"]
+                status = result.get("status") if isinstance(result, dict) else None
+                body = result.get("body") if isinstance(result, dict) else None
+                if status == 200 and isinstance(body, dict):
+                    rows = body.get("value", [])
                     if not isinstance(rows, list):
                         rows = []
+                    next_link = body.get("@odata.nextLink")
+                    if isinstance(next_link, str) and next_link:
+                        rows = rows + list(client.iter_items(next_link))
                     target_list.append(
                         {
-                            "servicePrincipalId": sp_id,
-                            "displayName": service_principal.get("displayName"),
-                            property_name: rows,
+                            "servicePrincipalId": spec["service_principal_id"],
+                            "displayName": spec["displayName"],
+                            spec["property_name"]: rows,
                         }
                     )
                     coverage.append(
                         {
                             "collector": self.name,
                             "type": "graph",
-                            "name": endpoint_name,
+                            "name": spec["name"],
                             "endpoint": endpoint,
-                            "service_principal_id": sp_id,
+                            "service_principal_id": spec["service_principal_id"],
+                            "status": "ok",
+                            "item_count": len(rows),
+                            "duration_ms": round((time.perf_counter() - batch_start) * 1000, 2),
+                            "error_class": None,
+                            "error": None,
+                        }
+                    )
+                    continue
+
+                error_code = result.get("error_code") if isinstance(result, dict) else None
+                error_message = result.get("error") if isinstance(result, dict) else None
+                if isinstance(body, dict):
+                    error = body.get("error")
+                    if isinstance(error, dict):
+                        error_code = error_code or error.get("code")
+                        error_message = error_message or error.get("message")
+                    elif isinstance(error, str):
+                        error_message = error_message or error
+                error_text = str(error_message or "Graph batch request failed.")
+                error_status = status if isinstance(status, int) else None
+                error_exc = GraphError(
+                    error_text,
+                    status=error_status,
+                    request=endpoint,
+                    error_code=error_code if isinstance(error_code, str) else None,
+                )
+                error_class, error = _classify_graph_error(error_exc)
+                coverage.append(
+                    {
+                        "collector": self.name,
+                        "type": "graph",
+                        "name": spec["name"],
+                        "endpoint": endpoint,
+                        "service_principal_id": spec["service_principal_id"],
+                        "status": "failed",
+                        "item_count": 0,
+                        "duration_ms": round((time.perf_counter() - batch_start) * 1000, 2),
+                        "error_class": error_class,
+                        "error": error,
+                    }
+                )
+        else:
+            for spec in fanout_specs:
+                start = time.perf_counter()
+                endpoint = spec["endpoint"]
+                target_list = spec["target_list"]
+                try:
+                    rows = client.get_all(endpoint, params={"$top": "50"})
+                    if not isinstance(rows, list):
+                        rows = []
+                    target_list.append(
+                        {
+                            "servicePrincipalId": spec["service_principal_id"],
+                            "displayName": spec["displayName"],
+                            spec["property_name"]: rows,
+                        }
+                    )
+                    coverage.append(
+                        {
+                            "collector": self.name,
+                            "type": "graph",
+                            "name": spec["name"],
+                            "endpoint": endpoint,
+                            "service_principal_id": spec["service_principal_id"],
                             "status": "ok",
                             "item_count": len(rows),
                             "duration_ms": round((time.perf_counter() - start) * 1000, 2),
@@ -93,9 +196,9 @@ class AppConsentCollector(Collector):
                         {
                             "collector": self.name,
                             "type": "graph",
-                            "name": endpoint_name,
+                            "name": spec["name"],
                             "endpoint": endpoint,
-                            "service_principal_id": sp_id,
+                            "service_principal_id": spec["service_principal_id"],
                             "status": "failed",
                             "item_count": 0,
                             "duration_ms": round((time.perf_counter() - start) * 1000, 2),

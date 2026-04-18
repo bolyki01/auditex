@@ -9,6 +9,7 @@ from typing import Any
 from .adapters import get_adapter
 from .output import AuditWriter
 from .profiles import get_profile
+from auditex.evidence_db import build_run_evidence_index
 
 
 LAB_TENANT_ENV = "AUDITEX_LAB_TENANT_IDS"
@@ -474,6 +475,8 @@ def run_response(config: ResponseConfig, command_line: list[str] | None = None) 
         auth_context_path_value = str(auth_context_path.relative_to(writer.run_dir))
     else:
         auth_context_path_value = None
+    evidence_db_path = build_run_evidence_index(writer.run_dir)
+    writer._record_artifact(evidence_db_path)
     writer.write_bundle(
         {
             "executed_by": "auditex_response",
@@ -505,6 +508,7 @@ def run_response(config: ResponseConfig, command_line: list[str] | None = None) 
             "response_allow_write": config.allow_write,
             "response_allow_lab_response": config.allow_lab_response,
             "auth_context_path": auth_context_path_value,
+            "evidence_db_path": str(evidence_db_path.relative_to(writer.run_dir)),
         }
     )
     writer.log_event(

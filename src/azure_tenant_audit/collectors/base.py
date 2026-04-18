@@ -10,6 +10,8 @@ from ..graph import GraphClient, GraphError
 def _classify_graph_error(exc: Exception) -> tuple[str, str]:
     message = str(exc)
     if isinstance(exc, GraphError):
+        if exc.error_code == "PermissionStop":
+            return "permission_stop", message
         status = exc.status
         if status == 401:
             return "unauthenticated", message

@@ -2,9 +2,75 @@
 
 ## 1) Validate tooling
 
+Bootstrap a local dev shell first:
+
 ```bash
-python3 -m azure_tenant_audit --help
-python3 -m azure_tenant_audit --offline --tenant-name test --sample examples/sample_audit_bundle/sample_result.json
+auditex setup
+```
+
+If you need the MCP server:
+
+```bash
+auditex setup --mcp
+```
+
+If you need Exchange-backed or PowerShell-backed paths:
+
+```bash
+auditex setup --exchange
+auditex setup --pwsh
+```
+
+Check readiness before a live run:
+
+```bash
+auditex doctor
+```
+
+JSON doctor output:
+
+```bash
+auditex doctor --json
+```
+
+Use the guided operator path when you want the full first-run flow:
+
+```bash
+auditex guided-run
+```
+
+Supported guided flags:
+
+- `--tenant-id`
+- `--tenant-name`
+- `--auditor-profile`
+- `--out`
+- `--run-name`
+- `--top`
+- `--page-size`
+- `--browser-command`
+- `--collectors`
+- `--include-exchange`
+- `--throttle-mode`
+- `--include-blocked`
+- `--with-mcp`
+- `--non-interactive`
+- `--local-mode`
+- `--skip-login-check`
+- `--skip-tool-check`
+- `--report-format`
+- `--probe-first` / `--no-probe-first`
+
+Install the operator tools separately:
+
+- `az` for delegated sign-in and token reuse
+- `m365` only if you plan to run Exchange or other CLI-backed collectors
+
+Do not commit `.venv/` or `.secrets/`; they stay local and are already ignored.
+
+```bash
+auditex --help
+auditex --offline --tenant-name test --sample examples/sample_audit_bundle/sample_result.json
 ```
 
 ## 2) Credentialed smoke (app-less via Azure CLI)
@@ -16,6 +82,69 @@ make login TENANT="<tenant-id-or-domain>"   # wrapper around az login + firefox
 # include --m365 if you plan to run exchange checks
 python3 -m azure_tenant_audit --tenant-name "ACME" --use-azure-cli-token --tenant-id "organizations"
 ```
+
+For a tenant-level reader account, the live flow is:
+
+1. open the Microsoft sign-in page
+2. pick the `global.reader@bolyki.eu` work account
+3. confirm the Azure CLI trust prompt
+4. accept the tenant-level account selection with no subscription change
+
+The login helper now passes `--allow-no-subscriptions` so this path finishes without manual tenant/subscription selection.
+
+Known login issues seen in this repo:
+
+- `az login` without `--allow-no-subscriptions` stalls for tenant-level accounts.
+- browser sign-in can leave the CLI waiting on the callback; device-code flow is the fallback.
+- `m365` login is separate and only needed for Exchange-backed collectors.
+- `python` is not guaranteed; use `python3`.
+
+### Exchange app setup
+
+If you want `m365` Exchange-backed collectors, you need a tenant-local Entra app for CLI for Microsoft 365.
+
+Fast path with Global Administrator:
+
+1. sign in to Azure CLI as GA
+2. run `m365 setup`
+3. choose `Create a new app registration`
+4. choose `All`
+5. choose `Scripting`
+6. choose `PowerShell: Yes`
+7. confirm app creation when prompted
+8. save the returned `clientId`
+9. set `M365_CLI_APP_ID=<clientId>` in `.secrets/m365-auth.env`
+10. run `./scripts/tenant-audit-login <tenant> --browser safari --m365`
+
+Observed tenant result:
+
+- app name: `CLI for M365`
+- app id: `1a943a60-e4db-448c-a946-e825378e4883`
+
+If you do not have GA:
+
+1. ask tenant admin to create a single-tenant app registration
+2. app should support delegated sign-in for CLI use
+3. add mobile/desktop redirect URI:
+   `https://login.microsoftonline.com/common/oauth2/nativeclient`
+4. enable public client flows
+5. give the app delegated permissions needed for the intended `m365` commands
+6. grant admin consent where the chosen permissions require it
+7. send back:
+   - tenant id
+   - application/client id
+   - exact delegated permissions granted
+8. operator stores the app id in `.secrets/m365-auth.env`
+9. operator runs `m365 login --authType browser --tenant <tenant> --appId <app-id>`
+
+Copy/paste request for customer admin:
+
+- use [docs/notes/exchange-app-request.md](/Users/bolyki/dev/source/auditex/docs/notes/exchange-app-request.md)
+
+Reference:
+
+- CLI for Microsoft 365 setup docs: https://pnp.github.io/cli-microsoft365/beta/cmd/setup/
+- Own app registration docs: https://pnp.github.io/cli-microsoft365/beta/user-guide/using-own-identity/
 
 The run logs show:
 - `auth.cli.token.requested`
@@ -50,6 +179,17 @@ auditex probe live \
 Saved auth contexts stay local under `.secrets/` unless `AUDITEX_AUTH_CONTEXTS_PATH` points elsewhere.
 That same saved context can be passed to `auditex probe live --auth-context <name>` and `auditex response run --auth-context <name>`.
 
+Useful auth checks:
+
+```bash
+auditex auth status
+auditex auth list
+auditex auth use <name>
+```
+
+Local auth files default to `.secrets/m365-auth.env` and `.secrets/auditex-auth-contexts.json`.
+Override those with `AUDITEX_LOCAL_AUTH_ENV` and `AUDITEX_AUTH_CONTEXTS_PATH` if you need a different local path.
+
 ## 4) Credentialed smoke (app auth)
 
 Set environment or pass inline:
@@ -60,6 +200,17 @@ export AZURE_CLIENT_ID=<app-id>
 export AZURE_CLIENT_SECRET=<secret>
 python3 -m azure_tenant_audit --tenant-name "ACME" --collectors identity,security --top 250
 ```
+
+Support matrix:
+
+| Path | CLI profile | Sign-in | Exchange-assisted | Response |
+| --- | --- | --- | --- | --- |
+| Global Reader | `global-reader` | Delegated | Optional with `--include-exchange` | No |
+| Security Reader | `security-reader` | Delegated | No | No |
+| App read-only full | `app-readonly-full` | App-only or delegated token | Yes, with `m365` and `powershell_graph` adapters | No |
+| Exchange-assisted | `exchange-reader` | Delegated | Yes, built in | Yes |
+
+The live CLI defaults to `--auditor-profile global-reader`. Response planning defaults to `exchange-reader` and only accepts `exchange-reader`, `app-readonly-full`, `global-reader`, `security-reader`, or `auto`.
 
 ## 5) Full audit
 
@@ -76,18 +227,22 @@ auditex \
   --use-azure-cli-token \
   --auditor-profile global-reader \
   --collectors identity,security,exchange,teams,intune \
+  --probe-first \
+  --throttle-mode safe \
   --out outputs/acme-audit
 ```
 
 The live runtime now writes chunked page exports for paged Graph collectors under `chunks/` and keeps smaller summary payloads in `raw/`.
 Use `--page-size` to control request page size independently from `--top`, which is now the per-endpoint result limit.
+Use `--probe-first` to run a low-volume preflight and skip known-blocked collectors unless `--include-blocked` is set.
+Use `--throttle-mode safe` or `--throttle-mode ultra-safe` to reduce burst behavior and back off more aggressively on `429` and repeated `403`.
 Use `--resume-from` with a prior run directory to reuse completed checkpoint state. Resume skips preserve the prior collector checkpoint/summary status instead of downgrading it to `skipped`, and the checkpoint state file is written atomically to reduce interruption risk.
 Saved auth contexts from `auditex auth import-token` can also be reused for full audits with `--auth-context <name>`.
 
 Exchange command collection notes:
 
 - The exchange collector now checks `m365 status --output json` and then `m365 tenant info get --output json` and falls back if needed.
-- Mailbox count follows `m365 outlook report mailboxusagemailboxcount --period D30 --output json`; if unsupported, it falls back to `m365 outlook roomlist list --output json` and then `m365 exo mailbox list --output json`.
+- Mailbox count follows `m365 outlook report mailboxusagemailboxcount --period D30 --output json`; if unsupported, it falls back to `m365 outlook report mailboxusagedetail --period D30 --output json` and then `m365 outlook roomlist list --output json`.
 - If command tooling is unavailable, mailbox collection falls back to `Graph /users?filter=mail ne null` when possible.
 - If command tooling has version drift, command-level failures are reported in `diagnostics.json`.
 
@@ -97,8 +252,27 @@ Or run guided CLI session flow:
 ./scripts/tenant-audit-full --tenant-id "ACME" --tenant-name "ACME" --include-exchange
 ```
 
+Raw CLI surface:
+
+```bash
+auditex compare --run-dir run-a --run-dir run-b
+auditex report render <run-dir> --format md
+auditex export list
+auditex export run <exporter-name> <run-dir>
+auditex notify send <run-dir> --sink teams
+```
+
+Supported flags:
+
+- `auditex compare`: `--allow-cross-tenant`
+- `auditex report render`: `--include-section`, `--exclude-section`, `--output`
+- `auditex export run`: `--include-section`, `--exclude-section`, `--output`
+- `auditex notify send`: `--execute`
+- `auditex notify send --sink`: `teams`, `slack`, `smtp`
+
 ## 5) Review
 
+- Keep a live obstacle log in `docs/audit-flow-log.md`.
 - Open `summary.md` for triage.
 - Inspect `run-manifest.json` for status and command execution context.
 - For deeper investigation, open `run-manifest.json` first, then `raw/<collector>.json`.

@@ -4,6 +4,7 @@
   "type": "object",
   "required": ["summary", "findings", "evidence_paths"],
   "properties": {
+    "schema_version": { "type": "string" },
     "summary": {
       "type": "object",
       "required": ["tenant_name", "overall_status", "finding_count", "blocker_count"],
@@ -13,10 +14,17 @@
         "finding_count": { "type": "integer" },
         "blocker_count": { "type": "integer" },
         "severity_counts": { "type": "object" },
+        "status_counts": { "type": "object" },
+        "open_count": { "type": "integer" },
+        "accepted_count": { "type": "integer" },
         "diff_summary": { "type": "object" }
       }
     },
     "findings": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "action_plan": {
       "type": "array",
       "items": { "type": "object" }
     },

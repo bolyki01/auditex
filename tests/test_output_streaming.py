@@ -46,6 +46,7 @@ def test_writer_supports_chunk_blocker_and_report_artifacts(tmp_path: Path) -> N
         {
             "summary": {"overall_status": "partial"},
             "findings": [{"id": "security-alerts-blocked"}],
+            "action_plan": [{"id": "security-alerts-blocked", "title": "Security alerts blocked"}],
             "evidence_paths": [str(chunk_path.relative_to(writer.run_dir))],
         }
     )
@@ -71,3 +72,4 @@ def test_writer_supports_chunk_blocker_and_report_artifacts(tmp_path: Path) -> N
     assert "findings/findings.json" in manifest["artifacts"]
     assert "ai_safe/run_summary.json" in manifest["artifacts"]
     assert "reports/report-pack.json" in manifest["artifacts"]
+    assert "reports/action-plan.json" in manifest["artifacts"]

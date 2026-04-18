@@ -1,0 +1,59 @@
+{
+  "rules": [
+    {
+      "name": "collector.issue.permission",
+      "title": "Collector blocked by missing permission",
+      "description": "The collector could not read the requested surface with the current auth context.",
+      "tags": ["diagnostic", "permission"],
+      "path": "findings/diagnostics",
+      "product_family": "core",
+      "license_tiers": ["all"],
+      "audit_levels": ["baseline", "deep"],
+      "enabled": true
+    },
+    {
+      "name": "collector.issue.service",
+      "title": "Collector blocked by service condition",
+      "description": "The surface is unavailable, not enabled, or not found in this tenant context.",
+      "tags": ["diagnostic", "service"],
+      "path": "findings/diagnostics",
+      "product_family": "core",
+      "license_tiers": ["all"],
+      "audit_levels": ["baseline", "deep"],
+      "enabled": true
+    },
+    {
+      "name": "sharepoint.broad_link",
+      "title": "Broad SharePoint or OneDrive sharing link",
+      "description": "A site exposes organization-wide or anonymous access through a broad sharing link.",
+      "tags": ["exposure", "sharepoint"],
+      "path": "findings/sharepoint",
+      "product_family": "sharepoint",
+      "license_tiers": ["all"],
+      "audit_levels": ["baseline", "deep"],
+      "enabled": true
+    },
+    {
+      "name": "app_consent.high_privilege",
+      "title": "High privilege or weakly owned enterprise application consent",
+      "description": "An enterprise app has risky scopes or insufficient ownership.",
+      "tags": ["application", "identity"],
+      "path": "findings/apps",
+      "product_family": "identity",
+      "license_tiers": ["p1", "p2"],
+      "audit_levels": ["deep"],
+      "enabled": true
+    },
+    {
+      "name": "response.blocked",
+      "title": "Guarded response action blocked",
+      "description": "A response action failed prerequisite checks or the command plan hit a blocker.",
+      "tags": ["response"],
+      "path": "response",
+      "product_family": "response",
+      "license_tiers": ["all"],
+      "audit_levels": ["baseline", "deep"],
+      "enabled": false
+    }
+  ]
+}

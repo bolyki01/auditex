@@ -24,6 +24,7 @@ from .findings import build_findings, build_report_pack
 from .graph import GraphClient
 from .output import AuditWriter
 from .profiles import get_profile
+from auditex.evidence_db import build_run_evidence_index
 
 SUPPORTED_PROBE_MODES = ("delegated", "app", "response")
 DEFAULT_COLLECTOR_SURFACES = ("identity", "security", "auth_methods", "intune", "sharepoint", "teams", "exchange")
@@ -800,6 +801,8 @@ def run_live_probe(cfg: ProbeConfig) -> int:
     )
     evidence_index = {"artifacts": sorted(set(writer._manifest["artifacts"] + ["run-manifest.json", "summary.json", "summary.md"]))}
     evidence_index_path = writer.write_json_artifact("evidence-index.json", evidence_index)
+    evidence_db_path = build_run_evidence_index(writer.run_dir)
+    writer._record_artifact(evidence_db_path)
     writer.write_bundle(
         {
             "executed_by": "auditex_probe",
@@ -818,6 +821,7 @@ def run_live_probe(cfg: ProbeConfig) -> int:
             "capability_matrix_path": str(capability_path.relative_to(writer.run_dir)),
             "toolchain_readiness_path": str(toolchain_path.relative_to(writer.run_dir)),
             "evidence_index_path": str(evidence_index_path.relative_to(writer.run_dir)),
+            "evidence_db_path": str(evidence_db_path.relative_to(writer.run_dir)),
             "auth_path": auth_path,
             "auth_context_path": str(auth_context_path.relative_to(writer.run_dir)) if auth_context_path else None,
             "data_handling_events": [],

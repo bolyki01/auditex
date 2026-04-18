@@ -15,6 +15,8 @@ def _write_json(path: Path, payload: dict) -> None:
 def test_diff_run_directories_reports_added_removed_and_changed(tmp_path: Path) -> None:
     run_a = tmp_path / "run-a"
     run_b = tmp_path / "run-b"
+    _write_json(run_a / "run-manifest.json", {"tenant_name": "acme", "run_id": "run-1", "overall_status": "ok"})
+    _write_json(run_b / "run-manifest.json", {"tenant_name": "acme", "run_id": "run-2", "overall_status": "partial"})
 
     _write_json(
         run_a / "normalized" / "users.json",
@@ -50,6 +52,9 @@ def test_diff_run_directories_reports_added_removed_and_changed(tmp_path: Path) 
     assert diff["summary"]["added"] == 1
     assert diff["summary"]["removed"] == 1
     assert diff["summary"]["changed"] == 1
+    assert diff["run_a_info"]["run_id"] == "run-1"
+    assert diff["run_b_info"]["run_id"] == "run-2"
+    assert diff["compare_context"]["same_tenant"] is True
     assert diff["changes"]["users"]["added"][0]["key"] == "user:user-3"
     assert diff["changes"]["users"]["removed"][0]["key"] == "user:user-2"
     assert diff["changes"]["users"]["changed"][0]["before"]["department"] == "Sales"

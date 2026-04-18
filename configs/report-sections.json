@@ -1,0 +1,34 @@
+{
+  "sections": [
+    {
+      "id": "summary",
+      "title": "Summary",
+      "description": "Run summary and overall counts."
+    },
+    {
+      "id": "findings",
+      "title": "Findings",
+      "description": "Full finding rows from the report pack or findings artifact."
+    },
+    {
+      "id": "action_plan",
+      "title": "Action Plan",
+      "description": "Open findings only, ready for remediation tracking."
+    },
+    {
+      "id": "normalized",
+      "title": "Normalized",
+      "description": "Normalized evidence grouped by section."
+    },
+    {
+      "id": "blockers",
+      "title": "Blockers",
+      "description": "Structured blockers and diagnostics."
+    },
+    {
+      "id": "manifest",
+      "title": "Manifest",
+      "description": "Run manifest and artifact paths."
+    }
+  ]
+}

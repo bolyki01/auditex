@@ -78,6 +78,20 @@ def test_main_offline_preserves_plane_and_time_window(tmp_path: Path) -> None:
     assert manifest["time_window"]["until"] == "2026-04-02T00:00:00Z"
 
 
+def test_parser_accepts_waiver_file() -> None:
+    args = cli.build_parser().parse_args(
+        [
+            "--tenant-name",
+            "acme",
+            "--offline",
+            "--waiver-file",
+            "waivers.json",
+        ]
+    )
+
+    assert args.waiver_file == "waivers.json"
+
+
 def test_offline_missing_sample_fails(tmp_path: Path) -> None:
     rc = cli.run_offline(
         tmp_path / "missing.json",
@@ -253,6 +267,183 @@ def test_run_live_writes_auth_context_and_capability_artifacts(tmp_path: Path, m
     assert manifest["auth_context_path"] == "normalized/auth_context.json"
     assert manifest["capability_matrix_path"] == "normalized/capability_matrix.json"
     assert manifest["coverage_ledger_path"] == "normalized/coverage_ledger.json"
+    assert (output_dir / "index" / "evidence.sqlite").exists()
+
+
+def test_run_live_applies_waiver_file_to_findings_and_report_pack(tmp_path: Path, monkeypatch) -> None:
+    class _FailingCollector:
+        name = "security"
+
+        def run(self, context):
+            return CollectorResult(
+                name=self.name,
+                status="partial",
+                item_count=0,
+                message="security collector failed",
+                error="security collector failed",
+                payload={"securityAlerts": {"error": "forbidden"}},
+                coverage=[
+                    {
+                        "collector": "security",
+                        "type": "graph",
+                        "name": "securityAlerts",
+                        "endpoint": "/security/alerts",
+                        "status": "failed",
+                        "item_count": 0,
+                        "error_class": "insufficient_permissions",
+                        "error": "Forbidden",
+                    }
+                ],
+            )
+
+    class _FakeClient:
+        def __init__(self, auth, audit_event=None):
+            self.auth = auth
+
+    waiver_path = tmp_path / "waivers.json"
+    waiver_path.write_text(
+        json.dumps(
+            {
+                "waivers": [
+                    {
+                        "rule_id": "collector.issue.permission",
+                        "comment": "Expected in delegated-reader tenant",
+                        "expires_on": "2099-01-01",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(cli, "GraphClient", lambda auth, **kwargs: _FakeClient(auth, **kwargs))
+    monkeypatch.setattr(cli, "REGISTRY", {"security": _FailingCollector()})
+    monkeypatch.setattr(
+        cli,
+        "_inspect_access_token",
+        lambda token: {
+            "tenant_id": "tenant-ctx",
+            "audience": "https://graph.microsoft.com",
+            "delegated_scopes": ["SecurityEvents.Read.All"],
+            "app_roles": [],
+            "expires_at_utc": "2030-01-01T00:00:00Z",
+        },
+    )
+
+    args = cli.build_parser().parse_args(
+        [
+            "--tenant-name",
+            "acme",
+            "--access-token",
+            "token-value",
+            "--collectors",
+            "security",
+            "--waiver-file",
+            str(waiver_path),
+            "--out",
+            str(tmp_path),
+        ]
+    )
+
+    rc = cli.run_live(args)
+
+    assert rc == 1
+    output_dir = next(tmp_path.glob("acme-*"))
+    findings = json.loads((output_dir / "findings" / "findings.json").read_text(encoding="utf-8"))
+    report_pack = json.loads((output_dir / "reports" / "report-pack.json").read_text(encoding="utf-8"))
+
+    assert findings[0]["status"] == "accepted_risk"
+    assert findings[0]["rule_id"] == "collector.issue.permission"
+    assert report_pack["summary"]["accepted_count"] == 1
+    assert report_pack["summary"]["open_count"] == 0
+    assert report_pack["action_plan"] == []
+
+
+def test_run_live_applies_collector_preset_and_limits_selected_collectors(tmp_path: Path, monkeypatch) -> None:
+    class _IdentityCollector:
+        name = "identity"
+        run_calls = 0
+
+        def run(self, context):
+            self.__class__.run_calls += 1
+            return CollectorResult(
+                name=self.name,
+                status="ok",
+                item_count=1,
+                message="ok",
+                payload={"value": [{"id": "1"}]},
+            )
+
+    class _SecurityCollector:
+        name = "security"
+        run_calls = 0
+
+        def run(self, context):
+            self.__class__.run_calls += 1
+            return CollectorResult(
+                name=self.name,
+                status="ok",
+                item_count=1,
+                message="ok",
+                payload={"value": [{"id": "2"}]},
+            )
+
+    class _FakeClient:
+        def __init__(self, auth, audit_event=None):
+            self.auth = auth
+
+    monkeypatch.setattr(cli, "GraphClient", lambda auth, **kwargs: _FakeClient(auth, **kwargs))
+    monkeypatch.setattr(
+        cli,
+        "load_collector_presets",
+        lambda: {
+            "identity-only": {
+                "description": "Identity only",
+                "include": ["identity"],
+                "exclude": [],
+                "plane": "inventory",
+            }
+        },
+    )
+    monkeypatch.setattr(cli, "REGISTRY", {"identity": _IdentityCollector(), "security": _SecurityCollector()})
+    monkeypatch.setattr(
+        cli,
+        "_inspect_access_token",
+        lambda token: {
+            "tenant_id": "tenant-ctx",
+            "audience": "https://graph.microsoft.com",
+            "delegated_scopes": ["User.Read"],
+            "app_roles": [],
+            "expires_at_utc": "2030-01-01T00:00:00Z",
+        },
+    )
+
+    args = cli.build_parser().parse_args(
+        [
+            "--tenant-name",
+            "acme",
+            "--access-token",
+            "token-value",
+            "--collector-preset",
+            "identity-only",
+            "--out",
+            str(tmp_path),
+        ]
+    )
+
+    rc = cli.run_live(args)
+
+    assert rc == 0
+    assert _IdentityCollector.run_calls == 1
+    assert _SecurityCollector.run_calls == 0
+
+    output_dir = next(tmp_path.glob("acme-*"))
+    manifest = json.loads((output_dir / "run-manifest.json").read_text(encoding="utf-8"))
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+
+    assert manifest["collector_preset"] == "identity-only"
+    assert manifest["selected_collectors"] == ["identity"]
+    assert [row["name"] for row in summary["collectors"]] == ["identity"]
 
 
 def test_run_live_writes_diagnostics(tmp_path: Path, monkeypatch) -> None:
@@ -316,6 +507,104 @@ def test_run_live_writes_diagnostics(tmp_path: Path, monkeypatch) -> None:
     assert diagnostics
     assert diagnostics[0]["collector"] == "security"
     assert diagnostics[0]["recommendations"]["required_graph_scopes"]
+
+
+def test_run_live_probe_first_skips_known_blocked_collectors(tmp_path: Path, monkeypatch) -> None:
+    class _BlockedCollector:
+        name = "security"
+        run_calls = 0
+
+        def run(self, context):
+            self.__class__.run_calls += 1
+            return CollectorResult(
+                name=self.name,
+                status="partial",
+                item_count=0,
+                message="security blocked",
+                payload={"securityAlerts": {"error": "forbidden"}},
+                coverage=[
+                    {
+                        "collector": "security",
+                        "type": "graph",
+                        "name": "securityAlerts",
+                        "endpoint": "/security/alerts",
+                        "status": "failed",
+                        "item_count": 0,
+                        "error_class": "insufficient_permissions",
+                        "error": "Forbidden",
+                    }
+                ],
+            )
+
+    class _IdentityCollector:
+        name = "identity"
+        run_calls = 0
+
+        def run(self, context):
+            self.__class__.run_calls += 1
+            return CollectorResult(
+                name=self.name,
+                status="ok",
+                item_count=1,
+                message="ok",
+                payload={"value": [{"id": "1"}]},
+                coverage=[
+                    {
+                        "collector": "identity",
+                        "type": "graph",
+                        "name": "users",
+                        "endpoint": "/users",
+                        "status": "ok",
+                        "item_count": 1,
+                    }
+                ],
+            )
+
+    class _FakeClient:
+        def __init__(self, auth, audit_event=None):
+            self.auth = auth
+            self.audit_event = audit_event
+
+    security = _BlockedCollector()
+    identity = _IdentityCollector()
+    monkeypatch.setattr(cli, "GraphClient", lambda auth, **kwargs: _FakeClient(auth, audit_event=kwargs.get("audit_event")))
+    monkeypatch.setattr(cli, "REGISTRY", {"security": security, "identity": identity})
+
+    args = cli.build_parser().parse_args(
+        [
+            "--tenant-name",
+            "acme",
+            "--tenant-id",
+            "t-123",
+            "--client-id",
+            "app-id",
+            "--client-secret",
+            "secret",
+            "--collectors",
+            "security,identity",
+            "--probe-first",
+            "--out",
+            str(tmp_path),
+        ]
+    )
+
+    rc = cli.run_live(args)
+
+    assert rc == 1
+    assert security.run_calls == 1
+    assert identity.run_calls == 2
+    output_dir = next(tmp_path.glob("acme-*"))
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    manifest = json.loads((output_dir / "run-manifest.json").read_text(encoding="utf-8"))
+    log_lines = (output_dir / "audit-log.jsonl").read_text(encoding="utf-8").splitlines()
+
+    rows = {item["name"]: item for item in summary["collectors"]}
+    assert rows["security"]["status"] == "skipped"
+    assert rows["identity"]["status"] == "ok"
+    assert manifest["overall_status"] == "partial"
+    assert manifest["preflight_path"] == "preflight-plan.json"
+    assert any('"event": "preflight.completed"' in line for line in log_lines)
+    assert any('"event": "collector.skipped"' in line for line in log_lines)
 
 
 def test_interactive_without_client_id_falls_back_to_azure_cli_token(tmp_path: Path, monkeypatch) -> None:

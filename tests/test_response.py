@@ -152,6 +152,7 @@ def test_response_execute_uses_saved_auth_context_and_writes_auth_artifact(tmp_p
     assert auth_context["token_claims"]["delegated_scopes"] == ["Directory.Read.All"]
     assert manifest["tenant_id"] == "tenant-saved"
     assert manifest["auth_context_path"] == "auth-context.json"
+    assert (run_dir / "index" / "evidence.sqlite").exists()
 
 
 def test_response_execute_uses_saved_auth_context_and_writes_auth_artifact(tmp_path: Path, monkeypatch) -> None:

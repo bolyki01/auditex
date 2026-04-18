@@ -84,6 +84,7 @@ def test_probe_live_writes_capability_and_toolchain_artifacts(tmp_path: Path, mo
     assert manifest["probe_surface"] == "identity"
     assert manifest["capability_matrix_path"] == "capability-matrix.json"
     assert manifest["toolchain_readiness_path"] == "toolchain-readiness.json"
+    assert (run_dir / "index" / "evidence.sqlite").exists()
 
 
 def test_response_probe_requires_lab_guard_but_still_writes_blockers(tmp_path: Path, monkeypatch) -> None:

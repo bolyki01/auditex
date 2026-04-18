@@ -1,0 +1,47 @@
+{
+  "collector.issue.permission": {
+    "risk_rating": "high",
+    "description": "The current auth context cannot read this surface.",
+    "impact": "Coverage is incomplete and the audit cannot confirm this control.",
+    "remediation": "Grant the missing read permission or rerun with a deeper profile.",
+    "references": ["Graph read permission guidance"],
+    "control_ids": ["AUDITEX-COLLECTOR-PERMISSION"],
+    "expected_value": "Requested surface is readable"
+  },
+  "collector.issue.service": {
+    "risk_rating": "medium",
+    "description": "The target service surface is unavailable or not enabled.",
+    "impact": "Coverage is partial until the service becomes available.",
+    "remediation": "Validate tenant service state and rerun the affected collector.",
+    "references": ["Service readiness guidance"],
+    "control_ids": ["AUDITEX-COLLECTOR-SERVICE"],
+    "expected_value": "Requested surface is available"
+  },
+  "collector.issue.collector": {
+    "risk_rating": "medium",
+    "description": "The collector reported an operational issue.",
+    "impact": "Audit evidence for this surface may be incomplete or stale.",
+    "remediation": "Review collector diagnostics and rerun after fixing the failure.",
+    "references": ["Collector diagnostics"],
+    "control_ids": ["AUDITEX-COLLECTOR-FAILURE"],
+    "expected_value": "Collector completes successfully"
+  },
+  "sharepoint.broad_link": {
+    "risk_rating": "high",
+    "description": "A site exposes broad sharing through organization-wide or anonymous links.",
+    "impact": "Data can be exposed beyond the intended audience.",
+    "remediation": "Disable broad sharing links or reduce sharing capability.",
+    "references": ["SharePoint sharing control guidance"],
+    "control_ids": ["AUDITEX-SPO-BROAD-LINK"],
+    "expected_value": "Broad links are disabled or tightly scoped"
+  },
+  "app_consent.high_privilege": {
+    "risk_rating": "high",
+    "description": "An enterprise application has risky delegated scopes or weak ownership.",
+    "impact": "Compromised or abandoned app consent can expose tenant data broadly.",
+    "remediation": "Review app consent, remove unused grants, and assign responsible owners.",
+    "references": ["Application consent review guidance"],
+    "control_ids": ["AUDITEX-APP-CONSENT-HIGH-PRIVILEGE"],
+    "expected_value": "Only approved apps keep high-risk scopes and every app has owners"
+  }
+}

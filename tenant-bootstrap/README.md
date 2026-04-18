@@ -13,6 +13,21 @@ focuses on realistic posture:
 The scripts are written for PowerShell 7+ and can be copied with the rest of this
 repo to macOS/Windows hosts.
 
+## Prereqs
+
+- Python 3.11+
+- PowerShell 7+ for the PowerShell bootstrap path
+- Azure CLI (`az`) for the Azure CLI fallback and delegated sign-in
+- `m365` only when Exchange command collectors are needed
+
+Local Python setup:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r tenant-bootstrap/requirements.txt
+```
+
 ## Folder Layout
 
 - `config.example.json` — tenant/app/settings template.

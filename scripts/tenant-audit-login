@@ -20,6 +20,21 @@ Options:
 USAGE
 }
 
+ensure_exchange_online_module() {
+  if ! command -v pwsh >/dev/null 2>&1; then
+    echo "PowerShell 7+ is not installed. Install it first:"
+    echo "  brew install powershell"
+    exit 5
+  fi
+
+  if pwsh -NoLogo -NoProfile -Command "Get-Module -ListAvailable ExchangeOnlineManagement | Select-Object -First 1 Name | ConvertTo-Json -Compress" | grep -q ExchangeOnlineManagement; then
+    return 0
+  fi
+
+  echo "Installing ExchangeOnlineManagement for current user"
+  pwsh -NoLogo -NoProfile -Command "Set-PSRepository PSGallery -InstallationPolicy Trusted; Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber"
+}
+
 TENANT="organizations"
 BROWSER_COMMAND="firefox"
 M365_LOGIN=0
@@ -77,7 +92,7 @@ if [[ -n "${BROWSER_COMMAND}" ]]; then
 fi
 
 echo "Launching Azure login in ${BROWSER_COMMAND} for tenant: ${TENANT}"
-az login --tenant "${TENANT}"
+az login --tenant "${TENANT}" --allow-no-subscriptions
 
 if [[ "${M365_LOGIN}" -eq 1 ]]; then
   if ! command -v m365 >/dev/null 2>&1; then
@@ -85,6 +100,8 @@ if [[ "${M365_LOGIN}" -eq 1 ]]; then
     echo "  npm install -g @pnp/cli-microsoft365@latest"
     exit 3
   fi
+
+  ensure_exchange_online_module
 
   echo "Launching Microsoft 365 CLI login in ${BROWSER_COMMAND} for tenant: ${TENANT}"
   if [[ -n "${M365_APP_ID}" ]]; then
@@ -111,5 +128,11 @@ if [[ "${M365_LOGIN}" -eq 1 ]]; then
       echo "If this is a one-off environment, use 'm365 setup --scripting' first, then retry."
     fi
     exit 4
+  fi
+
+  m365_status_json="$(m365 status --output json 2>/dev/null || true)"
+  if [[ -z "${m365_status_json}" ]] || ! grep -q "\"connectionName\"" <<<"${m365_status_json}"; then
+    echo "Microsoft 365 CLI login did not leave an active connection."
+    exit 6
   fi
 fi

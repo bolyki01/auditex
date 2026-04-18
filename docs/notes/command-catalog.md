@@ -45,11 +45,11 @@ Use this as a lookup when extending collectors.
 ## Exchange (optional via command tooling)
 
 - `m365 tenant info get --output json`
-- `m365 tenant status`
 - `m365 status --output json`
 - `m365 outlook report mailboxusagemailboxcount --period D30 --output json`
+- `m365 outlook report mailboxusagedetail --period D30 --output json`
 - `m365 outlook roomlist list --output json`
-- `m365 exo message trace` (if available in your environment)
+- `Get-MessageTrace ...` via PowerShell / ExchangeOnlineManagement for response flows
 
 ## Offline extension
 

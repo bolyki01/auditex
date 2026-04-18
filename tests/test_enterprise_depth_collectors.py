@@ -17,6 +17,9 @@ from azure_tenant_audit.graph import GraphError
 
 
 class _SharePointAccessClient:
+    def __init__(self) -> None:
+        self.batch_calls: list[list[str]] = []
+
     def get_json(self, path, params=None, full_url=False):  # noqa: ANN001, ARG002
         if path == "/admin/sharepoint/settings":
             return {
@@ -35,21 +38,57 @@ class _SharePointAccessClient:
                 },
                 {"id": "site-2", "name": "Projects", "webUrl": "https://contoso.sharepoint.com/sites/projects"},
             ]
-        if path == "/sites/site-1/permissions":
-            return [
-                {
-                    "id": "perm-1",
-                    "roles": ["read"],
-                    "grantedToIdentitiesV2": [{"user": {"id": "user-1", "displayName": "Alice Example"}}],
-                    "link": {"scope": "anonymous", "type": "view"},
-                }
-            ]
-        if path == "/sites/site-2/permissions":
-            raise GraphError("Forbidden", status=403)
         raise AssertionError(f"unexpected path: {path}")
+
+    def get_batch(self, requests):  # noqa: ANN001
+        paths = [request["path"] for request in requests]
+        self.batch_calls.append(paths)
+        responses = []
+        for request in requests:
+            if request["path"] == "/sites/site-1/permissions":
+                responses.append(
+                    {
+                        "request": request,
+                        "status": 200,
+                        "body": {
+                            "value": [
+                                {
+                                    "id": "perm-1",
+                                    "roles": ["read"],
+                                    "grantedToIdentitiesV2": [
+                                        {"user": {"id": "user-1", "displayName": "Alice Example"}}
+                                    ],
+                                    "link": {"scope": "anonymous", "type": "view"},
+                                }
+                            ]
+                        },
+                    }
+                )
+                continue
+            if request["path"] == "/sites/site-2/permissions":
+                responses.append(
+                    {
+                        "request": request,
+                        "status": 403,
+                        "body": {
+                            "error": {
+                                "code": "Authorization_RequestDenied",
+                                "message": "Forbidden",
+                            }
+                        },
+                        "error_code": "Authorization_RequestDenied",
+                        "error": "Forbidden",
+                    }
+                )
+                continue
+            raise AssertionError(f"unexpected batch path: {request['path']}")
+        return responses
 
 
 class _AppConsentClient:
+    def __init__(self) -> None:
+        self.batch_calls: list[list[str]] = []
+
     def get_all(self, path, params=None):  # noqa: ANN001, ARG002
         if path == "/servicePrincipals":
             return [
@@ -71,15 +110,53 @@ class _AppConsentClient:
                     "consentType": "AllPrincipals",
                 }
             ]
-        if path == "/servicePrincipals/sp-1/owners":
-            return [{"id": "owner-1", "displayName": "Owner User", "userPrincipalName": "owner@example.com"}]
-        if path == "/servicePrincipals/sp-1/appRoleAssignedTo":
-            return [{"id": "assignment-1", "principalDisplayName": "All Users", "principalType": "Group"}]
         raise AssertionError(f"unexpected path: {path}")
 
     def get_json(self, path, params=None, full_url=False):  # noqa: ANN001, ARG002
         values = self.get_all(path, params=params)
         return {"value": values}
+
+    def get_batch(self, requests):  # noqa: ANN001
+        paths = [request["path"] for request in requests]
+        self.batch_calls.append(paths)
+        responses = []
+        for request in requests:
+            if request["path"] == "/servicePrincipals/sp-1/owners":
+                responses.append(
+                    {
+                        "request": request,
+                        "status": 200,
+                        "body": {
+                            "value": [
+                                {
+                                    "id": "owner-1",
+                                    "displayName": "Owner User",
+                                    "userPrincipalName": "owner@example.com",
+                                }
+                            ]
+                        },
+                    }
+                )
+                continue
+            if request["path"] == "/servicePrincipals/sp-1/appRoleAssignedTo":
+                responses.append(
+                    {
+                        "request": request,
+                        "status": 200,
+                        "body": {
+                            "value": [
+                                {
+                                    "id": "assignment-1",
+                                    "principalDisplayName": "All Users",
+                                    "principalType": "Group",
+                                }
+                            ]
+                        },
+                    }
+                )
+                continue
+            raise AssertionError(f"unexpected batch path: {request['path']}")
+        return responses
 
 
 class _LicensingClient:
@@ -133,6 +210,9 @@ class _IdentityGovernanceClient:
 
 
 class _IntuneDepthClient:
+    def __init__(self) -> None:
+        self.batch_calls: list[list[str]] = []
+
     def get_all(self, path, params=None):  # noqa: ANN001, ARG002
         responses = {
             "/deviceManagement/deviceConfigurations": [{"id": "config-1", "displayName": "Windows baseline"}],
@@ -140,7 +220,6 @@ class _IntuneDepthClient:
             "/deviceManagement/deviceManagementScripts": [{"id": "script-1", "displayName": "Repair script"}],
             "/deviceAppManagement/androidManagedAppProtections": [{"id": "mam-android-1", "displayName": "Android MAM"}],
             "/deviceAppManagement/iosManagedAppProtections": [{"id": "mam-ios-1", "displayName": "iOS MAM"}],
-            "/deviceManagement/deviceConfigurations/config-1/assignments": [{"id": "assign-1", "target": {"groupId": "group-1"}}],
         }
         if path not in responses:
             raise AssertionError(f"unexpected path: {path}")
@@ -149,6 +228,27 @@ class _IntuneDepthClient:
     def get_json(self, path, params=None, full_url=False):  # noqa: ANN001, ARG002
         values = self.get_all(path, params=params)
         return {"value": values}
+
+    def get_batch(self, requests):  # noqa: ANN001
+        paths = [request["path"] for request in requests]
+        self.batch_calls.append(paths)
+        responses = []
+        for request in requests:
+            if request["path"] == "/deviceManagement/deviceConfigurations/config-1/assignments":
+                responses.append(
+                    {
+                        "request": request,
+                        "status": 200,
+                        "body": {
+                            "value": [
+                                {"id": "assign-1", "target": {"groupId": "group-1"}}
+                            ]
+                        },
+                    }
+                )
+                continue
+            raise AssertionError(f"unexpected batch path: {request['path']}")
+        return responses
 
 
 class _ServiceHealthClient:
@@ -278,7 +378,8 @@ class _FakeAdapter:
 
 def test_sharepoint_access_collector_collects_site_permissions_and_marks_partial_when_one_site_is_blocked() -> None:
     collector = SharePointAccessCollector()
-    result = collector.run({"client": _SharePointAccessClient(), "top": 100, "audit_logger": None})
+    client = _SharePointAccessClient()
+    result = collector.run({"client": client, "top": 100, "audit_logger": None})
 
     assert result.status == "partial"
     assert result.payload["sharePointSettings"]["sharingCapability"] == "externalUserAndGuestSharing"
@@ -292,17 +393,20 @@ def test_sharepoint_access_collector_collects_site_permissions_and_marks_partial
     assert permissions[0]["permissions"][0]["id"] == "perm-1"
     failed_rows = [row for row in (result.coverage or []) if row["status"] != "ok"]
     assert failed_rows[0]["error_class"] == "insufficient_permissions"
+    assert client.batch_calls == [["/sites/site-1/permissions", "/sites/site-2/permissions"]]
 
 
 def test_app_consent_collector_collects_grants_owners_and_app_role_assignments() -> None:
     collector = AppConsentCollector()
-    result = collector.run({"client": _AppConsentClient(), "top": 100, "audit_logger": None})
+    client = _AppConsentClient()
+    result = collector.run({"client": client, "top": 100, "audit_logger": None})
 
     assert result.status == "ok"
     assert result.payload["servicePrincipals"]["value"][0]["id"] == "sp-1"
     assert result.payload["oauth2PermissionGrants"]["value"][0]["id"] == "grant-1"
     assert result.payload["servicePrincipalOwners"]["value"][0]["owners"][0]["id"] == "owner-1"
     assert result.payload["servicePrincipalAppRoleAssignments"]["value"][0]["assignments"][0]["id"] == "assignment-1"
+    assert client.batch_calls == [["/servicePrincipals/sp-1/owners", "/servicePrincipals/sp-1/appRoleAssignedTo"]]
 
 
 def test_licensing_collector_collects_subscribed_skus_and_license_assignments() -> None:
@@ -328,12 +432,14 @@ def test_identity_governance_collector_collects_reviews_packages_and_role_schedu
 
 def test_intune_depth_collector_collects_configurations_scripts_and_assignments() -> None:
     collector = IntuneDepthCollector()
-    result = collector.run({"client": _IntuneDepthClient(), "top": 100, "audit_logger": None})
+    client = _IntuneDepthClient()
+    result = collector.run({"client": client, "top": 100, "audit_logger": None})
 
     assert result.status == "ok"
     assert result.payload["deviceConfigurations"]["value"][0]["id"] == "config-1"
     assert result.payload["deviceManagementScripts"]["value"][0]["id"] == "script-1"
     assert result.payload["deviceConfigurationAssignments"]["value"][0]["assignments"][0]["id"] == "assign-1"
+    assert client.batch_calls == [["/deviceManagement/deviceConfigurations/config-1/assignments"]]
 
 
 def test_service_health_collector_collects_health_issues_and_messages() -> None:
