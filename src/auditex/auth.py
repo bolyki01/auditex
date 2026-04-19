@@ -49,13 +49,73 @@ def _masked_local_auth_values(path: Path) -> dict[str, Any]:
     if not path.exists():
         return values
     keys = (
+        "AUDITEX_TENANT_ID",
+        "AUDITEX_TENANT_NAME",
         "M365_CLI_APP_ID",
         "M365_CLI_CLIENT_ID",
         "AUDITEX_M365_CONNECTION_NAME",
         "AUDITEX_TENANT_ID",
+        "AZURE_TENANT_ID",
+        "AZURE_CLIENT_ID",
     )
     values["values"] = {key: os.environ.get(key) for key in keys if os.environ.get(key)}
     return values
+
+
+def local_auth_values() -> dict[str, str]:
+    path = _load_local_auth_env()
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key:
+            values[key] = value
+    return values
+
+
+def save_local_auth_values(values: dict[str, str | None]) -> Path:
+    path = default_local_auth_env_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing_lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    output_lines: list[str] = []
+    seen_keys: set[str] = set()
+
+    for raw_line in existing_lines:
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in raw_line:
+            output_lines.append(raw_line)
+            continue
+        key, _sep, _value = raw_line.partition("=")
+        clean_key = key.strip()
+        if clean_key not in values:
+            output_lines.append(raw_line)
+            continue
+        seen_keys.add(clean_key)
+        new_value = values.get(clean_key)
+        if new_value is None or new_value == "":
+            continue
+        output_lines.append(f"{clean_key}={new_value}")
+
+    for key, value in values.items():
+        if key in seen_keys or value is None or value == "":
+            continue
+        output_lines.append(f"{key}={value}")
+
+    rendered = "\n".join(output_lines).rstrip()
+    path.write_text(f"{rendered}\n" if rendered else "", encoding="utf-8")
+
+    for key, value in values.items():
+        if value is None or value == "":
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+    return path
 
 
 def _json_command(command: list[str]) -> dict[str, Any]:
@@ -201,7 +261,7 @@ def inspect_token_claims(token: str) -> dict[str, Any]:
     if len(parts) < 2:
         raise ValueError("token is not a JWT")
     payload = _b64url_json(parts[1])
-    delegated_scopes = sorted(parse_csv_list(str(payload.get("scp", "")).replace(" ", ",")))
+    delegated_scopes = sorted(parse_csv_list(str(payload.get("scp", "")).replace(" ", ",")) or [])
     app_roles = sorted(str(item) for item in payload.get("roles", []) if isinstance(item, str))
     return {
         "tenant_id": payload.get("tid"),
@@ -388,12 +448,17 @@ def capability_for_context(
     }
 
 
-def get_auth_status() -> dict[str, Any]:
+def get_auth_status(
+    *,
+    include_azure_cli: bool = True,
+    include_m365: bool = True,
+    include_exchange: bool = True,
+) -> dict[str, Any]:
     path = _load_local_auth_env()
-    azure = _json_command(["az", "account", "show", "--output", "json"])
-    m365 = _json_command(["m365", "status", "--output", "json"])
-    connections = _json_command(["m365", "connection", "list", "--output", "json"])
-    exchange = _pwsh_exchange_module_status()
+    azure = _json_command(["az", "account", "show", "--output", "json"]) if include_azure_cli else {"status": "skipped"}
+    m365 = _json_command(["m365", "status", "--output", "json"]) if include_m365 else {"status": "skipped"}
+    connections = _json_command(["m365", "connection", "list", "--output", "json"]) if include_m365 else {"status": "skipped"}
+    exchange = _pwsh_exchange_module_status() if include_exchange else {"status": "skipped"}
 
     result: dict[str, Any] = {
         "local_auth": _masked_local_auth_values(path),

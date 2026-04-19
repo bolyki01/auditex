@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 
+from auditex import auth as auditex_auth
 from auditex import cli as auditex_cli
 from auditex.mcp_server import tool_specs
 
@@ -133,6 +134,28 @@ def test_auth_inspect_token_command_prints_claims(monkeypatch, tmp_path: Path, c
     assert payload["app_roles"] == ["SecurityEvents.Read.All"]
 
 
+def test_auth_inspect_token_command_handles_app_only_token(monkeypatch, tmp_path: Path, capsys) -> None:
+    contexts_path = tmp_path / "contexts.json"
+    monkeypatch.setenv("AUDITEX_AUTH_CONTEXTS_PATH", str(contexts_path))
+    token = _jwt(
+        {
+            "tid": "tenant-app",
+            "aud": "https://graph.microsoft.com",
+            "roles": ["Directory.Read.All", "AuditLog.Read.All"],
+            "appid": "app-client-id",
+            "exp": 1893456000,
+        }
+    )
+
+    rc = auditex_cli.main(["auth", "inspect-token", "--token", token])
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["tenant_id"] == "tenant-app"
+    assert payload["delegated_scopes"] == []
+    assert payload["app_roles"] == ["AuditLog.Read.All", "Directory.Read.All"]
+
+
 def test_auth_capability_command_prints_collector_statuses(monkeypatch, tmp_path: Path, capsys) -> None:
     contexts_path = tmp_path / "contexts.json"
     monkeypatch.setenv("AUDITEX_AUTH_CONTEXTS_PATH", str(contexts_path))
@@ -168,3 +191,25 @@ def test_auth_capability_command_prints_collector_statuses(monkeypatch, tmp_path
     assert rows["identity"]["status"] == "supported"
     assert rows["security"]["status"] == "supported"
     assert rows["defender"]["status"] == "blocked_by_scope"
+
+
+def test_save_local_auth_values_updates_env_file(monkeypatch, tmp_path: Path) -> None:
+    env_path = tmp_path / "m365-auth.env"
+    env_path.write_text("# local\nM365_CLI_APP_ID=old-app\nDROP_ME=value\n", encoding="utf-8")
+    monkeypatch.setenv("AUDITEX_LOCAL_AUTH_ENV", str(env_path))
+
+    saved_path = auditex_auth.save_local_auth_values(
+        {
+            "M365_CLI_APP_ID": "new-app",
+            "AZURE_CLIENT_ID": "new-app",
+            "AZURE_CLIENT_SECRET": "secret-1",
+            "DROP_ME": None,
+        }
+    )
+
+    assert saved_path == env_path
+    rendered = env_path.read_text(encoding="utf-8")
+    assert "M365_CLI_APP_ID=new-app" in rendered
+    assert "AZURE_CLIENT_ID=new-app" in rendered
+    assert "AZURE_CLIENT_SECRET=secret-1" in rendered
+    assert "DROP_ME=" not in rendered

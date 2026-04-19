@@ -5,6 +5,9 @@
 Bootstrap a local dev shell first:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
 auditex setup
 ```
 
@@ -39,8 +42,45 @@ Use the guided operator path when you want the full first-run flow:
 auditex guided-run
 ```
 
+This is the main flow now.
+
+Pick one:
+
+- `gr-audit`
+  normal operator run with `Global Reader`
+- `ga-setup-app`
+  one-time `Global Admin` flow to create and save the Exchange app
+- `app-audit`
+  app-only run with saved app credentials
+
+Common path:
+
+```bash
+auditex guided-run --flow gr-audit --include-exchange
+# or repo-local:
+./scripts/tenant-audit-flow --flow gr-audit --include-exchange
+```
+
+One-time GA setup:
+
+```bash
+auditex guided-run --flow ga-setup-app
+```
+
+Later app-only run:
+
+```bash
+auditex guided-run --flow app-audit
+```
+
+Saved local state goes into `.secrets/m365-auth.env`. After GA setup, normal GR runs can reuse the saved app id and only need login.
+
 Supported guided flags:
 
+- `--flow`
+- `--auth-mode`
+- `--client-id`
+- `--client-secret`
 - `--tenant-id`
 - `--tenant-name`
 - `--auditor-profile`
@@ -61,6 +101,19 @@ Supported guided flags:
 - `--report-format`
 - `--probe-first` / `--no-probe-first`
 
+App-guided flow:
+
+```bash
+auditex guided-run \
+  --auth-mode app \
+  --tenant-id <tenant-id-or-domain> \
+  --tenant-name <label> \
+  --client-id <app-id> \
+  --client-secret <secret> \
+  --auditor-profile app-readonly-full \
+  --non-interactive
+```
+
 Install the operator tools separately:
 
 - `az` for delegated sign-in and token reuse
@@ -72,6 +125,8 @@ Do not commit `.venv/` or `.secrets/`; they stay local and are already ignored.
 auditex --help
 auditex --offline --tenant-name test --sample examples/sample_audit_bundle/sample_result.json
 ```
+
+If you also add `--include-exchange` in app mode, Auditex now uses `m365` secret auth with the same app id and secret.
 
 ## 2) Credentialed smoke (app-less via Azure CLI)
 
@@ -105,16 +160,12 @@ If you want `m365` Exchange-backed collectors, you need a tenant-local Entra app
 
 Fast path with Global Administrator:
 
-1. sign in to Azure CLI as GA
-2. run `m365 setup`
-3. choose `Create a new app registration`
-4. choose `All`
-5. choose `Scripting`
-6. choose `PowerShell: Yes`
-7. confirm app creation when prompted
-8. save the returned `clientId`
-9. set `M365_CLI_APP_ID=<clientId>` in `.secrets/m365-auth.env`
-10. run `./scripts/tenant-audit-login <tenant> --browser safari --m365`
+1. run `auditex guided-run --flow ga-setup-app`
+2. sign in as GA when Safari opens
+3. let the flow run `m365 setup`
+4. save the created app id when the flow asks
+5. optional: save the app secret too if you want later app-only runs
+6. run `auditex guided-run --flow gr-audit --include-exchange`
 
 Observed tenant result:
 
@@ -135,7 +186,7 @@ If you do not have GA:
    - application/client id
    - exact delegated permissions granted
 8. operator stores the app id in `.secrets/m365-auth.env`
-9. operator runs `m365 login --authType browser --tenant <tenant> --appId <app-id>`
+9. operator runs `auditex guided-run --flow gr-audit --include-exchange`
 
 Copy/paste request for customer admin:
 
@@ -159,6 +210,7 @@ python3 -m azure_tenant_audit --interactive --tenant-name "ACME" --client-id "<a
 ```
 
 In interactive mode `tenant-id` defaults to `organizations` if omitted.
+App mode does not use `organizations`; pass the real tenant id or tenant domain.
 
 ## 3b) Credentialed smoke (customer-provided Graph token)
 
@@ -200,6 +252,14 @@ export AZURE_CLIENT_ID=<app-id>
 export AZURE_CLIENT_SECRET=<secret>
 python3 -m azure_tenant_audit --tenant-name "ACME" --collectors identity,security --top 250
 ```
+
+Validated tenant path:
+
+- existing tenant-local app can be reused
+- add a client secret
+- add admin-consented application permissions for the `app-readonly-full` profile
+- current Graph app-role name for app consent depth is `AppRoleAssignment.ReadWrite.All`
+- app probe and app full run were both validated in `BOLYKI`
 
 Support matrix:
 

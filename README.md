@@ -50,6 +50,9 @@ The core runtime stays Python-only. `pwsh` and `m365` are optional adapters, not
 Local setup:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
 auditex setup
 ```
 
@@ -86,9 +89,43 @@ Guided first run:
 auditex guided-run
 ```
 
-The guided flow can bootstrap local tools, walk Azure login, optionally prepare Exchange tooling, run a low-volume preflight, and then stream collector progress.
+The guided flow is the main operator path.
+
+It can:
+
+- run a normal `Global Reader` audit
+- do a one-time `Global Admin` app setup for Exchange-backed collection
+- run an app audit with saved app credentials
+
+Normal path is `Global Reader`. `Global Admin` is only for the one-time app setup.
+
+First-time GA setup:
+
+```bash
+auditex guided-run --flow ga-setup-app
+```
+
+Normal GR audit after that:
+
+```bash
+auditex guided-run --flow gr-audit --include-exchange
+# or repo-local:
+./scripts/tenant-audit-flow --flow gr-audit --include-exchange
+```
+
+Saved app audit:
+
+```bash
+auditex guided-run --flow app-audit
+```
+
+The flow bootstraps tools, walks login, stores local app details in `.secrets/m365-auth.env`, runs preflight, then writes the full evidence bundle for later AI use.
 Supported guided flags:
 
+- `--flow`
+- `--auth-mode`
+- `--client-id`
+- `--client-secret`
 - `--tenant-id`
 - `--tenant-name`
 - `--auditor-profile`
@@ -109,16 +146,24 @@ Supported guided flags:
 - `--report-format`
 - `--probe-first` / `--no-probe-first`
 
-For the full first-run path, see `docs/audit-runbook.md`.
-
-Competitor harvest:
+App-guided flow:
 
 ```bash
-auditex research competitors sync
-auditex research competitors pack
+auditex guided-run \
+  --auth-mode app \
+  --tenant-id <tenant-id-or-domain> \
+  --tenant-name <label> \
+  --client-id <app-id> \
+  --client-secret <secret> \
+  --auditor-profile app-readonly-full \
+  --non-interactive
 ```
 
-This mirrors selected upstream repos into `~/dev/library/auditex/competitors/repos` and refreshes the tracked analysis pack in `docs/research/`.
+For the full first-run path, see `docs/audit-runbook.md`.
+
+Source provenance:
+
+Auditex ships with a proprietary top-level license, a third-party notice file, and a provenance sheet under `docs/provenance/`. Legacy source-review tooling is not part of the product tree.
 
 ## Install
 
