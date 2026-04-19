@@ -37,7 +37,7 @@ exit 0
 set -euo pipefail
 printf '%s\n' "$*" >> {m365_log!s}
 if [[ "${{1:-}}" == "status" ]]; then
-  printf '{{"connectionName":"tenant-user","connectedAs":"user","appTenant":"bolyki.eu"}}\n'
+  printf '{{"connectionName":"tenant-user","connectedAs":"user","appTenant":"contoso.onmicrosoft.com"}}\n'
 fi
 exit 0
 """,
@@ -59,7 +59,7 @@ exit 0
     env["AUDITEX_LOCAL_AUTH_ENV"] = str(auth_env)
 
     result = subprocess.run(
-        ["bash", "scripts/tenant-audit-login", "bolyki.eu", "--m365"],
+        ["bash", "scripts/tenant-audit-login", "contoso.onmicrosoft.com", "--m365"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -69,9 +69,9 @@ exit 0
 
     assert result.returncode == 0, result.stderr or result.stdout
     az_args = az_log.read_text(encoding="utf-8")
-    assert "login --tenant bolyki.eu --allow-no-subscriptions" in az_args
+    assert "login --tenant contoso.onmicrosoft.com --allow-no-subscriptions" in az_args
     m365_args = m365_log.read_text(encoding="utf-8")
-    assert "login --authType browser --tenant bolyki.eu --output text --appId test-app-id" in m365_args
+    assert "login --authType browser --tenant contoso.onmicrosoft.com --output text --appId test-app-id" in m365_args
     pwsh_args = pwsh_log.read_text(encoding="utf-8")
     assert "Get-Module -ListAvailable ExchangeOnlineManagement" in pwsh_args
 
@@ -111,7 +111,7 @@ exit 0
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
 
     result = subprocess.run(
-        ["bash", "scripts/tenant-audit-full", "--tenant-id", "bolyki.eu", "--tenant-name", "BOLYKI"],
+        ["bash", "scripts/tenant-audit-full", "--tenant-id", "contoso.onmicrosoft.com", "--tenant-name", "CONTOSO"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -121,6 +121,6 @@ exit 0
 
     assert result.returncode == 0, result.stderr or result.stdout
     az_args = az_log.read_text(encoding="utf-8")
-    assert "login --tenant bolyki.eu --allow-no-subscriptions" in az_args
+    assert "login --tenant contoso.onmicrosoft.com --allow-no-subscriptions" in az_args
     py_args = py_log.read_text(encoding="utf-8")
     assert "azure_tenant_audit" in py_args

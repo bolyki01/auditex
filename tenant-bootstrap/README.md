@@ -134,7 +134,7 @@ The package set is intentionally small and portable (`requests`, `msal`).
 ```bash
 cd tenant-bootstrap
 ./run-enterprise-audit.sh \
-  --tenant-name "Bolyki Solutions" \
+  --tenant-name "Example Tenant" \
   --inspect
 ```
 
@@ -149,14 +149,14 @@ PowerShell workflow (legacy):
 
 ```powershell
 cd tenant-bootstrap
-.\run-bootstrap.ps1 -ConfigPath .\config.example.json -TenantName "BOLYKI-LAB"
+.\run-bootstrap.ps1 -ConfigPath .\config.example.json -TenantName "EXAMPLE-LAB"
 ```
 
 Cross-platform bootstrap flow (uses Azure CLI token mode and avoids PowerShell):
 
 ```bash
 cd tenant-bootstrap
-./run-bootstrap-azurecli.sh --tenant-name "BOLYKI-LAB"
+./run-bootstrap-azurecli.sh --tenant-name "EXAMPLE-LAB"
 ```
 
 If no active Azure CLI session exists, the wrapper can auto-open browser-based login
@@ -164,13 +164,13 @@ and continue using that token:
 
 ```bash
 cd tenant-bootstrap
-./run-bootstrap-azurecli.sh --tenant-name "BOLYKI-LAB" --browser-command firefox
+./run-bootstrap-azurecli.sh --tenant-name "EXAMPLE-LAB" --browser-command firefox
 ```
 
 Dry-run with full chain:
 
 ```bash
-./run-bootstrap-azurecli.sh --tenant-name "BOLYKI-LAB" --dry-run
+./run-bootstrap-azurecli.sh --tenant-name "EXAMPLE-LAB" --dry-run
 ```
 
 Enterprise lab max population profile:
@@ -200,13 +200,13 @@ If you are already authenticated with Azure CLI in the same shell, this is also 
 
 ```powershell
 az login
-.\run-bootstrap.ps1 -ConfigPath .\config.example.json -TenantName "BOLYKI-LAB" -DryRun
+.\run-bootstrap.ps1 -ConfigPath .\config.example.json -TenantName "EXAMPLE-LAB" -DryRun
 ```
 
 Dry-run mode:
 
 ```powershell
-.\run-bootstrap.ps1 -ConfigPath .\config.example.json -TenantName "BOLYKI-LAB" -DryRun
+.\run-bootstrap.ps1 -ConfigPath .\config.example.json -TenantName "EXAMPLE-LAB" -DryRun
 ```
 
 The identity/group step can calculate its enterprise seed shape in dry-run mode
@@ -229,9 +229,9 @@ Collector run (single command path):
 ```bash
 cd tenant-bootstrap
 ./scripts/run-audit-collector.sh \
-  --tenant-name "Bolyki Solutions" \
-  --tenant-id "03174e44-540d-43a6-9dc4-fdff48bd182d" \
-  --out "audit-output/Bolyki-Solutions-audit" \
+  --tenant-name "Example Tenant" \
+  --tenant-id "00000000-0000-0000-0000-000000000000" \
+  --out "audit-output/Example-Tenant-audit" \
   --auditor-profile global-reader \
   --collectors identity,security,intune,teams,exchange \
   --top 500 \
@@ -250,8 +250,8 @@ Azure CLI token mode (requires `az login`) so you can run audits without app reg
 
 ```bash
 ./scripts/run-audit-collector.sh \
-  --tenant-name "Bolyki Solutions" \
-  --tenant-id "03174e44-540d-43a6-9dc4-fdff48bd182d" \
+  --tenant-name "Example Tenant" \
+  --tenant-id "00000000-0000-0000-0000-000000000000" \
   --client-id "<YOUR_PUBLIC_CLIENT_ID>" \
   --collectors identity,security \
   --top 250 \
@@ -264,8 +264,8 @@ or a no-app fallback:
 
 ```bash
 ./scripts/run-audit-collector.sh \
-  --tenant-name "Bolyki Solutions" \
-  --tenant-id "03174e44-540d-43a6-9dc4-fdff48bd182d" \
+  --tenant-name "Example Tenant" \
+  --tenant-id "00000000-0000-0000-0000-000000000000" \
   --collectors identity,security,teams,exchange \
   --top 250 \
   --token-env .secrets/lab-populator-token.env \
@@ -275,7 +275,7 @@ or a no-app fallback:
 You can force dry-run and inspect the exact command before execution:
 
 ```bash
-./scripts/run-audit-collector.sh --tenant-name "Bolyki Solutions" --dry-run
+./scripts/run-audit-collector.sh --tenant-name "Example Tenant" --dry-run
 ```
 
 If run through `run-bootstrap-azurecli.sh`, you also get:
@@ -385,9 +385,8 @@ You can also use the helper script to summarize an evidence run quickly:
 
 ## Important
 
-- Microsoft Agent Skills are vendored in `vendor/microsoft-skills/`, including a
-  full upstream copy under `vendor/microsoft-skills/upstream/` and a searchable
-  catalog at `vendor/microsoft-skills/ALL-SKILLS-CATALOG.md`. Start with
+- Microsoft Agent Skills are vendored in `vendor/microsoft-skills/` as a curated
+  subset with a searchable catalog at `vendor/microsoft-skills/ALL-SKILLS-CATALOG.md`. Start with
   `docs/MICROSOFT-AGENT-SKILLS-DIGEST.md` when working on Graph permissions, app
   registrations, MCP servers, or future Microsoft 365 / Foundry agent packaging.
   Do not load all skills at once; use the catalog to open the smallest relevant

@@ -49,7 +49,7 @@ python3 scripts/create-lab-populator-app.py --config configs/lab-populator-permi
 Create/update the app and attempt admin consent:
 
 ```bash
-python3 scripts/create-lab-populator-app.py --config configs/lab-populator-permissions.json --tenant-id 03174e44-540d-43a6-9dc4-fdff48bd182d --admin-consent
+python3 scripts/create-lab-populator-app.py --config configs/lab-populator-permissions.json --tenant-id 00000000-0000-0000-0000-000000000000 --admin-consent
 ```
 
 Secrets and token claim diagnostics go under `.secrets/`, which is ignored by git.

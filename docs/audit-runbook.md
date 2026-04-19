@@ -141,7 +141,7 @@ python3 -m azure_tenant_audit --tenant-name "ACME" --use-azure-cli-token --tenan
 For a tenant-level reader account, the live flow is:
 
 1. open the Microsoft sign-in page
-2. pick the `global.reader@bolyki.eu` work account
+2. pick the target `Global Reader` work account
 3. confirm the Azure CLI trust prompt
 4. accept the tenant-level account selection with no subscription change
 
@@ -167,11 +167,6 @@ Fast path with Global Administrator:
 5. optional: save the app secret too if you want later app-only runs
 6. run `auditex guided-run --flow gr-audit --include-exchange`
 
-Observed tenant result:
-
-- app name: `CLI for M365`
-- app id: `1a943a60-e4db-448c-a946-e825378e4883`
-
 If you do not have GA:
 
 1. ask tenant admin to create a single-tenant app registration
@@ -190,7 +185,7 @@ If you do not have GA:
 
 Copy/paste request for customer admin:
 
-- use [docs/notes/exchange-app-request.md](/Users/bolyki/dev/source/auditex/docs/notes/exchange-app-request.md)
+- use [exchange-app-request.md](docs/notes/exchange-app-request.md)
 
 Reference:
 
@@ -253,13 +248,12 @@ export AZURE_CLIENT_SECRET=<secret>
 python3 -m azure_tenant_audit --tenant-name "ACME" --collectors identity,security --top 250
 ```
 
-Validated tenant path:
+Validated path:
 
 - existing tenant-local app can be reused
 - add a client secret
 - add admin-consented application permissions for the `app-readonly-full` profile
 - current Graph app-role name for app consent depth is `AppRoleAssignment.ReadWrite.All`
-- app probe and app full run were both validated in `BOLYKI`
 
 Support matrix:
 
@@ -332,7 +326,7 @@ Supported flags:
 
 ## 5) Review
 
-- Keep a live obstacle log in `docs/audit-flow-log.md`.
+- Keep any live obstacle log in a local untracked note.
 - Open `summary.md` for triage.
 - Inspect `run-manifest.json` for status and command execution context.
 - For deeper investigation, open `run-manifest.json` first, then `raw/<collector>.json`.

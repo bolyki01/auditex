@@ -270,6 +270,64 @@ def test_run_live_writes_auth_context_and_capability_artifacts(tmp_path: Path, m
     assert (output_dir / "index" / "evidence.sqlite").exists()
 
 
+def test_run_live_app_mode_uses_client_token_claims(tmp_path: Path, monkeypatch) -> None:
+    class _FakeCollector:
+        name = "identity"
+
+        def run(self, context):
+            return CollectorResult(
+                name=self.name,
+                status="ok",
+                item_count=1,
+                message="ok",
+                payload={"users": {"value": [{"id": "1"}]}},
+                coverage=[{"collector": "identity", "name": "users", "type": "graph", "status": "ok", "item_count": 1}],
+            )
+
+    class _FakeClient:
+        def __init__(self, auth, audit_event=None):
+            self.auth = auth
+
+        def token_claims(self):
+            return {
+                "tenant_id": "tenant-app",
+                "audience": "https://graph.microsoft.com",
+                "delegated_scopes": [],
+                "app_roles": ["Directory.Read.All"],
+                "app_id": "app-id",
+            }
+
+    monkeypatch.setattr(cli, "GraphClient", lambda auth, **kwargs: _FakeClient(auth))
+    monkeypatch.setattr(cli, "REGISTRY", {"identity": _FakeCollector()})
+
+    args = cli.build_parser().parse_args(
+        [
+            "--tenant-name",
+            "acme",
+            "--tenant-id",
+            "tenant-app",
+            "--client-id",
+            "app-id",
+            "--client-secret",
+            "app-secret",
+            "--collectors",
+            "identity",
+            "--out",
+            str(tmp_path),
+        ]
+    )
+    rc = cli.run_live(args)
+
+    assert rc == 0
+    output_dir = next(tmp_path.glob("acme-*"))
+    auth_context = json.loads((output_dir / "normalized" / "auth_context.json").read_text(encoding="utf-8"))
+    capability_matrix = json.loads((output_dir / "normalized" / "capability_matrix.json").read_text(encoding="utf-8"))
+
+    assert auth_context["auth_mode"] == "app"
+    assert auth_context["token_claims"]["app_roles"] == ["Directory.Read.All"]
+    assert capability_matrix["records"][0]["observed_permissions"] == ["Directory.Read.All"]
+
+
 def test_run_live_applies_waiver_file_to_findings_and_report_pack(tmp_path: Path, monkeypatch) -> None:
     class _FailingCollector:
         name = "security"
@@ -939,8 +997,8 @@ def test_azure_cli_run_captures_session_context(tmp_path: Path, monkeypatch) -> 
         def get_json(self, path):
             assert path == "/me"
             return {
-                "displayName": "Gyorgy Bolyki",
-                "userPrincipalName": "bolyki@bolyki.eu",
+                "displayName": "Example Operator",
+                "userPrincipalName": "operator@contoso.test",
                 "id": "user-123",
             }
 
@@ -986,7 +1044,7 @@ def test_azure_cli_run_captures_session_context(tmp_path: Path, monkeypatch) -> 
     output_dirs = list(tmp_path.glob("acme-*"))
     assert output_dirs
     manifest = json.loads((output_dirs[0] / "run-manifest.json").read_text(encoding="utf-8"))
-    assert manifest["session_context"]["user_principal_name"] == "bolyki@bolyki.eu"
+    assert manifest["session_context"]["user_principal_name"] == "operator@contoso.test"
     assert manifest["session_context"]["roles"] == ["Global Administrator", "Global Reader"]
 
 

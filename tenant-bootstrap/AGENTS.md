@@ -12,11 +12,7 @@ Read the digest first:
 
 - `docs/MICROSOFT-AGENT-SKILLS-DIGEST.md`
 
-Full upstream copy:
-
-- `vendor/microsoft-skills/upstream/`
-
-Full skill catalog:
+Retained skill catalog:
 
 - `vendor/microsoft-skills/ALL-SKILLS-CATALOG.md`
 
@@ -31,7 +27,7 @@ Use local skills selectively:
 
 Do not load all vendored skills at once. Pick the smallest relevant set.
 
-If no curated skill matches, search `vendor/microsoft-skills/ALL-SKILLS-CATALOG.md`, then open the specific upstream `SKILL.md` path listed there.
+If no curated skill matches, search `vendor/microsoft-skills/ALL-SKILLS-CATALOG.md`; if it is not listed there, refresh the vendored subset outside the product tree before adding it.
 
 ## Tenant Audit Rules
 
@@ -55,9 +51,7 @@ If no curated skill matches, search `vendor/microsoft-skills/ALL-SKILLS-CATALOG.
 
 ## Evidence
 
-Important live-run note:
-
-- `LIVE-RUN-NOTES-2026-04-15.md`
+Keep live-run notes untracked and local.
 
 Important generated artifacts:
 

@@ -12,6 +12,7 @@ from typing import Any, Callable, Optional
 from .adapters import get_adapter
 from .cli import (
     _acquire_azure_cli_access_token,
+    _build_auth_context_payload,
     _build_diagnostics,
     _capture_signed_in_context,
     _load_permission_hints,
@@ -29,7 +30,7 @@ from auditex.evidence_db import build_run_evidence_index
 SUPPORTED_PROBE_MODES = ("delegated", "app", "response")
 DEFAULT_COLLECTOR_SURFACES = ("identity", "security", "auth_methods", "intune", "sharepoint", "teams", "exchange")
 LAB_TENANT_ENV = "AUDITEX_LAB_TENANT_IDS"
-DEFAULT_LAB_TENANT_IDS = ("03174e44-540d-43a6-9dc4-fdff48bd182d",)
+DEFAULT_LAB_TENANT_IDS: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -642,6 +643,13 @@ def run_live_probe(cfg: ProbeConfig) -> int:
                 client = GraphClient(auth, audit_event=writer.log_event)
                 if auth_path != "saved_context":
                     session_context = _capture_signed_in_context(client, log_event=writer.log_event)
+                if auth_context_payload is None and hasattr(client, "token_claims"):
+                    auth_context_payload = _build_auth_context_payload(
+                        auth_mode=auth_mode,
+                        tenant_id=tenant_id,
+                        token_claims=client.token_claims(),
+                        session_context=session_context,
+                    )
         elif cfg.mode == "app":
             auth_mode = "app"
             auth_path = "app"
@@ -668,6 +676,13 @@ def run_live_probe(cfg: ProbeConfig) -> int:
                     graph_scope=cfg.graph_scope,
                 )
                 client = GraphClient(auth, audit_event=writer.log_event)
+                if hasattr(client, "token_claims"):
+                    auth_context_payload = _build_auth_context_payload(
+                        auth_mode=auth_mode,
+                        tenant_id=cfg.tenant_id,
+                        token_claims=client.token_claims(),
+                        session_context=session_context,
+                    )
 
         if client is not None:
             for surface in requested_surfaces:

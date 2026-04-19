@@ -18,10 +18,10 @@ Defaults:
 The --include-exchange flag triggers Microsoft 365 CLI login (m365) and optional command collectors.
 
 Examples:
-  tenant-audit-full --tenant-id bolyki.eu --tenant-name BOLYKI --include-exchange
+  tenant-audit-full --tenant-id contoso.onmicrosoft.com --tenant-name CONTOSO --include-exchange
   tenant-audit-full --tenant-id 00000000-0000-0000-0000-000000000000 --collectors identity,security --top 250
-  tenant-audit-full --tenant-id bolyki.eu --tenant-name BOLYKI --include-exchange --reauth
-  tenant-audit-full --tenant-id bolyki.eu --tenant-name BOLYKI --include-exchange --m365-app-id <app-id>
+  tenant-audit-full --tenant-id contoso.onmicrosoft.com --tenant-name CONTOSO --include-exchange --reauth
+  tenant-audit-full --tenant-id contoso.onmicrosoft.com --tenant-name CONTOSO --include-exchange --m365-app-id <app-id>
 USAGE
 }
 

@@ -23,7 +23,7 @@ def test_auth_status_command_prints_json(monkeypatch, capsys) -> None:
     def _fake_get_auth_status() -> dict:
         return {
             "azure_cli": {"status": "supported"},
-            "m365": {"active_connection": "bolyki-lab-user"},
+            "m365": {"active_connection": "tenant-user"},
         }
 
     monkeypatch.setattr("auditex.auth.get_auth_status", _fake_get_auth_status)
@@ -33,7 +33,7 @@ def test_auth_status_command_prints_json(monkeypatch, capsys) -> None:
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["azure_cli"]["status"] == "supported"
-    assert payload["m365"]["active_connection"] == "bolyki-lab-user"
+    assert payload["m365"]["active_connection"] == "tenant-user"
 
 
 def test_auth_list_command_prints_saved_connections(monkeypatch, capsys) -> None:
@@ -41,8 +41,8 @@ def test_auth_list_command_prints_saved_connections(monkeypatch, capsys) -> None
         "auditex.auth.list_connections",
         lambda: {
             "connections": [
-                {"name": "bolyki-lab-app", "active": False},
-                {"name": "bolyki-lab-user", "active": True},
+                {"name": "tenant-app", "active": False},
+                {"name": "tenant-user", "active": True},
             ]
         },
     )
@@ -51,20 +51,20 @@ def test_auth_list_command_prints_saved_connections(monkeypatch, capsys) -> None
 
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["connections"][1]["name"] == "bolyki-lab-user"
+    assert payload["connections"][1]["name"] == "tenant-user"
 
 
 def test_auth_use_command_switches_connection(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         "auditex.auth.use_connection",
-        lambda name: {"connectionName": name, "connectedAs": "bolyki@bolyki.eu"},
+        lambda name: {"connectionName": name, "connectedAs": "operator@contoso.test"},
     )
 
-    rc = auditex_cli.main(["auth", "use", "bolyki-lab-user"])
+    rc = auditex_cli.main(["auth", "use", "tenant-user"])
 
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["connectionName"] == "bolyki-lab-user"
+    assert payload["connectionName"] == "tenant-user"
 
 
 def test_response_list_actions_command_prints_json(capsys) -> None:

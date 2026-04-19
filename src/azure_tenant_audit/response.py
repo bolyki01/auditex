@@ -13,7 +13,7 @@ from auditex.evidence_db import build_run_evidence_index
 
 
 LAB_TENANT_ENV = "AUDITEX_LAB_TENANT_IDS"
-DEFAULT_LAB_TENANT_IDS = ("03174e44-540d-43a6-9dc4-fdff48bd182d",)
+DEFAULT_LAB_TENANT_IDS: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
