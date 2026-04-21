@@ -26,6 +26,7 @@ from .graph import GraphClient
 from .output import AuditWriter
 from .profiles import get_profile
 from auditex.evidence_db import build_run_evidence_index
+from .ai_context import build_ai_context, build_privacy_block, build_validation_report
 
 SUPPORTED_PROBE_MODES = ("delegated", "app", "response")
 DEFAULT_COLLECTOR_SURFACES = ("identity", "security", "auth_methods", "intune", "sharepoint", "teams", "exchange")
@@ -90,7 +91,7 @@ def _toolchain_for_row(row: dict[str, Any]) -> str:
 
 def _capability_row_from_coverage(surface: str, probe_mode: str, row: dict[str, Any]) -> dict[str, Any]:
     status = row.get("status")
-    capability_status = "supported" if status == "ok" else "blocked" if status == "failed" else "partial"
+    capability_status = "supported_exact_scope" if status == "ok" else "blocked" if status == "failed" else "partial"
     return {
         "surface": surface,
         "probe_mode": probe_mode,
@@ -805,24 +806,52 @@ def run_live_probe(cfg: ProbeConfig) -> int:
     if findings:
         evidence_paths.append("findings/findings.json")
     evidence_paths.extend(f"normalized/{name}.json" for name in normalized_snapshot)
+    evidence_paths.extend(["ai_context.json", "validation.json"])
+    overall_status = "partial" if blockers else "ok"
+    privacy = build_privacy_block(safe_for_external_llm=False)
     writer.write_report_pack(
         build_report_pack(
             tenant_name=cfg.tenant_name,
-            overall_status="partial" if blockers else "ok",
+            overall_status=overall_status,
             findings=findings,
             evidence_paths=evidence_paths,
             blocker_count=len(blockers),
+            privacy=privacy,
         )
     )
     evidence_index = {"artifacts": sorted(set(writer._manifest["artifacts"] + ["run-manifest.json", "summary.json", "summary.md"]))}
     evidence_index_path = writer.write_json_artifact("evidence-index.json", evidence_index)
     evidence_db_path = build_run_evidence_index(writer.run_dir)
     writer._record_artifact(evidence_db_path)
+    ai_context = build_ai_context(
+        run_dir=writer.run_dir,
+        run_metadata={
+            "tenant_name": cfg.tenant_name,
+            "tenant_id": cfg.tenant_id,
+            "run_id": writer.run_id,
+            "overall_status": overall_status,
+            "auditor_profile": cfg.auditor_profile,
+            "mode": auth_mode,
+            "plane": "inventory",
+            "selected_collectors": requested_surfaces,
+            "duration_seconds": 0,
+        },
+        normalized_snapshot=normalized_snapshot,
+        capability_rows=capability_matrix,
+        coverage_ledger=[],
+        blockers=blockers,
+        findings=findings,
+    )
+    writer.write_json_artifact("ai_context.json", ai_context)
+    writer.write_json_artifact(
+        "validation.json",
+        build_validation_report(run_dir=writer.run_dir, ai_context=ai_context, findings=findings),
+    )
     writer.write_bundle(
         {
             "executed_by": "auditex_probe",
             "collectors": requested_surfaces,
-            "overall_status": "partial" if blockers else "ok",
+            "overall_status": overall_status,
             "duration_seconds": 0,
             "mode": auth_mode,
             "auditor_profile": cfg.auditor_profile,
@@ -841,6 +870,9 @@ def run_live_probe(cfg: ProbeConfig) -> int:
             "auth_context_path": str(auth_context_path.relative_to(writer.run_dir)) if auth_context_path else None,
             "data_handling_events": [],
             "lab_guard_state": lab_guard_state,
+            "privacy": privacy,
+            "ai_context_path": "ai_context.json",
+            "validation_path": "validation.json",
         }
     )
     writer.log_event(

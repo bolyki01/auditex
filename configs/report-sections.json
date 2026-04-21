@@ -2,33 +2,33 @@
   "sections": [
     {
       "id": "summary",
-      "title": "Summary",
-      "description": "Run summary and overall counts."
+      "title": "Run Summary",
+      "description": "Tenant label, run status, and top-level finding counts."
     },
     {
       "id": "findings",
-      "title": "Findings",
-      "description": "Full finding rows from the report pack or findings artifact."
+      "title": "Finding Register",
+      "description": "Every generated finding retained for operator review."
     },
     {
       "id": "action_plan",
-      "title": "Action Plan",
-      "description": "Open findings only, ready for remediation tracking."
+      "title": "Remediation Queue",
+      "description": "Open findings reduced to the fields needed for follow-up work."
     },
     {
       "id": "normalized",
-      "title": "Normalized",
-      "description": "Normalized evidence grouped by section."
+      "title": "Normalized Evidence",
+      "description": "Canonical evidence snapshots keyed by Auditex section name."
     },
     {
       "id": "blockers",
-      "title": "Blockers",
-      "description": "Structured blockers and diagnostics."
+      "title": "Collection Blockers",
+      "description": "Permission, service, or runtime blockers captured during the run."
     },
     {
       "id": "manifest",
-      "title": "Manifest",
-      "description": "Run manifest and artifact paths."
+      "title": "Run Manifest",
+      "description": "Execution metadata and artifact references for the audit run."
     }
   ]
 }

@@ -72,3 +72,16 @@ def test_mcp_diff_runs_returns_summary_and_compared_files(tmp_path: Path) -> Non
     assert result["summary"]["changed"] == 1
     assert "devices.json" in result["compared_files"]
     assert result["changes"]["devices"]["changed"][0]["key"] == "device:d1"
+
+
+def test_diff_run_directories_treats_matching_tenant_id_as_same_tenant(tmp_path: Path) -> None:
+    run_a = tmp_path / "run-a"
+    run_b = tmp_path / "run-b"
+    _write_json(run_a / "run-manifest.json", {"tenant_name": "acme-a", "tenant_id": "tenant-1", "run_id": "run-1"})
+    _write_json(run_b / "run-manifest.json", {"tenant_name": "acme-b", "tenant_id": "tenant-1", "run_id": "run-2"})
+    _write_json(run_a / "normalized" / "devices.json", {"kind": "devices", "records": [{"key": "device:d1"}]})
+    _write_json(run_b / "normalized" / "devices.json", {"kind": "devices", "records": [{"key": "device:d1"}]})
+
+    result = diff_run_directories(run_a, run_b)
+
+    assert result["compare_context"]["same_tenant"] is True

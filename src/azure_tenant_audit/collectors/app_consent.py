@@ -13,7 +13,7 @@ class AppConsentCollector(Collector):
     required_permissions = [
         "Directory.Read.All",
         "DelegatedPermissionGrant.Read.All",
-        "AppRoleAssignment.Read.All",
+        "AppRoleAssignment.ReadWrite.All",
     ]
 
     def run(self, context: dict[str, Any]) -> CollectorResult:

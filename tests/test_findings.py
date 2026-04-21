@@ -35,8 +35,10 @@ def test_build_findings_classifies_permission_and_partial_failures() -> None:
     permission_finding = findings[0]
     assert permission_finding["id"] == "security:securityAlerts"
     assert permission_finding["severity"] == "high"
+    assert permission_finding["risk_rating"] == "high"
     assert permission_finding["category"] == "permission"
     assert permission_finding["recommendations"]["required_graph_scopes"] == ["SecurityEvents.Read.All"]
+    assert permission_finding["evidence_refs"][0]["artifact_path"] == "raw/security.json"
 
     service_finding = findings[1]
     assert service_finding["severity"] == "medium"
@@ -72,6 +74,7 @@ def test_build_report_pack_includes_findings_and_evidence_paths() -> None:
     assert report["summary"]["blocker_count"] == 1
     assert report["summary"]["open_count"] == 1
     assert report["summary"]["accepted_count"] == 0
+    assert report["privacy"] == {}
     assert report["findings"][0]["id"] == "security:securityAlerts"
     assert report["evidence_paths"] == ["run-manifest.json", "findings/findings.json"]
     assert report["action_plan"][0]["rule_id"] == "collector.issue.permission"
@@ -130,9 +133,9 @@ def test_build_findings_uses_registry_metadata_for_templates_and_framework_mappi
 
     finding = findings[0]
     assert finding["rule_id"] == "collector.issue.permission"
-    assert finding["description"] == "The current auth context cannot read this surface."
-    assert finding["impact"] == "Coverage is incomplete and the audit cannot confirm this control."
-    assert finding["remediation"] == "Grant the missing read permission or rerun with a deeper profile."
+    assert finding["description"] == "Auditex could not read the requested Microsoft 365 surface with the supplied identity."
+    assert finding["impact"] == "The report has a confirmed evidence gap for this area, so the related control cannot be asserted from this run."
+    assert finding["remediation"] == "Rerun with the minimum read permission required for the blocked surface, or exclude that surface from the agreed scope."
     assert finding["control_ids"] == ["AUDITEX-COLLECTOR-PERMISSION"]
     assert finding["framework_mappings"]["cis"] == ["6.3"]
     assert finding["framework_mappings"]["nist"] == ["PR.AC-4", "PR.AC-6"]
@@ -156,10 +159,10 @@ def test_build_findings_keeps_python_fallback_when_registry_missing(monkeypatch:
     )
 
     finding = findings[0]
-    assert finding["description"] == "The current auth context cannot read this surface."
-    assert finding["impact"] == "Coverage is incomplete and the audit cannot confirm this control."
-    assert finding["remediation"] == "Grant the missing read permission or rerun with a deeper profile."
-    assert finding["references"] == ["Graph read permission guidance"]
+    assert finding["description"] == "Auditex could not read the requested Microsoft 365 surface with the supplied identity."
+    assert finding["impact"] == "The report has a confirmed evidence gap for this area, so the related control cannot be asserted from this run."
+    assert finding["remediation"] == "Rerun with the minimum read permission required for the blocked surface, or exclude that surface from the agreed scope."
+    assert finding["references"] == ["Microsoft Graph permission review", "Auditex collector permission matrix"]
     assert "framework_mappings" not in finding
 
 
@@ -325,3 +328,21 @@ def test_build_findings_promotes_normalized_workload_risks() -> None:
     assert "service_health:issue-1:active_service_issue" in ids
     assert "external_identity:authz-1:broad_guest_invite_policy" in ids
     assert "consent_policy:consent-1:admin_consent_workflow_disabled" in ids
+
+
+def test_build_findings_makes_conditional_access_ids_unique() -> None:
+    normalized = {
+        "ca_findings": {
+            "records": [
+                {"id": "ca-1", "finding_type": "ca_reporting_only", "policy_id": "policy-1", "policy_name": "One"},
+                {"id": "ca-2", "finding_type": "ca_reporting_only", "policy_id": "policy-2", "policy_name": "Two"},
+            ]
+        }
+    }
+
+    findings = build_findings([], normalized_snapshot=normalized)
+
+    assert {item["id"] for item in findings} == {
+        "conditional_access:ca_reporting_only:policy-1",
+        "conditional_access:ca_reporting_only:policy-2",
+    }

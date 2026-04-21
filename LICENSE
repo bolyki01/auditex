@@ -1,0 +1,11 @@
+Auditex Proprietary License
+
+Copyright (c) 2026 Magrathean UK Ltd. All rights reserved.
+
+This repository and its original source code, documentation, configuration, schemas, tests, and product assets are proprietary. No permission is granted to copy, modify, publish, distribute, sublicense, sell, host as a service, or create derivative works from this repository except under a separate written agreement signed by Magrathean UK Ltd.
+
+Internal evaluation by Magrathean UK Ltd and its authorised contractors is permitted only for operating, testing, reviewing, and improving Auditex.
+
+Third-party components, dependencies, and vendored materials identified in THIRD_PARTY_NOTICES.md remain governed by their own licenses. Nothing in this proprietary license limits rights granted directly by those third-party licenses for those third-party materials.
+
+THE SOFTWARE IS PROVIDED WITHOUT ANY WARRANTY TO THE MAXIMUM EXTENT PERMITTED BY LAW. MAGRATHEAN UK LTD DISCLAIMS ALL IMPLIED WARRANTIES, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT, EXCEPT WHERE A SEPARATE SIGNED AGREEMENT STATES OTHERWISE.

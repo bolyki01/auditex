@@ -189,3 +189,41 @@ def test_probe_live_uses_saved_auth_context_and_writes_auth_artifact(tmp_path: P
     assert auth_context["token_claims"]["delegated_scopes"] == ["Directory.Read.All"]
     assert manifest["auth_path"] == "saved_context"
     assert manifest["auth_context_path"] == "auth-context.json"
+
+
+def test_probe_live_app_mode_writes_token_claims(tmp_path: Path, monkeypatch) -> None:
+    class _FakeAppClient(_FakeClient):
+        def token_claims(self):
+            return {
+                "tenant_id": "tenant-app",
+                "audience": "https://graph.microsoft.com",
+                "delegated_scopes": [],
+                "app_roles": ["AuditLog.Read.All", "Directory.Read.All"],
+                "app_id": "app-id",
+            }
+
+    monkeypatch.setattr("azure_tenant_audit.probe.GraphClient", _FakeAppClient)
+    monkeypatch.setattr(
+        "azure_tenant_audit.probe._probe_toolchain_statuses",
+        lambda **_: [],
+    )
+    monkeypatch.setattr("azure_tenant_audit.probe.REGISTRY", {"identity": _FakeCollector()})
+
+    rc = run_live_probe(
+        ProbeConfig(
+            tenant_name="contoso",
+            output_dir=tmp_path,
+            tenant_id="tenant-app",
+            mode="app",
+            client_id="app-id",
+            client_secret="app-secret",
+            surface="identity",
+            run_name="probe-app-context",
+        )
+    )
+    assert rc == 0
+
+    run_dir = tmp_path / "contoso-probe-app-context"
+    auth_context = json.loads((run_dir / "auth-context.json").read_text(encoding="utf-8"))
+    assert auth_context["auth_mode"] == "app"
+    assert auth_context["token_claims"]["app_roles"] == ["AuditLog.Read.All", "Directory.Read.All"]

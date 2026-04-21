@@ -1,47 +1,47 @@
 {
   "collector.issue.permission": {
     "risk_rating": "high",
-    "description": "The current auth context cannot read this surface.",
-    "impact": "Coverage is incomplete and the audit cannot confirm this control.",
-    "remediation": "Grant the missing read permission or rerun with a deeper profile.",
-    "references": ["Graph read permission guidance"],
+    "description": "Auditex could not read the requested Microsoft 365 surface with the supplied identity.",
+    "impact": "The report has a confirmed evidence gap for this area, so the related control cannot be asserted from this run.",
+    "remediation": "Rerun with the minimum read permission required for the blocked surface, or exclude that surface from the agreed scope.",
+    "references": ["Microsoft Graph permission review", "Auditex collector permission matrix"],
     "control_ids": ["AUDITEX-COLLECTOR-PERMISSION"],
-    "expected_value": "Requested surface is readable"
+    "expected_value": "The collector can read the requested surface."
   },
   "collector.issue.service": {
     "risk_rating": "medium",
-    "description": "The target service surface is unavailable or not enabled.",
-    "impact": "Coverage is partial until the service becomes available.",
-    "remediation": "Validate tenant service state and rerun the affected collector.",
-    "references": ["Service readiness guidance"],
+    "description": "The collector reached a tenant surface that is absent, disabled, not provisioned, or temporarily unavailable.",
+    "impact": "Evidence for the affected service remains partial until the tenant state or service availability changes.",
+    "remediation": "Confirm licensing and service availability, then rerun only the affected collector where appropriate.",
+    "references": ["Microsoft service health", "Auditex collector diagnostics"],
     "control_ids": ["AUDITEX-COLLECTOR-SERVICE"],
-    "expected_value": "Requested surface is available"
+    "expected_value": "The target service surface responds successfully."
   },
   "collector.issue.collector": {
     "risk_rating": "medium",
-    "description": "The collector reported an operational issue.",
-    "impact": "Audit evidence for this surface may be incomplete or stale.",
-    "remediation": "Review collector diagnostics and rerun after fixing the failure.",
-    "references": ["Collector diagnostics"],
+    "description": "A collector finished with an operational error unrelated to normal permission or service-state handling.",
+    "impact": "The affected evidence set may be missing, incomplete, or unsuitable for comparison.",
+    "remediation": "Inspect the collector diagnostic row, fix the runtime or input condition, and rerun the collector.",
+    "references": ["Auditex collector diagnostics"],
     "control_ids": ["AUDITEX-COLLECTOR-FAILURE"],
-    "expected_value": "Collector completes successfully"
+    "expected_value": "The collector completes without runtime errors."
   },
   "sharepoint.broad_link": {
     "risk_rating": "high",
-    "description": "A site exposes broad sharing through organization-wide or anonymous links.",
-    "impact": "Data can be exposed beyond the intended audience.",
-    "remediation": "Disable broad sharing links or reduce sharing capability.",
-    "references": ["SharePoint sharing control guidance"],
+    "description": "SharePoint or OneDrive evidence indicates a sharing link with broad audience reach.",
+    "impact": "Content may be reachable by users outside the intended collaboration boundary.",
+    "remediation": "Reduce the sharing scope, remove stale broad links, and retest affected sites.",
+    "references": ["SharePoint sharing policy review"],
     "control_ids": ["AUDITEX-SPO-BROAD-LINK"],
-    "expected_value": "Broad links are disabled or tightly scoped"
+    "expected_value": "External and organization-wide links are absent or explicitly approved."
   },
   "app_consent.high_privilege": {
     "risk_rating": "high",
-    "description": "An enterprise application has risky delegated scopes or weak ownership.",
-    "impact": "Compromised or abandoned app consent can expose tenant data broadly.",
-    "remediation": "Review app consent, remove unused grants, and assign responsible owners.",
-    "references": ["Application consent review guidance"],
+    "description": "Application consent evidence shows sensitive scopes or weak ownership governance.",
+    "impact": "Over-privileged or unowned application consent can become a durable path to tenant data exposure.",
+    "remediation": "Review the consent grant, remove unused scopes, and assign accountable owners before accepting the application.",
+    "references": ["Application consent governance review"],
     "control_ids": ["AUDITEX-APP-CONSENT-HIGH-PRIVILEGE"],
-    "expected_value": "Only approved apps keep high-risk scopes and every app has owners"
+    "expected_value": "Sensitive app grants are approved, current, and owned."
   }
 }

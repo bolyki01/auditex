@@ -322,20 +322,9 @@ Collectors must become families, not one-off endpoints.
 
 Use external ecosystems as adapters, not as the product core.
 
-### Approved upstreams
+### External adapter candidates
 
-- `Microsoft365DSC`
-  - use for deep configuration extraction and baseline comparison
-- `CLI for Microsoft 365`
-  - use for command fallback and surfaces not convenient in Graph
-- `msgraph-sdk-powershell`
-  - use for Graph gaps and bulk export helpers
-- `DFIR-O365RC`
-  - use as a pattern/reference for forensic evidence export
-- `365Inspect`
-  - use as a rules/reference set, not as canonical output
-- `Microsoft-Extractor-Suite`
-  - use as reference for export flows and acquisition patterns
+External tools may be invoked only through explicit adapters after a separate license review. Do not import, vendor, translate, or copy external code, templates, report text, screenshots, generated docs, or rule prose into the proprietary product unless the provenance sheet and notices are updated first.
 
 ### Adapter rules
 

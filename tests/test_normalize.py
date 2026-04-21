@@ -122,6 +122,8 @@ def test_build_ai_safe_summary_uses_normalized_snapshot_counts() -> None:
     assert ai_safe["tenant_name"] == "acme"
     assert ai_safe["run_id"] == "run-1"
     assert ai_safe["object_counts"]["groups"] == 3
+    assert ai_safe["normalized_counts"]["groups"] == 3
+    assert ai_safe["safe_for_external_llm"] is True
     assert ai_safe["findings_count"] == 1
     assert ai_safe["blocker_count"] == 1
     assert ai_safe["translation_catalog_count"] == 1

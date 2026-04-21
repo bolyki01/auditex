@@ -215,6 +215,22 @@ def test_build_probe_command_includes_app_credentials() -> None:
     assert "app-secret" in command
 
 
+def test_build_cli_command_can_use_app_credentials() -> None:
+    command = build_cli_command(
+        tenant_name="ACME",
+        tenant_id="contoso.onmicrosoft.com",
+        out_dir="outputs/live",
+        use_azure_cli_token=False,
+        client_id="app-id",
+        client_secret="app-secret",
+    )
+    assert "--use-azure-cli-token" not in command
+    assert "--client-id" in command
+    assert "app-id" in command
+    assert "--client-secret" in command
+    assert "app-secret" in command
+
+
 def test_build_probe_command_supports_saved_auth_context() -> None:
     command = build_probe_command(
         tenant_name="ACME",
@@ -329,9 +345,12 @@ def test_summarize_run_reads_manifest(tmp_path: Path) -> None:
     run_dir.mkdir()
     (run_dir / "run-manifest.json").write_text(json.dumps({"tenant_name": "acme"}), encoding="utf-8")
     (run_dir / "summary.json").write_text(json.dumps({"collectors": []}), encoding="utf-8")
+    (run_dir / "summary.md").write_text("# Audit Summary", encoding="utf-8")
 
     summary = summarize_run(str(run_dir))
     assert summary["manifest"]["tenant_name"] == "acme"
+    assert summary["summary_md_path"].endswith("summary.md")
+    assert summary["summary_md"] == "# Audit Summary"
 
 
 def test_summarize_run_reads_probe_artifacts(tmp_path: Path) -> None:

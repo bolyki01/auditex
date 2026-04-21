@@ -134,8 +134,17 @@ def _venv_status() -> dict[str, Any]:
     }
 
 
-def build_doctor_report() -> dict[str, Any]:
-    auth_status = auditex_auth.get_auth_status()
+def build_doctor_report(
+    *,
+    auth_mode: str = "delegated",
+    include_exchange: bool = True,
+    include_auth_checks: bool = True,
+) -> dict[str, Any]:
+    auth_status = auditex_auth.get_auth_status(
+        include_azure_cli=include_auth_checks and auth_mode == "delegated",
+        include_m365=include_auth_checks and include_exchange,
+        include_exchange=include_auth_checks and include_exchange,
+    )
     python_status = _selected_python()
     venv_status = _venv_status()
     tools = {
@@ -159,22 +168,24 @@ def build_doctor_report() -> dict[str, Any]:
         for name, status in (
             ("python", python_status),
             ("venv", venv_status),
-            ("az", tools["az"]),
+            *((("az", tools["az"]),) if auth_mode == "delegated" else ()),
         )
         if status["status"] != "supported"
     ]
-    exchange_missing = [
-        name
-        for name, status in (
-            ("node", tools["node"]),
-            ("npm", tools["npm"]),
-            ("m365", tools["m365"]),
-            ("pwsh", tools["pwsh"]),
-        )
-        if status["status"] != "supported"
-    ]
-    if exchange.get("status") != "supported":
-        exchange_missing.append("exchange_online_module")
+    exchange_missing = []
+    if include_exchange:
+        exchange_missing = [
+            name
+            for name, status in (
+                ("node", tools["node"]),
+                ("npm", tools["npm"]),
+                ("m365", tools["m365"]),
+                ("pwsh", tools["pwsh"]),
+            )
+            if status["status"] != "supported"
+        ]
+        if exchange.get("status") != "supported":
+            exchange_missing.append("exchange_online_module")
     pwsh_missing = [name for name, status in (("pwsh", tools["pwsh"]),) if status["status"] != "supported"]
     return {
         "system": {

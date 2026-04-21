@@ -258,15 +258,20 @@ def test_run_live_writes_auth_context_and_capability_artifacts(tmp_path: Path, m
     auth_context = json.loads((output_dir / "normalized" / "auth_context.json").read_text(encoding="utf-8"))
     capability_matrix = json.loads((output_dir / "normalized" / "capability_matrix.json").read_text(encoding="utf-8"))
     coverage_ledger = json.loads((output_dir / "normalized" / "coverage_ledger.json").read_text(encoding="utf-8"))
+    ai_context = json.loads((output_dir / "ai_context.json").read_text(encoding="utf-8"))
     manifest = json.loads((output_dir / "run-manifest.json").read_text(encoding="utf-8"))
 
     assert auth_context["auth_mode"] == "access_token"
     assert auth_context["token_claims"]["tenant_id"] == "tenant-ctx"
     assert capability_matrix["records"][0]["collector"] == "identity"
+    assert capability_matrix["records"][0]["status"] == "supported_exact_scope"
     assert coverage_ledger["records"][0]["collector"] == "identity"
+    assert coverage_ledger["records"][0]["coverage_status"] == "complete"
+    assert ai_context["privacy"]["safe_for_external_llm"] is False
     assert manifest["auth_context_path"] == "normalized/auth_context.json"
     assert manifest["capability_matrix_path"] == "normalized/capability_matrix.json"
     assert manifest["coverage_ledger_path"] == "normalized/coverage_ledger.json"
+    assert manifest["ai_context_path"] == "ai_context.json"
     assert (output_dir / "index" / "evidence.sqlite").exists()
 
 

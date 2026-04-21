@@ -66,6 +66,7 @@ class AuditWriter:
     ):
         self.base_dir = base_dir
         ts = time.strftime("%Y%m%d_%H%M%S", time.gmtime())
+        created_utc = _now_iso()
         if run_dir is None:
             self.run_id = run_name or f"run_{ts}"
             self.run_dir = base_dir / f"{tenant_name}-{self.run_id}"
@@ -113,7 +114,7 @@ class AuditWriter:
             "schema_version": RUN_MANIFEST_SCHEMA_VERSION,
             "tenant_name": tenant_name,
             "run_id": self.run_id,
-            "created_utc": ts,
+            "created_utc": created_utc,
             "collectors": [],
             "artifacts": [
                 "raw/",
@@ -459,14 +460,22 @@ class AuditWriter:
             "auth_context_path",
             "data_handling_events",
             "lab_guard_state",
+            "privacy",
+            "ai_context_path",
+            "validation_path",
         ):
             value = metadata.get(key)
             if value is not None:
                 self._manifest[key] = value
         self._manifest["run_dir"] = str(self.run_dir)
         self._manifest["audit_log_path"] = "audit-log.jsonl"
-        self._manifest["audit_command_log_path"] = "audit-command-log.jsonl"
         self._manifest["debug_log_path"] = "audit-debug.log"
+        if self.audit.command_log_path.exists() and self.audit.command_log_path.stat().st_size > 0:
+            self._manifest["audit_command_log_path"] = "audit-command-log.jsonl"
+        else:
+            self._manifest["artifacts"] = [
+                item for item in self._manifest["artifacts"] if item != "audit-command-log.jsonl"
+            ]
         if self._manifest.get("session_context"):
             session_context_path = self.run_dir / "session-context.json"
             self._write_json_atomic(session_context_path, self._manifest["session_context"])
@@ -480,12 +489,10 @@ class AuditWriter:
             self._record_artifact(coverage_path)
             self._manifest["coverage_count"] = len(self.coverage)
 
-        manifest_path = self.run_dir / "run-manifest.json"
-        self._write_json_atomic(manifest_path, self._manifest)
-
         summary_json_path = self.run_dir / "summary.json"
         summary_md_path = self.run_dir / "summary.md"
         self._write_json_atomic(summary_json_path, self.summary)
+        self._record_artifact(summary_json_path)
 
         lines = [
             "# Audit Summary",
@@ -501,6 +508,10 @@ class AuditWriter:
                 f"| {row.get('name')} | {row.get('status')} | {row.get('item_count', 0)} | {row.get('message', '')} |"
             )
         self._write_text_atomic(summary_md_path, "\n".join(lines))
+        self._record_artifact(summary_md_path)
+
+        manifest_path = self.run_dir / "run-manifest.json"
+        self._write_json_atomic(manifest_path, self._manifest)
 
         self.log_event(
             "run.completed",

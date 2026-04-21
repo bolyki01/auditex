@@ -1,67 +1,72 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 
+_MATCH_FIELDS = ("finding_id", "rule_id", "collector", "category")
+_STATUS_ACCEPTED_RISK = "accepted_risk"
+
+
 def load_waivers(path: Path | None) -> list[dict[str, Any]]:
     if path is None:
         return []
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    rows = payload.get("waivers", payload if isinstance(payload, list) else [])
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+        return []
+
+    rows = payload.get("waivers") if isinstance(payload, Mapping) else payload
     if not isinstance(rows, list):
         return []
-    return [item for item in rows if isinstance(item, dict)]
+    return [dict(row) for row in rows if isinstance(row, Mapping)]
+
+
+def _expired(row: Mapping[str, Any]) -> bool:
+    raw_value = row.get("expires_on") or row.get("expires")
+    if not raw_value:
+        return False
+    try:
+        return date.fromisoformat(str(raw_value)) < date.today()
+    except ValueError:
+        return False
+
+
+def _match_score(finding: Mapping[str, Any], waiver: Mapping[str, Any]) -> int:
+    for score, field in enumerate(_MATCH_FIELDS, start=1):
+        wanted = waiver.get(field)
+        if wanted is None or wanted == "":
+            continue
+        actual = finding.get("id") if field == "finding_id" else finding.get(field)
+        if str(actual or "") == str(wanted):
+            return len(_MATCH_FIELDS) - score + 1
+    return 0
+
+
+def _best_waiver(finding: Mapping[str, Any], waiver_rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    best_score = 0
+    best_row: dict[str, Any] | None = None
+    for row in waiver_rows:
+        if _expired(row):
+            continue
+        score = _match_score(finding, row)
+        if score > best_score:
+            best_score = score
+            best_row = row
+    return dict(best_row) if best_row is not None else None
 
 
 def apply_waivers(findings: list[dict[str, Any]], waiver_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    applied: list[dict[str, Any]] = []
+    output: list[dict[str, Any]] = []
     for finding in findings:
         updated = dict(finding)
-        waiver = _match_waiver(updated, waiver_rows)
-        if waiver:
-            updated["status"] = "accepted_risk"
+        waiver = _best_waiver(updated, waiver_rows)
+        if waiver is not None:
+            updated["status"] = _STATUS_ACCEPTED_RISK
             updated["waiver_applied"] = True
             updated["waiver"] = waiver
-        applied.append(updated)
-    return applied
-
-
-def _match_waiver(finding: dict[str, Any], waiver_rows: list[dict[str, Any]]) -> dict[str, Any] | None:
-    finding_id = str(finding.get("id") or "")
-    rule_id = str(finding.get("rule_id") or "")
-    collector = str(finding.get("collector") or "")
-    category = str(finding.get("category") or "")
-
-    exact_finding: list[dict[str, Any]] = []
-    exact_rule: list[dict[str, Any]] = []
-    collector_rows: list[dict[str, Any]] = []
-    category_rows: list[dict[str, Any]] = []
-    for row in waiver_rows:
-        if _is_expired(row):
-            continue
-        if row.get("finding_id") == finding_id:
-            exact_finding.append(row)
-        elif row.get("rule_id") == rule_id and rule_id:
-            exact_rule.append(row)
-        elif row.get("collector") == collector and collector:
-            collector_rows.append(row)
-        elif row.get("category") == category and category:
-            category_rows.append(row)
-
-    for matches in (exact_finding, exact_rule, collector_rows, category_rows):
-        if matches:
-            return matches[0]
-    return None
-
-
-def _is_expired(row: dict[str, Any]) -> bool:
-    value = row.get("expires_on")
-    if not value:
-        return False
-    try:
-        return date.fromisoformat(str(value)) < date.today()
-    except ValueError:
-        return False
+        output.append(updated)
+    return output

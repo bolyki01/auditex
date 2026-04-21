@@ -8,6 +8,10 @@ version = "1.0.0"
 description = "Portable AI-first Microsoft 365 audit toolkit for Codex-operated evidence collection"
 readme = "README.md"
 requires-python = ">=3.11"
+license = {text = "Proprietary"}
+classifiers = [
+    "License :: Other/Proprietary License",
+]
 dependencies = [
     "requests>=2.31,<3",
     "msal>=1.28,<2",

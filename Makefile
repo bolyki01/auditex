@@ -42,6 +42,3 @@ setup:
 doctor:
 	@auditex doctor
 
-.PHONY: research-competitors
-research-competitors:
-	@auditex research competitors all

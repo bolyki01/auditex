@@ -21,6 +21,9 @@
     "report_pack_path": { "type": "string" },
     "action_plan_path": { "type": "string" },
     "evidence_db_path": { "type": "string" },
+    "ai_context_path": { "type": "string" },
+    "validation_path": { "type": "string" },
+    "privacy": { "type": "object" },
     "time_window": { "type": "object" }
   }
 }

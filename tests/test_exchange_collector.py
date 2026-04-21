@@ -6,10 +6,12 @@ from azure_tenant_audit.collectors.exchange import ExchangeCollector
 
 
 class _GraphClient:
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
+    def __init__(self, rows: Any) -> None:
         self._rows = rows
 
-    def get_all(self, _path, params=None):  # noqa: ARG002
+    def get_all(self, path, params=None):  # noqa: ARG002
+        if isinstance(self._rows, dict):
+            return list(self._rows.get(path, []))
         return list(self._rows)
 
 
@@ -85,6 +87,7 @@ def test_exchange_collector_collects_readiness_and_posture_sections() -> None:
     assert coverage_by_name["exchangeConnectivityCheck"]["category"] == "readiness"
     assert coverage_by_name["exchangeTenantInfo"]["category"] == "posture"
     assert coverage_by_name["mailboxCount"]["item_count"] == 2
+    assert coverage_by_name["roomLists"]["optional"] is True
     assert coverage_by_name["roomLists"]["command_variants"] == [
         "m365 outlook roomlist list --output json",
     ]
@@ -130,18 +133,22 @@ def test_exchange_collector_uses_fallbacks_and_marks_partial_for_failed_posture_
         {
             "audit_logger": None,
             "client": _GraphClient(
-                [
-                    {"id": "mailbox-graph-1", "mail": "x@example.com"},
-                    {"id": "mailbox-graph-2", "mail": "y@example.com"},
-                ]
+                {
+                    "/organization": [{"id": "tenant-1", "displayName": "Contoso"}],
+                    "/users": [
+                        {"id": "mailbox-graph-1", "mail": "x@example.com"},
+                        {"id": "mailbox-graph-2", "mail": "y@example.com"},
+                    ],
+                }
             ),
         }
     )
 
     assert result.status == "partial"
-    assert result.item_count == 5
+    assert result.item_count == 6
     assert result.payload["exchangeConnectivityCheck"]["command"] == "m365 status --output json"
-    assert result.payload["exchangeTenantInfo"]["error_class"] == "command_not_found"
+    assert result.payload["exchangeTenantInfo"]["command"] == "graph /organization"
+    assert result.payload["exchangeTenantInfo"]["source"] == "graph"
     assert result.payload["mailboxCount"]["command"] == "graph /users?filter=mail ne null"
     assert result.payload["mailboxCount"]["source"] == "graph"
     assert result.payload["roomLists"]["error_class"] == "command_not_found"
@@ -152,6 +159,8 @@ def test_exchange_collector_uses_fallbacks_and_marks_partial_for_failed_posture_
         "m365 status --output json",
         "m365 tenant info get --output json",
     ]
+    assert coverage_by_name["exchangeTenantInfo"]["status"] == "ok"
+    assert coverage_by_name["exchangeTenantInfo"]["source"] == "graph"
     assert coverage_by_name["mailboxCount"]["command_variants"] == [
         "m365 outlook report mailboxusagemailboxcount --period D30 --output json",
         "m365 outlook report mailboxusagedetail --period D30 --output json",
@@ -162,3 +171,4 @@ def test_exchange_collector_uses_fallbacks_and_marks_partial_for_failed_posture_
     assert coverage_by_name["mailboxStorage"]["status"] == "failed"
     assert coverage_by_name["mailboxStorage"]["category"] == "posture"
     assert coverage_by_name["roomLists"]["status"] == "failed"
+    assert coverage_by_name["roomLists"]["optional"] is True

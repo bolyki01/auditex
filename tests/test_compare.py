@@ -168,6 +168,73 @@ def test_compare_runs_can_allow_cross_tenant(tmp_path: Path) -> None:
     assert result["baseline_diff"]["status"] == "ok"
 
 
+def test_compare_runs_result_is_json_serializable(tmp_path: Path) -> None:
+    run_a = _write_run(
+        tmp_path,
+        tenant_name="acme",
+        run_id="run-a",
+        created_utc="2026-04-01T00:00:00Z",
+        status="ok",
+        collector_name="users",
+        normalized_name="users",
+        records=[{"key": "user:1", "display_name": "Alice"}],
+    )
+    run_b = _write_run(
+        tmp_path,
+        tenant_name="acme",
+        run_id="run-b",
+        created_utc="2026-04-02T00:00:00Z",
+        status="ok",
+        collector_name="users",
+        normalized_name="users",
+        records=[{"key": "user:1", "display_name": "Alice"}],
+    )
+
+    payload = compare_runs([str(run_a), str(run_b)])
+
+    json.dumps(payload)
+
+
+def test_compare_run_directories_falls_back_to_manifest_when_index_metadata_is_sparse(tmp_path: Path) -> None:
+    run_a = _write_run(
+        tmp_path,
+        tenant_name="acme",
+        run_id="run-a",
+        created_utc="20260401_000000",
+        status="ok",
+        collector_name="users",
+        normalized_name="users",
+        records=[{"key": "user:1", "display_name": "Alice"}],
+    )
+    run_b = _write_run(
+        tmp_path,
+        tenant_name="acme",
+        run_id="run-b",
+        created_utc="20260402_000000",
+        status="ok",
+        collector_name="users",
+        normalized_name="users",
+        records=[{"key": "user:1", "display_name": "Alice"}],
+    )
+    db_a = build_run_evidence_index(run_a)
+    db_b = build_run_evidence_index(run_b)
+
+    for db_path in (db_a, db_b):
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute("DELETE FROM run_meta WHERE key NOT IN ('run_dir', 'summary')")
+            conn.commit()
+        finally:
+            conn.close()
+
+    result = compare_run_directories([run_a, run_b])
+
+    assert result["compare_context"]["same_tenant"] is True
+    assert result["runs"][0]["tenant_name"] == "acme"
+    assert result["runs"][0]["run_id"] == "run-a"
+    assert result["runs"][0]["created_utc"] == "20260401_000000"
+
+
 def test_build_run_evidence_index_creates_tables_from_run_dir(tmp_path: Path) -> None:
     run_dir = _write_run(
         tmp_path,
@@ -209,3 +276,19 @@ def test_build_run_evidence_index_creates_tables_from_run_dir(tmp_path: Path) ->
         assert json.loads(normalized_records[0][2])["display_name"] == "Alice"
     finally:
         conn.close()
+
+
+def test_load_run_index_summary_ignores_legacy_or_sparse_sqlite(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run-a"
+    (run_dir / "index").mkdir(parents=True)
+    conn = sqlite3.connect(run_dir / "index" / "evidence.sqlite")
+    try:
+        conn.execute("create table legacy (value text)")
+        conn.execute("insert into legacy(value) values ('old')")
+        conn.commit()
+    finally:
+        conn.close()
+
+    from auditex.evidence_db import load_run_index_summary
+
+    assert load_run_index_summary(run_dir) == {}

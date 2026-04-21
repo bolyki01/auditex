@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections import Counter
 from collections import defaultdict
+from pathlib import Path
+import re
 from typing import Any
 
 from .friendly_names import build_friendly_name_catalog
@@ -57,6 +59,59 @@ def _ordered_value(value: Any) -> Any:
             )
         return normalized
     return value
+
+
+def _canonical_count_key(name: str) -> str:
+    text = re.sub(r"(?<!^)(?=[A-Z])", "_", str(name or "")).replace("-", "_").lower()
+    return text.strip("_")
+
+
+def _collector_count_summaries(
+    collector_payloads: dict[str, Any],
+    coverage_rows: list[dict[str, Any]],
+) -> tuple[dict[str, int], dict[str, int], dict[str, int], list[str], dict[str, list[str]]]:
+    full_counts: dict[str, int] = {}
+    sample_counts: dict[str, int] = {}
+    chunk_counts: dict[str, int] = {}
+    truncated_sections: list[str] = []
+    chunk_paths: dict[str, list[str]] = {}
+
+    for row in coverage_rows:
+        if not isinstance(row, dict):
+            continue
+        key = _canonical_count_key(str(row.get("name") or ""))
+        if not key:
+            continue
+        full_counts[key] = full_counts.get(key, 0) + int(row.get("item_count") or 0)
+
+    for payload in collector_payloads.values():
+        if not isinstance(payload, dict):
+            continue
+        for name, section in payload.items():
+            key = _canonical_count_key(str(name))
+            if not key or not isinstance(section, dict):
+                continue
+            values = section.get("value")
+            if isinstance(values, list):
+                sample_counts[key] = sample_counts.get(key, 0) + len(values)
+            if isinstance(section.get("item_count"), int):
+                full_counts[key] = max(full_counts.get(key, 0), int(section["item_count"]))
+            if section.get("sample_truncated"):
+                truncated_sections.append(key)
+            raw_chunk_files = section.get("chunk_files")
+            if isinstance(raw_chunk_files, list):
+                clean_chunk_files = [str(item) for item in raw_chunk_files if isinstance(item, str)]
+                if clean_chunk_files:
+                    chunk_paths.setdefault(key, []).extend(clean_chunk_files)
+                    chunk_counts[key] = chunk_counts.get(key, 0) + len(clean_chunk_files)
+
+    return (
+        dict(sorted(full_counts.items())),
+        dict(sorted(sample_counts.items())),
+        dict(sorted(chunk_counts.items())),
+        sorted(set(truncated_sections)),
+        {key: sorted(set(value)) for key, value in sorted(chunk_paths.items())},
+    )
 
 
 def _build_index(items: list[dict[str, Any]], key: str = "id") -> dict[str, dict[str, Any]]:
@@ -706,6 +761,7 @@ def build_normalized_snapshot(
     diagnostics: list[dict[str, Any]] | None = None,
     result_rows: list[dict[str, Any]] | None = None,
     coverage_rows: list[dict[str, Any]] | None = None,
+    run_dir: Path | None = None,
 ) -> dict[str, dict[str, Any]]:
     diagnostics = diagnostics or []
     result_rows = result_rows or []
@@ -1418,11 +1474,19 @@ def build_normalized_snapshot(
             # Make graph summary available in snapshot-level counts without inventing a separate section.
             pass
 
-    translation_catalog, translation_warning_count = build_friendly_name_catalog(records_by_section)
+    translation_catalog, translation_warning_count = build_friendly_name_catalog(
+        records_by_section,
+        collector_payloads=collector_payloads,
+        run_dir=run_dir,
+    )
     if translation_catalog:
         records_by_section["translation_catalog"] = translation_catalog
 
     object_counts = {name: len(records) for name, records in records_by_section.items() if records}
+    full_counts, sample_counts, chunk_counts, truncated_sections, chunk_paths = _collector_count_summaries(
+        collector_payloads,
+        coverage_rows,
+    )
     diagnostic_classes = Counter(str(item.get("error_class") or "unknown") for item in diagnostics)
 
     normalized: dict[str, dict[str, Any]] = {
@@ -1430,6 +1494,13 @@ def build_normalized_snapshot(
             "tenant_name": tenant_name,
             "run_id": run_id,
             "object_counts": object_counts,
+            "normalized_counts": object_counts,
+            "full_counts": full_counts,
+            "sample_counts": sample_counts,
+            "chunk_counts": chunk_counts,
+            "chunk_paths": chunk_paths,
+            "sample_truncated": bool(truncated_sections),
+            "truncated_sections": truncated_sections,
             "collector_count": len(result_rows),
             "coverage_row_count": len(coverage_rows),
             "blocker_count": len(diagnostics),
@@ -1453,10 +1524,21 @@ def build_ai_safe_summary(
     return {
         "tenant_name": snapshot.get("tenant_name"),
         "run_id": snapshot.get("run_id"),
-        "object_counts": snapshot.get("object_counts", {}),
+        "object_counts": snapshot.get("normalized_counts", snapshot.get("object_counts", {})),
+        "normalized_counts": snapshot.get("normalized_counts", snapshot.get("object_counts", {})),
+        "full_counts": snapshot.get("full_counts", {}),
+        "sample_counts": snapshot.get("sample_counts", {}),
+        "chunk_counts": snapshot.get("chunk_counts", {}),
+        "sample_truncated": snapshot.get("sample_truncated", False),
+        "truncated_sections": snapshot.get("truncated_sections", []),
         "blocker_count": snapshot.get("blocker_count", 0),
         "translation_catalog_count": len((normalized_snapshot.get("translation_catalog") or {}).get("records", [])),
         "friendly_name_warning_count": snapshot.get("friendly_name_warning_count", 0),
+        "privacy_level": "ai_safe_redacted",
+        "redaction_mode": "summary_only",
+        "contains_pii": False,
+        "contains_auth_claims": False,
+        "safe_for_external_llm": True,
         "findings_count": len(findings),
         "top_findings": [
             {

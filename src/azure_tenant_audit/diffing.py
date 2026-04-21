@@ -51,6 +51,7 @@ def _run_metadata(run_dir: Path) -> dict[str, Any]:
     return {
         "path": str(run_dir),
         "tenant_name": manifest.get("tenant_name") or snapshot_meta.get("tenant_name"),
+        "tenant_id": manifest.get("tenant_id") or snapshot_meta.get("tenant_id"),
         "run_id": manifest.get("run_id") or snapshot_meta.get("run_id"),
         "created_utc": manifest.get("created_utc"),
         "overall_status": manifest.get("overall_status"),
@@ -98,7 +99,14 @@ def diff_run_directories(run_a: str | Path, run_b: str | Path) -> dict[str, Any]
         "run_a_info": left_info,
         "run_b_info": right_info,
         "compare_context": {
-            "same_tenant": left_info.get("tenant_name") == right_info.get("tenant_name"),
+            "same_tenant": (
+                bool(left_info.get("tenant_id"))
+                and left_info.get("tenant_id") == right_info.get("tenant_id")
+            )
+            or (
+                bool(left_info.get("tenant_name"))
+                and left_info.get("tenant_name") == right_info.get("tenant_name")
+            ),
         },
         "compared_files": compared_files,
         "summary": {

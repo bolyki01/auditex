@@ -17,6 +17,24 @@
     "expected_value": {},
     "returned_value": {},
     "risk_rating": { "type": ["string", "null"] },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["artifact_path", "artifact_kind", "collector", "record_key"],
+        "properties": {
+          "artifact_path": { "type": "string" },
+          "artifact_kind": { "type": "string" },
+          "collector": { "type": "string" },
+          "record_key": { "type": "string" },
+          "source_name": { "type": ["string", "null"] },
+          "json_pointer": { "type": ["string", "null"] },
+          "jsonl_line": { "type": ["integer", "null"] },
+          "endpoint": { "type": ["string", "null"] },
+          "response_status": { "type": ["string", "null"] }
+        }
+      }
+    },
     "references": {
       "type": "array",
       "items": { "type": "string" }

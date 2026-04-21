@@ -9,9 +9,7 @@ from .base import Collector, CollectorResult
 class ExchangePolicyCollector(Collector):
     name = "exchange_policy"
     description = "Exchange transport, domain, connector, and forwarding policy posture."
-    required_permissions = [
-        "Exchange.ManageAsApp",
-    ]
+    required_permissions: list[str] = []
     command_collectors = [
         ("transportRules", "Get-TransportRule | Select-Object Name,State,Priority,Mode"),
         ("inboundConnectors", "Get-InboundConnector | Select-Object Name,Enabled,ConnectorType"),

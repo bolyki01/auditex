@@ -232,7 +232,7 @@
       "graph_scopes": [
         "Directory.Read.All",
         "DelegatedPermissionGrant.Read.All",
-        "AppRoleAssignment.Read.All"
+        "AppRoleAssignment.ReadWrite.All"
       ],
       "minimum_role_hints": [
         "Global Reader",
@@ -292,13 +292,12 @@
       "optional_commands": [
         "m365 status --output json",
         "m365 tenant info get --output json",
-        "m365 tenant status",
         "m365 outlook report mailboxusagemailboxcount --period D30 --output json",
+        "m365 outlook report mailboxusagedetail --period D30 --output json",
         "m365 outlook report mailboxusagequotastatusmailboxcounts --period D30 --output json",
         "m365 outlook report mailboxusagestorage --period D30 --output json",
         "m365 outlook report mailactivitycounts --period D30 --output json",
-        "m365 outlook roomlist list --output json",
-        "m365 exo mailbox list --output json"
+        "m365 outlook roomlist list --output json"
       ]
     },
     "exchange_policy": {
@@ -326,7 +325,7 @@
   "global_app_recommendation": [
     "Directory.Read.All",
     "DelegatedPermissionGrant.Read.All",
-    "AppRoleAssignment.Read.All",
+    "AppRoleAssignment.ReadWrite.All",
     "User.Read.All",
     "AuditLog.Read.All",
     "SecurityEvents.Read.All",

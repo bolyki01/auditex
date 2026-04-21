@@ -8,7 +8,6 @@ from pathlib import Path
 from . import auth as auditex_auth
 from .bootstrap import print_doctor_report, run_setup
 from .guided import build_guided_parser, run_guided
-from .research import run_research_command
 from .rules import list_rule_inventory
 from azure_tenant_audit.cli import main as tenant_audit_main
 from azure_tenant_audit.diffing import diff_run_directories
@@ -36,7 +35,6 @@ def _build_root_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("export", help="List and run exporters.")
     subparsers.add_parser("notify", help="Build or send post-run notifications.")
     subparsers.add_parser("rules", help="Inspect built-in rule packs.")
-    subparsers.add_parser("research", help="Manage competitor research pack refresh.")
     subparsers.add_parser("auth", help="Inspect and manage local auth state.")
     return parser
 
@@ -283,8 +281,6 @@ def main(argv: list[str] | None = None) -> int:
         parser = build_guided_parser()
         args = parser.parse_args(argv[1:])
         return run_guided(args)
-    if argv[0] == "research":
-        return run_research_command(argv[1:])
     if argv[0] == "rules":
         parser = _build_rules_parser()
         args = parser.parse_args(argv[1:])

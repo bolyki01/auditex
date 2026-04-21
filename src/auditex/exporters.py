@@ -1,41 +1,65 @@
 from __future__ import annotations
 
-from importlib.metadata import entry_points
+from collections.abc import Callable
+from importlib.metadata import EntryPoint, entry_points
 from typing import Any
 
 from .reporting import render_report
 
 
-BUILTIN_EXPORTERS = {
-    "json": {"name": "json", "description": "Render report bundle as JSON", "formats": ["json"], "builtin": True},
-    "md": {"name": "md", "description": "Render report bundle as Markdown", "formats": ["md"], "builtin": True},
-    "csv": {"name": "csv", "description": "Render report bundle as CSV", "formats": ["csv"], "builtin": True},
-    "html": {"name": "html", "description": "Render report bundle as HTML", "formats": ["html"], "builtin": True},
+BUILTIN_EXPORTERS: dict[str, dict[str, Any]] = {
+    "csv": {"name": "csv", "description": "Write finding rows as CSV", "formats": ["csv"], "builtin": True},
+    "html": {"name": "html", "description": "Write a standalone HTML audit report", "formats": ["html"], "builtin": True},
+    "json": {"name": "json", "description": "Write the selected report sections as JSON", "formats": ["json"], "builtin": True},
+    "md": {"name": "md", "description": "Write a Markdown report summary", "formats": ["md"], "builtin": True},
 }
 
 
-def _iter_external_exporters() -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+def _entry_points() -> list[EntryPoint]:
     try:
-        discovered = entry_points(group="auditex.exporters")
+        return list(entry_points(group="auditex.exporters"))
     except TypeError:
-        discovered = entry_points().get("auditex.exporters", [])  # type: ignore[assignment]
-    for item in discovered:
-        rows.append(
-            {
-                "name": item.name,
-                "description": f"External exporter from {item.module}",
-                "formats": [],
-                "builtin": False,
-            }
-        )
+        return list(entry_points().get("auditex.exporters", []))  # type: ignore[union-attr]
+
+
+def _external_rows() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in _entry_points():
+        module_name = getattr(item, "module", None) or item.value.split(":", 1)[0]
+        rows.append({"name": item.name, "description": f"External exporter from {module_name}", "formats": [], "builtin": False})
     return rows
 
 
 def list_exporters() -> list[dict[str, Any]]:
-    rows = list(BUILTIN_EXPORTERS.values())
-    rows.extend(_iter_external_exporters())
-    return sorted(rows, key=lambda row: row["name"])
+    return sorted([*BUILTIN_EXPORTERS.values(), *_external_rows()], key=lambda row: row["name"])
+
+
+def _run_builtin(
+    name: str,
+    *,
+    run_dir: str,
+    include_sections: list[str] | None,
+    exclude_sections: list[str] | None,
+    output_path: str | None,
+) -> dict[str, Any]:
+    result = render_report(
+        run_dir=run_dir,
+        format_name=name,
+        include_sections=include_sections,
+        exclude_sections=exclude_sections,
+        output_path=output_path,
+    )
+    return {"name": name, "artifacts": [{"path": result["output_path"], "format": name}]}
+
+
+def _invoke_plugin(plugin: Any, **kwargs: Any) -> dict[str, Any]:
+    runner: Callable[..., Any] | None = plugin if callable(plugin) else getattr(plugin, "run", None)
+    if runner is None:
+        raise TypeError("Exporter plugin must be callable or expose run().")
+    result = runner(**kwargs)
+    if not isinstance(result, dict):
+        raise TypeError("Exporter plugin returned a non-dict result.")
+    return result
 
 
 def run_exporter(
@@ -47,40 +71,21 @@ def run_exporter(
     output_path: str | None = None,
 ) -> dict[str, Any]:
     if name in BUILTIN_EXPORTERS:
-        result = render_report(
+        return _run_builtin(
+            name,
             run_dir=run_dir,
-            format_name=name,
             include_sections=include_sections,
             exclude_sections=exclude_sections,
             output_path=output_path,
         )
-        return {"name": name, "artifacts": [{"path": result["output_path"], "format": name}]}
 
-    try:
-        discovered = entry_points(group="auditex.exporters")
-    except TypeError:
-        discovered = entry_points().get("auditex.exporters", [])  # type: ignore[assignment]
-    for item in discovered:
-        if item.name != name:
-            continue
-        plugin = item.load()
-        if callable(plugin):
-            payload = plugin(
+    for item in _entry_points():
+        if item.name == name:
+            return _invoke_plugin(
+                item.load(),
                 run_dir=run_dir,
                 include_sections=include_sections,
                 exclude_sections=exclude_sections,
                 output_path=output_path,
             )
-        elif hasattr(plugin, "run"):
-            payload = plugin.run(
-                run_dir=run_dir,
-                include_sections=include_sections,
-                exclude_sections=exclude_sections,
-                output_path=output_path,
-            )
-        else:
-            raise TypeError(f"Exporter '{name}' is not callable")
-        if isinstance(payload, dict):
-            return payload
-        raise TypeError(f"Exporter '{name}' returned invalid payload")
     raise KeyError(f"Unknown exporter: {name}")

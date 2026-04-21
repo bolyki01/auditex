@@ -190,6 +190,8 @@ def build_cli_command(
     plane: str = "inventory",
     use_azure_cli_token: bool = True,
     access_token: str | None = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
     include_exchange: bool = False,
     collectors: str | list[str] | None = None,
     since: str | None = None,
@@ -224,6 +226,11 @@ def build_cli_command(
         command.extend(["--access-token", access_token])
     elif use_azure_cli_token:
         command.append("--use-azure-cli-token")
+    else:
+        if client_id:
+            command.extend(["--client-id", client_id])
+        if client_secret:
+            command.extend(["--client-secret", client_secret])
     return command
 
 
@@ -333,17 +340,21 @@ def summarize_run(run_dir: str) -> dict[str, Any]:
     path = Path(run_dir)
     manifest_path = path / "run-manifest.json"
     summary_path = path / "summary.json"
+    summary_md_path = path / "summary.md"
     diagnostics_path = path / "diagnostics.json"
     result: dict[str, Any] = {
         "run_dir": str(path),
         "manifest_path": str(manifest_path),
         "summary_path": str(summary_path),
+        "summary_md_path": str(summary_md_path),
         "diagnostics_path": str(diagnostics_path),
     }
     if manifest_path.exists():
         result["manifest"] = json.loads(manifest_path.read_text(encoding="utf-8"))
     if summary_path.exists():
         result["summary"] = json.loads(summary_path.read_text(encoding="utf-8"))
+    if summary_md_path.exists():
+        result["summary_md"] = summary_md_path.read_text(encoding="utf-8")
     if diagnostics_path.exists():
         result["diagnostics"] = json.loads(diagnostics_path.read_text(encoding="utf-8"))
     capability_matrix_path = path / "capability-matrix.json"
@@ -352,7 +363,10 @@ def summarize_run(run_dir: str) -> dict[str, Any]:
     normalized_capability_path = path / "normalized" / "capability_matrix.json"
     normalized_auth_context_path = path / "normalized" / "auth_context.json"
     normalized_coverage_ledger_path = path / "normalized" / "coverage_ledger.json"
+    ai_context_path = path / "ai_context.json"
+    validation_path = path / "validation.json"
     blockers_path = path / "blockers" / "blockers.json"
+    findings_path = path / "findings" / "findings.json"
     report_pack_path = path / "reports" / "report-pack.json"
     action_plan_path = path / "reports" / "action-plan.json"
     if capability_matrix_path.exists():
@@ -373,9 +387,18 @@ def summarize_run(run_dir: str) -> dict[str, Any]:
     if normalized_coverage_ledger_path.exists():
         result["coverage_ledger_path"] = str(normalized_coverage_ledger_path)
         result["coverage_ledger"] = json.loads(normalized_coverage_ledger_path.read_text(encoding="utf-8"))
+    if ai_context_path.exists():
+        result["ai_context_path"] = str(ai_context_path)
+        result["ai_context"] = json.loads(ai_context_path.read_text(encoding="utf-8"))
+    if validation_path.exists():
+        result["validation_path"] = str(validation_path)
+        result["validation"] = json.loads(validation_path.read_text(encoding="utf-8"))
     if blockers_path.exists():
         result["blockers_path"] = str(blockers_path)
         result["blockers"] = json.loads(blockers_path.read_text(encoding="utf-8"))
+    if findings_path.exists():
+        result["findings_path"] = str(findings_path)
+        result["findings"] = json.loads(findings_path.read_text(encoding="utf-8"))
     if report_pack_path.exists():
         result["report_pack_path"] = str(report_pack_path)
         result["report_pack"] = json.loads(report_pack_path.read_text(encoding="utf-8"))

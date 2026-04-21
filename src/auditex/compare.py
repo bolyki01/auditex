@@ -27,7 +27,10 @@ def _parse_utc(value: Any) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(normalized)
     except ValueError:
-        return None
+        try:
+            parsed = datetime.strptime(value, "%Y%m%d_%H%M%S").replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
@@ -35,16 +38,26 @@ def _parse_utc(value: Any) -> datetime | None:
 
 def _run_metadata(run_dir: Path) -> dict[str, Any]:
     indexed = load_run_index_summary(run_dir)
-    if indexed:
-        indexed["path"] = str(run_dir)
-        indexed["_created_at"] = _parse_utc(indexed.get("created_utc"))
-        return indexed
     manifest = _load_json(run_dir / "run-manifest.json", default={})
     if not isinstance(manifest, dict):
         manifest = {}
     summary = _load_json(run_dir / "summary.json", default={})
     if not isinstance(summary, dict):
         summary = {}
+    if indexed:
+        metadata = {
+            "path": str(run_dir),
+            "run_id": indexed.get("run_id") or manifest.get("run_id"),
+            "tenant_name": indexed.get("tenant_name") or manifest.get("tenant_name"),
+            "tenant_id": indexed.get("tenant_id") or manifest.get("tenant_id"),
+            "created_utc": indexed.get("created_utc") or manifest.get("created_utc"),
+            "overall_status": indexed.get("overall_status") or manifest.get("overall_status"),
+            "auditor_profile": indexed.get("auditor_profile") or manifest.get("auditor_profile"),
+            "section_stats": indexed.get("section_stats") or [],
+            "item_count": indexed.get("item_count") or 0,
+        }
+        metadata["_created_at"] = _parse_utc(metadata.get("created_utc"))
+        return metadata
     collector_rows = summary.get("collectors", [])
     if not isinstance(collector_rows, list):
         collector_rows = []
@@ -101,8 +114,8 @@ def _sort_runs(runs: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _blocked_diff(left_run: dict[str, Any], right_run: dict[str, Any], reason: str) -> dict[str, Any]:
     return {
-        "left_run": left_run,
-        "right_run": right_run,
+        "left_run": _public_run(left_run),
+        "right_run": _public_run(right_run),
         "status": "blocked",
         "reason": reason,
         "compare_context": {"same_tenant": False, "gate": reason},
@@ -112,12 +125,18 @@ def _blocked_diff(left_run: dict[str, Any], right_run: dict[str, Any], reason: s
     }
 
 
+def _public_run(run: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(run)
+    payload.pop("_created_at", None)
+    return payload
+
+
 def _compare_pair(left_run: dict[str, Any], right_run: dict[str, Any], same_tenant: bool, *, allow_cross_tenant: bool) -> dict[str, Any]:
     if not same_tenant and not allow_cross_tenant:
         return _blocked_diff(left_run, right_run, "same_tenant_required")
     diff = diff_run_directories(left_run["path"], right_run["path"])
-    diff["left_run"] = left_run
-    diff["right_run"] = right_run
+    diff["left_run"] = _public_run(left_run)
+    diff["right_run"] = _public_run(right_run)
     diff["status"] = "ok"
     diff["reason"] = None
     diff["compare_context"] = {
@@ -133,11 +152,7 @@ def compare_run_directories(run_dirs: Iterable[str | Path], *, allow_cross_tenan
     runs = [_run_metadata(Path(run_dir)) for run_dir in run_dirs]
     ordered_runs = _sort_runs(runs)
     compare_context = _tenant_gate(ordered_runs)
-    ordered_runs_public = []
-    for run in ordered_runs:
-        run = dict(run)
-        run.pop("_created_at", None)
-        ordered_runs_public.append(run)
+    ordered_runs_public = [_public_run(run) for run in ordered_runs]
 
     timeline: list[dict[str, Any]] = []
     for position, run in enumerate(ordered_runs_public):

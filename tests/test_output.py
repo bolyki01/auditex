@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from azure_tenant_audit.output import AuditWriter
@@ -48,8 +49,11 @@ def test_writer(tmp_path: Path):
     assert (writer.run_dir / "session-context.json").exists()
     manifest = json.loads((writer.run_dir / "run-manifest.json").read_text(encoding="utf-8"))
     assert manifest["schema_version"] == "2026-04-18"
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T", manifest["created_utc"])
     assert manifest["collector_preset"] == "identity-only"
     assert manifest["waiver_path"] == "configs/waivers.json"
+    assert "summary.json" in manifest["artifacts"]
+    assert "summary.md" in manifest["artifacts"]
 
     json_lines = (writer.run_dir / "audit-log.jsonl").read_text(encoding="utf-8").splitlines()
     assert any('"run.completed"' in line for line in json_lines)

@@ -12,7 +12,7 @@ from ..graph import GraphError
 class ExchangeCollector(Collector):
     name = "exchange"
     description = "Exchange posture and readiness checks via optional command execution."
-    required_permissions = ["Exchange.ManageAsApp"]
+    required_permissions: list[str] = []
     command_collectors = [
         {
             "name": "exchangeConnectivityCheck",
@@ -21,6 +21,7 @@ class ExchangeCollector(Collector):
                 "m365 status --output json",
                 "m365 tenant info get --output json",
             ],
+            "graph_fallback": "tenant_info",
         },
         {
             "name": "exchangeTenantInfo",
@@ -28,6 +29,7 @@ class ExchangeCollector(Collector):
             "commands": [
                 "m365 tenant info get --output json",
             ],
+            "graph_fallback": "tenant_info",
         },
         {
             "name": "mailboxCount",
@@ -63,6 +65,7 @@ class ExchangeCollector(Collector):
         {
             "name": "roomLists",
             "category": "posture",
+            "optional": True,
             "commands": [
                 "m365 outlook roomlist list --output json",
             ],
@@ -87,8 +90,12 @@ class ExchangeCollector(Collector):
                 command_variants = [str(command.get("command", ""))]
 
             response = self._run_command_variants(command_variants, command["name"], log_event)
-            if response.get("error") and command.get("graph_fallback") == "mailbox_count":
-                graph_response = self._run_mailbox_count_graph_fallback(graph_client, top=top)
+            if response.get("error"):
+                graph_response = self._graph_fallback_response(
+                    command.get("graph_fallback"),
+                    graph_client,
+                    top=top,
+                )
                 if graph_response is not None:
                     graph_response["command_variants"] = command_variants
                     graph_response["operation"] = command["name"]
@@ -108,6 +115,7 @@ class ExchangeCollector(Collector):
                     "collector": self.name,
                     "type": "command",
                     "category": category,
+                    "optional": bool(command.get("optional")),
                     "name": command["name"],
                     "source": response.get("source", "command"),
                     "command": response.get("command", ""),
@@ -120,7 +128,7 @@ class ExchangeCollector(Collector):
                 }
             )
 
-        partial = any(entry.get("status") != "ok" for entry in coverage)
+        partial = any(entry.get("status") != "ok" and not entry.get("optional") for entry in coverage)
         return CollectorResult(
             name=self.name,
             status="partial" if partial else "ok",
@@ -198,6 +206,42 @@ class ExchangeCollector(Collector):
                 "source": "graph",
                 "error_class": "insufficient_permissions",
             }
+
+    def _run_tenant_info_graph_fallback(self, graph_client: Any) -> dict[str, Any] | None:
+        if graph_client is None or not hasattr(graph_client, "get_all"):
+            return None
+
+        try:
+            organization = graph_client.get_all(
+                "/organization",
+                params={"$select": "id,displayName,tenantType,city,country"},
+            )
+            return {
+                "command": "graph /organization",
+                "value": organization,
+                "source": "graph",
+                "error_class": None,
+            }
+        except GraphError as exc:
+            return {
+                "command": "graph /organization",
+                "error": str(exc),
+                "source": "graph",
+                "error_class": "insufficient_permissions",
+            }
+
+    def _graph_fallback_response(
+        self,
+        fallback_name: Any,
+        graph_client: Any,
+        *,
+        top: int | str,
+    ) -> dict[str, Any] | None:
+        if fallback_name == "mailbox_count":
+            return self._run_mailbox_count_graph_fallback(graph_client, top=top)
+        if fallback_name == "tenant_info":
+            return self._run_tenant_info_graph_fallback(graph_client)
+        return None
 
     @staticmethod
     def _item_count(response: dict[str, Any]) -> int:

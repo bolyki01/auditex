@@ -1,11 +1,58 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 
 DEFAULT_RULE_PACKS_PATH = Path(__file__).resolve().parents[2] / "configs" / "rule-packs.json"
+
+
+def _read_rules(path: Path) -> list[Mapping[str, Any]]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+        return []
+    rows = payload.get("rules") if isinstance(payload, Mapping) else []
+    return [row for row in rows if isinstance(row, Mapping)] if isinstance(rows, list) else []
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return sorted({str(item) for item in value if item is not None})
+
+
+def _rule_row(item: Mapping[str, Any]) -> dict[str, Any] | None:
+    name = str(item.get("name") or "").strip()
+    if not name:
+        return None
+    return {
+        "name": name,
+        "title": item.get("title"),
+        "description": item.get("description"),
+        "tags": _string_list(item.get("tags")),
+        "path": str(item.get("path") or ""),
+        "enabled": bool(item.get("enabled", True)),
+        "product_family": str(item.get("product_family") or ""),
+        "license_tiers": _string_list(item.get("license_tiers")),
+        "audit_levels": _string_list(item.get("audit_levels")),
+    }
+
+
+def _matches(row: Mapping[str, Any], *, tag: str | None, path_prefix: str | None, product_family: str | None, license_tier: str | None, audit_level: str | None) -> bool:
+    if tag and tag not in row.get("tags", []):
+        return False
+    if path_prefix and str(row.get("path") or "") and not str(row.get("path")).startswith(path_prefix):
+        return False
+    if product_family and row.get("product_family") != product_family:
+        return False
+    if license_tier and license_tier not in row.get("license_tiers", []):
+        return False
+    if audit_level and audit_level not in row.get("audit_levels", []):
+        return False
+    return True
 
 
 def list_rule_inventory(
@@ -17,39 +64,16 @@ def list_rule_inventory(
     license_tier: str | None = None,
     audit_level: str | None = None,
 ) -> list[dict[str, Any]]:
-    target = path or DEFAULT_RULE_PACKS_PATH
-    if not target.exists():
-        return []
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    rules = payload.get("rules", [])
-    if not isinstance(rules, list):
-        return []
     rows: list[dict[str, Any]] = []
-    for item in rules:
-        if not isinstance(item, dict):
-            continue
-        row = {
-            "name": str(item.get("name") or ""),
-            "title": item.get("title"),
-            "description": item.get("description"),
-            "tags": sorted({str(tag_item) for tag_item in item.get("tags", []) if tag_item is not None}),
-            "path": str(item.get("path") or ""),
-            "enabled": bool(item.get("enabled", True)),
-            "product_family": str(item.get("product_family") or ""),
-            "license_tiers": sorted({str(value) for value in item.get("license_tiers", []) if value is not None}),
-            "audit_levels": sorted({str(value) for value in item.get("audit_levels", []) if value is not None}),
-        }
-        if not row["name"]:
-            continue
-        if tag and tag not in row["tags"]:
-            continue
-        if path_prefix and row["path"] and not row["path"].startswith(path_prefix):
-            continue
-        if product_family and row["product_family"] != product_family:
-            continue
-        if license_tier and license_tier not in row["license_tiers"]:
-            continue
-        if audit_level and audit_level not in row["audit_levels"]:
-            continue
-        rows.append(row)
-    return sorted(rows, key=lambda item: item["name"])
+    for item in _read_rules(path or DEFAULT_RULE_PACKS_PATH):
+        row = _rule_row(item)
+        if row is not None and _matches(
+            row,
+            tag=tag,
+            path_prefix=path_prefix,
+            product_family=product_family,
+            license_tier=license_tier,
+            audit_level=audit_level,
+        ):
+            rows.append(row)
+    return sorted(rows, key=lambda row: row["name"])

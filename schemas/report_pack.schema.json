@@ -20,6 +20,8 @@
         "diff_summary": { "type": "object" }
       }
     },
+    "privacy": { "type": "object" },
+    "artifact_map": { "type": "object" },
     "findings": {
       "type": "array",
       "items": { "type": "object" }

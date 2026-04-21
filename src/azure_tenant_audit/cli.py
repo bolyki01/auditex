@@ -22,6 +22,7 @@ from .output import AuditWriter
 from .presets import load_collector_presets, resolve_collector_selection
 from .profiles import get_profile, profile_choices
 from .utils import load_env_file, parse_csv_list
+from .ai_context import build_ai_context, build_privacy_block, build_validation_report
 from auditex.evidence_db import build_run_evidence_index
 
 LOG = logging.getLogger("azure_tenant_audit")
@@ -322,11 +323,14 @@ def _build_capability_matrix_rows(
         hints = permission_hints.get(collector_name, {})
         required = list(definition.required_permissions) if definition else list(hints.get("graph_scopes") or [])
         missing = [perm for perm in required if perm not in available]
-        status = "supported"
+        status = "supported_exact_scope"
         reason = "required_permissions_present"
         if missing:
             status = "blocked_by_scope"
             reason = "missing_required_permissions"
+        if definition and getattr(definition, "command_collectors", None) and not required:
+            status = "supported_effective_role"
+            reason = "command_toolchain_required"
         if collector_name in {"purview", "ediscovery"} and has_global_reader:
             status = "blocked_by_role"
             reason = "global_reader_limit"
@@ -347,6 +351,34 @@ def _build_capability_matrix_rows(
             }
         )
     return rows
+
+
+def _reconcile_capability_matrix_rows(
+    capability_rows: list[dict[str, Any]],
+    result_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    results_by_collector = {str(row.get("name")): row for row in result_rows if isinstance(row, dict)}
+    reconciled: list[dict[str, Any]] = []
+    for row in capability_rows:
+        item = dict(row)
+        collector = str(item.get("collector") or "")
+        result = results_by_collector.get(collector, {})
+        actual_status = str(result.get("status") or "")
+        missing_permissions = list(item.get("missing_permissions") or [])
+        delegated_roles = list(item.get("delegated_roles") or [])
+        if actual_status == "ok":
+            if missing_permissions:
+                item["status"] = "supported_effective_role" if delegated_roles else "supported_equivalent_scope"
+            elif item.get("status") not in {"supported_effective_role"}:
+                item["status"] = "supported_exact_scope"
+        elif actual_status == "partial":
+            item["status"] = "partial"
+        elif actual_status == "failed":
+            item["status"] = "blocked"
+        elif actual_status == "skipped":
+            item["status"] = "not_applicable"
+        reconciled.append(item)
+    return reconciled
 
 
 def _build_coverage_ledger(
@@ -371,12 +403,26 @@ def _build_coverage_ledger(
                 "expected_status": capability.get("status"),
                 "expected_reason": capability.get("reason"),
                 "actual_status": result.get("status"),
+                "coverage_status": "complete"
+                if result.get("status") == "ok"
+                else "partial_success"
+                if result.get("status") == "partial"
+                else "not_applicable"
+                if result.get("status") == "skipped"
+                else "not_run"
+                if not result
+                else "failed_runtime",
                 "item_count": result.get("item_count", 0),
                 "message": result.get("message"),
                 "diagnostic_count": len(diagnostics_by_collector.get(collector, [])),
                 "diagnostics": diagnostics_by_collector.get(collector, []),
             }
         )
+        if diagnostics_by_collector.get(collector):
+            latest = ledger[-1]
+            classes = {str(item.get("error_class") or "") for item in diagnostics_by_collector.get(collector)}
+            if any(value in {"insufficient_permissions", "unauthenticated"} for value in classes):
+                latest["coverage_status"] = "blocked_permission"
     return ledger
 
 
@@ -523,6 +569,24 @@ def _build_diagnostics(
                 "error": item.get("error"),
                 "top": item.get("top"),
                 "command_type": item.get("type"),
+                "evidence_refs": [
+                    {
+                        "artifact_path": f"raw/{collector_name}.json",
+                        "artifact_kind": "raw_json",
+                        "collector": collector_name,
+                        "record_key": f"{collector_name}:{item.get('name') or collector_name}",
+                        "source_name": item.get("name"),
+                        "json_pointer": f"/{item.get('name')}" if item.get("name") else None,
+                        "endpoint": item.get("endpoint"),
+                        "response_status": status,
+                        "query_params": {
+                            key: item.get(key)
+                            for key in ("top", "page", "result_limit")
+                            if item.get(key) is not None
+                        }
+                        or None,
+                    }
+                ],
             }
             if item.get("type") == "command":
                 failure["commands_required"] = optional_commands or [str(item.get("command"))] if item.get("command") else []
@@ -856,6 +920,8 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
                 {"error": str(exc)},
             )
             token_claims = {}
+    elif hasattr(client, "token_claims"):
+        token_claims = client.token_claims()
     auth_context_payload = _build_auth_context_payload(
         auth_mode=auth_mode,
         tenant_id=tenant_id,
@@ -1113,6 +1179,7 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
         result_rows=result_rows,
         diagnostics=diagnostics,
     )
+    capability_rows = _reconcile_capability_matrix_rows(capability_rows, result_rows)
     normalized_snapshot = build_normalized_snapshot(
         tenant_name=run_cfg.tenant_name,
         run_id=writer.run_id,
@@ -1120,6 +1187,7 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
         diagnostics=diagnostics,
         result_rows=result_rows,
         coverage_rows=coverage_rows,
+        run_dir=writer.run_dir,
     )
     findings = build_findings(
         diagnostics,
@@ -1142,15 +1210,18 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
     if findings:
         evidence_paths.append("findings/findings.json")
     evidence_paths.extend(f"normalized/{name}.json" for name in normalized_snapshot)
-    writer.write_report_pack(
-        build_report_pack(
-            tenant_name=run_cfg.tenant_name,
-            overall_status="partial" if failures or preflight_skipped else "ok",
-            findings=findings,
-            evidence_paths=evidence_paths,
-            blocker_count=len(diagnostics),
-        )
+    evidence_paths.extend(["ai_context.json", "validation.json"])
+    overall_status = "partial" if failures or preflight_skipped else "ok"
+    privacy = build_privacy_block(safe_for_external_llm=False)
+    report_pack = build_report_pack(
+        tenant_name=run_cfg.tenant_name,
+        overall_status=overall_status,
+        findings=findings,
+        evidence_paths=evidence_paths,
+        blocker_count=len(diagnostics),
+        privacy=privacy,
     )
+    writer.write_report_pack(report_pack)
     writer.log_event(
         "run.complete",
         "Live run completed",
@@ -1158,11 +1229,35 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
     )
     evidence_db_path = build_run_evidence_index(writer.run_dir)
     writer._record_artifact(evidence_db_path)
+    ai_context = build_ai_context(
+        run_dir=writer.run_dir,
+        run_metadata={
+            "tenant_name": run_cfg.tenant_name,
+            "tenant_id": args.tenant_id,
+            "run_id": writer.run_id,
+            "overall_status": overall_status,
+            "auditor_profile": run_cfg.auditor_profile,
+            "mode": auth_mode,
+            "plane": run_cfg.plane,
+            "selected_collectors": selected,
+            "duration_seconds": duration,
+        },
+        normalized_snapshot=normalized_snapshot,
+        capability_rows=capability_rows,
+        coverage_ledger=coverage_ledger,
+        blockers=diagnostics,
+        findings=findings,
+    )
+    writer.write_json_artifact("ai_context.json", ai_context)
+    writer.write_json_artifact(
+        "validation.json",
+        build_validation_report(run_dir=writer.run_dir, ai_context=ai_context, findings=findings),
+    )
     writer.write_bundle(
         {
             "executed_by": "azure_tenant_audit",
             "collectors": selected,
-            "overall_status": "partial" if failures or preflight_skipped else "ok",
+            "overall_status": overall_status,
             "duration_seconds": duration,
             "mode": auth_mode,
             "auditor_profile": run_cfg.auditor_profile,
@@ -1180,6 +1275,9 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
             "throttle_mode": args.throttle_mode,
             "preflight_path": preflight_path,
             "evidence_db_path": str(evidence_db_path.relative_to(writer.run_dir)),
+            "privacy": privacy,
+            "ai_context_path": "ai_context.json",
+            "validation_path": "validation.json",
         }
     )
     LOG.info("Completed in %.2fs. Output in %s", duration, writer.run_dir)

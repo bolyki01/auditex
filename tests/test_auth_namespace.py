@@ -188,8 +188,8 @@ def test_auth_capability_command_prints_collector_statuses(monkeypatch, tmp_path
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     rows = {row["collector"]: row for row in payload["capabilities"]}
-    assert rows["identity"]["status"] == "supported"
-    assert rows["security"]["status"] == "supported"
+    assert rows["identity"]["status"] == "supported_exact_scope"
+    assert rows["security"]["status"] == "supported_exact_scope"
     assert rows["defender"]["status"] == "blocked_by_scope"
 
 

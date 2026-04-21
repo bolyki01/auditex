@@ -391,7 +391,7 @@ def collector_capability_matrix(
         hints = permission_hints.get(collector_name, {})
         required = list(definition.required_permissions) if definition else list(hints.get("graph_scopes") or [])
         missing = [item for item in required if item not in available]
-        status = "supported"
+        status = "supported_exact_scope"
         reason = "required_permissions_present"
         if missing:
             status = "blocked_by_scope"

@@ -27,7 +27,7 @@ def test_build_doctor_report_includes_versions_and_readiness_split(monkeypatch) 
     monkeypatch.setattr(bootstrap, "_tool_status", _fake_tool_status)
     monkeypatch.setattr(
         "auditex.auth.get_auth_status",
-        lambda: {
+        lambda **kwargs: {
             "azure_cli": {"status": "supported", "user_name": "reader@contoso.test"},
             "m365": {"status": "supported", "active_connection": "tenant-user"},
             "exchange": {"status": "supported", "module_version": "3.7.0"},
@@ -144,7 +144,7 @@ def test_build_doctor_report_uses_short_m365_version(monkeypatch) -> None:
     monkeypatch.setattr(bootstrap, "_tool_status", _fake_tool_status)
     monkeypatch.setattr(
         "auditex.auth.get_auth_status",
-        lambda: {
+        lambda **kwargs: {
             "azure_cli": {"status": "supported", "user_name": "reader@contoso.test"},
             "m365": {"status": "supported", "active_connection": "tenant-user"},
             "exchange": {"status": "supported", "module_version": "3.7.0"},
@@ -175,7 +175,7 @@ def test_build_doctor_report_marks_exchange_not_ready_without_module(monkeypatch
     )
     monkeypatch.setattr(
         "auditex.auth.get_auth_status",
-        lambda: {
+        lambda **kwargs: {
             "azure_cli": {"status": "supported", "user_name": "reader@contoso.test"},
             "m365": {"status": "supported", "active_connection": "tenant-user"},
             "exchange": {"status": "blocked", "error": "module_not_found"},
@@ -186,3 +186,37 @@ def test_build_doctor_report_marks_exchange_not_ready_without_module(monkeypatch
 
     assert report["readiness"]["exchange_ready"] is False
     assert report["readiness"]["exchange_missing"] == ["exchange_online_module"]
+
+
+def test_build_doctor_report_app_mode_does_not_require_az(monkeypatch) -> None:
+    monkeypatch.setattr(
+        bootstrap,
+        "_selected_python",
+        lambda: {"status": "supported", "path": "/usr/bin/python3.13", "version": "Python 3.13.2"},
+    )
+    monkeypatch.setattr(
+        bootstrap,
+        "_venv_status",
+        lambda: {"status": "supported", "path": "/tmp/.venv", "python_path": "/tmp/.venv/bin/python"},
+    )
+    monkeypatch.setattr(bootstrap, "detect_package_manager", lambda: "brew")
+
+    def _fake_tool_status(name: str, **_: object) -> dict[str, object]:
+        if name == "az":
+            return {"name": name, "status": "blocked", "path": None, "version": None, "error": "command_not_found"}
+        return {"name": name, "status": "supported", "path": f"/usr/bin/{name}", "version": f"{name}-1.0", "error": None}
+
+    monkeypatch.setattr(bootstrap, "_tool_status", _fake_tool_status)
+    monkeypatch.setattr(
+        "auditex.auth.get_auth_status",
+        lambda **kwargs: {
+            "azure_cli": {"status": "skipped"},
+            "m365": {"status": "skipped"},
+            "exchange": {"status": "skipped"},
+        },
+    )
+
+    report = bootstrap.build_doctor_report(auth_mode="app", include_exchange=False, include_auth_checks=False)
+
+    assert report["readiness"]["core_ready"] is True
+    assert report["readiness"]["core_missing"] == []

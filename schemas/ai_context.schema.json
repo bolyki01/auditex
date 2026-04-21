@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Auditex AI Context",
+  "type": "object",
+  "required": ["schema_version", "run", "privacy", "counts", "coverage", "findings", "artifacts", "read_order"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "run": { "type": "object" },
+    "privacy": { "type": "object" },
+    "counts": { "type": "object" },
+    "coverage": { "type": "object" },
+    "findings": { "type": "object" },
+    "artifacts": { "type": "object" },
+    "read_order": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "known_limitations": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

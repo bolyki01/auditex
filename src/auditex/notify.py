@@ -23,15 +23,24 @@ def _build_payload(run_dir: str | Path) -> dict[str, Any]:
     report_pack = summary.get("report_pack") or {}
     report_summary = report_pack.get("summary") or {}
     action_plan = report_pack.get("action_plan") or summary.get("action_plan") or []
+    manifest = summary.get("manifest") or {}
+    findings_doc = summary.get("findings") or {}
+    findings_rows = findings_doc.get("findings") if isinstance(findings_doc, dict) else []
+    if not isinstance(findings_rows, list):
+        findings_rows = []
+    open_count = sum(1 for item in findings_rows if isinstance(item, dict) and item.get("status") == "open")
+    accepted_count = sum(1 for item in findings_rows if isinstance(item, dict) and item.get("status") == "accepted_risk")
     return {
         "run_dir": str(run_dir),
-        "tenant_name": report_summary.get("tenant_name") or (summary.get("manifest") or {}).get("tenant_name"),
-        "overall_status": report_summary.get("overall_status"),
-        "finding_count": report_summary.get("finding_count", 0),
-        "blocker_count": report_summary.get("blocker_count", 0),
-        "open_count": report_summary.get("open_count", 0),
-        "accepted_count": report_summary.get("accepted_count", 0),
+        "tenant_name": report_summary.get("tenant_name") or manifest.get("tenant_name"),
+        "overall_status": report_summary.get("overall_status") or manifest.get("overall_status"),
+        "finding_count": report_summary.get("finding_count", manifest.get("findings_count", len(findings_rows))),
+        "blocker_count": report_summary.get("blocker_count", manifest.get("blocker_count", 0)),
+        "open_count": report_summary.get("open_count", open_count),
+        "accepted_count": report_summary.get("accepted_count", accepted_count),
         "action_plan": action_plan,
+        "report_pack_path": summary.get("report_pack_path"),
+        "action_plan_path": summary.get("action_plan_path"),
     }
 
 

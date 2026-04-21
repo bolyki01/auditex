@@ -6,8 +6,8 @@ Sources:
 
 - https://microsoft.github.io/skills/
 - https://github.com/microsoft/skills
-- Full upstream copy: `tenant-bootstrap/vendor/microsoft-skills/upstream/`
-- Full local catalog: `tenant-bootstrap/vendor/microsoft-skills/ALL-SKILLS-CATALOG.md`
+- Curated vendored subset: `tenant-bootstrap/vendor/microsoft-skills/`
+- Retained-skills catalog: `tenant-bootstrap/vendor/microsoft-skills/ALL-SKILLS-CATALOG.md`
 - Curated fast-path skills: `tenant-bootstrap/vendor/microsoft-skills/`
 
 ## Core Takeaways
@@ -16,7 +16,7 @@ Microsoft Agent Skills are small, task-specific instruction packs for coding age
 
 The important rule from Microsoft's repository is selective use. Do not load every skill. Pick the smallest skill set that matches the current task.
 
-The repo now contains all upstream Microsoft skills, but the recommended tenant-auditor subset supports four workstreams:
+The repo carries only the curated skills needed by the tenant-auditor workflow. The retained subset supports four workstreams:
 
 - Microsoft documentation lookup.
 - Entra app registration, Graph permissions, OAuth, and Azure identity.
@@ -155,17 +155,9 @@ Practical sequence:
 3. Add app/certificate auth and permission manifests.
 4. Only then wrap it in a hosted M365/Foundry agent.
 
-## Full Upstream Copy
+## Retained Skills
 
-All upstream Microsoft skills are available under:
-
-- `tenant-bootstrap/vendor/microsoft-skills/upstream/`
-
-Use:
-
-- `tenant-bootstrap/vendor/microsoft-skills/ALL-SKILLS-CATALOG.md`
-
-to find the right path. Do not recursively read the full upstream tree into context.
+Use `tenant-bootstrap/vendor/microsoft-skills/ALL-SKILLS-CATALOG.md` to find the retained local path. The product tree intentionally does not carry the full upstream repository.
 
 ## Operational Rule For Future Agents
 

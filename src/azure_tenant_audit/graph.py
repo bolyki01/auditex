@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import random
 import time
+import importlib
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, Optional
 from urllib.parse import urlencode, urlparse
@@ -80,6 +81,7 @@ class GraphClient:
     audit_event: Optional[Callable[[str, str, Optional[dict[str, Any]]], None]] = None
     _next_request_not_before: float = field(default=0.0, init=False)
     _permission_failures: dict[str, int] = field(default_factory=dict, init=False)
+    _token_claims: Optional[dict[str, Any]] = field(default=None, init=False)
 
     def _emit(self, event: str, message: str, details: Optional[dict[str, Any]] = None) -> None:
         if self.audit_event is None:
@@ -257,6 +259,17 @@ class GraphClient:
         self._token = result["access_token"]
         self._emit("graph.token.succeeded", "Interactive token acquired", {"source": "interactive"})
         return self._token
+
+    def token_claims(self) -> dict[str, Any]:
+        if self._token_claims is not None:
+            return dict(self._token_claims)
+        try:
+            token = self.ensure_token()
+            inspect_token_claims = importlib.import_module("auditex.auth").inspect_token_claims
+            self._token_claims = dict(inspect_token_claims(token))
+        except Exception:  # noqa: BLE001
+            self._token_claims = {}
+        return dict(self._token_claims)
 
     def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         token = self.ensure_token()

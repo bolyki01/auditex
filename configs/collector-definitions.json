@@ -256,7 +256,7 @@
       "required_permissions": [
         "Directory.Read.All",
         "DelegatedPermissionGrant.Read.All",
-        "AppRoleAssignment.Read.All"
+        "AppRoleAssignment.ReadWrite.All"
       ],
       "query_plan": [
         "servicePrincipals",
@@ -445,9 +445,7 @@
     "exchange": {
       "enabled": false,
       "description": "Optional Exchange posture and readiness checks through Microsoft 365 CLI command execution",
-      "required_permissions": [
-        "Exchange.ManageAsApp"
-      ],
+      "required_permissions": [],
       "query_plan": [
         "exchangeConnectivityCheck",
         "exchangeTenantInfo",
@@ -463,16 +461,14 @@
           "category": "readiness",
           "commands": [
             "m365 status --output json",
-            "m365 tenant info get --output json",
-            "m365 tenant status"
+            "m365 tenant info get --output json"
           ]
         },
         {
           "name": "exchangeTenantInfo",
           "category": "posture",
           "commands": [
-            "m365 tenant info get --output json",
-            "m365 tenant status"
+            "m365 tenant info get --output json"
           ]
         },
         {
@@ -480,8 +476,8 @@
           "category": "posture",
           "commands": [
             "m365 outlook report mailboxusagemailboxcount --period D30 --output json",
-            "m365 outlook roomlist list --output json",
-            "m365 exo mailbox list --output json"
+            "m365 outlook report mailboxusagedetail --period D30 --output json",
+            "m365 outlook roomlist list --output json"
           ],
           "graph_fallback": "mailbox_count"
         },
@@ -518,9 +514,7 @@
     "exchange_policy": {
       "enabled": true,
       "description": "Exchange transport, connector, domain, and mailbox forwarding policy posture",
-      "required_permissions": [
-        "Exchange.ManageAsApp"
-      ],
+      "required_permissions": [],
       "query_plan": [
         "transportRules",
         "inboundConnectors",

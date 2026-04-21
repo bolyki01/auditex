@@ -1,0 +1,21 @@
+file/module,source repo,license,copied vs inspired,action
+src/auditex/reporting.py,"ThomasKur/M365Documentation; System-Admins/m365assessment","GPLv3+; no visible license",inspired by generic need for report rendering only,rewrite
+configs/report-sections.json,ThomasKur/M365Documentation,GPLv3+,inspired by generic section-selection concept only,rewrite
+src/azure_tenant_audit/friendly_names.py,ThomasKur/M365Documentation,GPLv3+,inspired by generic object-label catalog concept only,rewrite
+configs/finding-templates.json,"System-Admins/m365assessment; CompliantSec/M365SAT","no visible license; MIT",inspired by generic finding metadata concept only,rewrite
+src/azure_tenant_audit/findings.py fallback templates,"System-Admins/m365assessment; CompliantSec/M365SAT","no visible license; MIT",template text rewritten from scratch,rewrite
+legacy source-review module,"ThomasKur/M365Documentation; System-Admins/m365assessment; other competitor repos","mixed including GPLv3+ and no visible license",old competitor mirroring and direct-port records removed,remove
+README.md research workflow,"ThomasKur/M365Documentation; System-Admins/m365assessment; other competitor repos","mixed including GPLv3+ and no visible license",old competitor harvest instructions removed,remove
+docs/research/*,"ThomasKur/M365Documentation; System-Admins/m365assessment; other competitor repos","mixed including GPLv3+ and no visible license",old competitor analysis pack removed,remove
+src/azure_tenant_audit/waivers.py,cisagov/ScubaGear,CC0-1.0,inspired by accepted-risk waiver concept only,rewrite
+configs/control-mappings.json,cisagov/ScubaGear,CC0-1.0,inspired by framework-mapping concept only,keep
+src/auditex/rules.py,maester365/maester,MIT,inspired by rule inventory/filtering concept only,rewrite
+configs/rule-packs.json,"maester365/maester; CompliantSec/M365SAT",MIT,inspired by generic rule registry/routing concept only,rewrite
+configs/collector-presets.json,microsoft/EntraExporter,MIT,inspired by named collection preset concept only,rewrite
+src/azure_tenant_audit/graph.py,microsoft/EntraExporter,MIT,inspired by Microsoft Graph batch API usage only,keep
+src/auditex/evidence_db.py,dirkjanm/ROADtools,MIT,inspired by offline evidence index concept only,rewrite
+src/auditex/exporters.py,dirkjanm/ROADtools,MIT,inspired by plugin/exporter extension concept only,rewrite
+tenant-bootstrap/vendor/microsoft-skills/*,microsoft/skills,MIT,curated vendored subset retained with license notice,keep
+pyproject.toml dependency requests,psf/requests,Apache-2.0,declared runtime dependency not vendored,keep
+pyproject.toml dependency msal,AzureAD/microsoft-authentication-library-for-python,MIT,declared runtime dependency not vendored,keep
+pyproject.toml optional dependency mcp,modelcontextprotocol/python-sdk,MIT,declared optional dependency not vendored,keep

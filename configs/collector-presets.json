@@ -1,7 +1,7 @@
 {
   "presets": {
     "config-only": {
-      "description": "Configuration-heavy collectors without the deeper export surfaces.",
+      "description": "Run configuration and posture collectors while skipping heavier export-style surfaces.",
       "include": [
         "identity",
         "app_consent",
@@ -18,7 +18,7 @@
       "plane": "inventory"
     },
     "full": {
-      "description": "Broad first-pass collector set for delegated reader audits.",
+      "description": "Run the broad collector set intended for a first delegated-reader assessment.",
       "include": [
         "identity",
         "app_consent",
@@ -42,7 +42,7 @@
       "plane": "full"
     },
     "identity-only": {
-      "description": "Small identity-only sweep for permissions, roles, and apps.",
+      "description": "Limit collection to identities, roles, service principals, and app consent posture.",
       "include": [
         "identity",
         "app_consent"
@@ -51,7 +51,7 @@
       "plane": "inventory"
     },
     "security-only": {
-      "description": "Security-centric collectors for incidents, policies, and auth posture.",
+      "description": "Focus on identity security, alerting, Defender, and authentication posture surfaces.",
       "include": [
         "security",
         "conditional_access",

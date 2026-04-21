@@ -67,3 +67,36 @@ def test_send_notification_posts_to_webhook_when_execute_enabled(tmp_path: Path,
     assert result["status"] == "sent"
     assert seen["url"] == "https://hooks.example.test/teams"
     assert seen["json"]["text"]
+
+
+def test_send_notification_falls_back_to_manifest_and_findings(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "run-manifest.json").write_text(
+        json.dumps({"tenant_name": "acme", "overall_status": "partial", "findings_count": 2, "blocker_count": 1}),
+        encoding="utf-8",
+    )
+    (run_dir / "summary.json").write_text(json.dumps({"collectors": []}), encoding="utf-8")
+    (run_dir / "summary.md").write_text("# Audit Summary", encoding="utf-8")
+    (run_dir / "findings").mkdir(exist_ok=True)
+    (run_dir / "findings" / "findings.json").write_text(
+        json.dumps(
+            {
+                "findings": [
+                    {"id": "f1", "status": "open"},
+                    {"id": "f2", "status": "accepted_risk"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = send_notification(run_dir=str(run_dir), sink="teams", dry_run=True)
+
+    assert result["payload"]["tenant_name"] == "acme"
+    assert result["payload"]["overall_status"] == "partial"
+    assert result["payload"]["finding_count"] == 2
+    assert result["payload"]["blocker_count"] == 1
+    assert result["payload"]["open_count"] == 1
+    assert result["payload"]["accepted_count"] == 1
+    assert result["payload"]["report_pack_path"] is None

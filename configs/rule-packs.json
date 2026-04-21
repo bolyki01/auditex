@@ -2,8 +2,8 @@
   "rules": [
     {
       "name": "collector.issue.permission",
-      "title": "Collector blocked by missing permission",
-      "description": "The collector could not read the requested surface with the current auth context.",
+      "title": "Collector missing read access",
+      "description": "The audit identity cannot read a requested Microsoft 365 surface.",
       "tags": ["diagnostic", "permission"],
       "path": "findings/diagnostics",
       "product_family": "core",
@@ -13,8 +13,8 @@
     },
     {
       "name": "collector.issue.service",
-      "title": "Collector blocked by service condition",
-      "description": "The surface is unavailable, not enabled, or not found in this tenant context.",
+      "title": "Collector blocked by tenant or service state",
+      "description": "The target service is missing, disabled, unavailable, or not provisioned for the tenant.",
       "tags": ["diagnostic", "service"],
       "path": "findings/diagnostics",
       "product_family": "core",
@@ -25,7 +25,7 @@
     {
       "name": "sharepoint.broad_link",
       "title": "Broad SharePoint or OneDrive sharing link",
-      "description": "A site exposes organization-wide or anonymous access through a broad sharing link.",
+      "description": "A sharing link appears to grant access beyond a tightly bounded audience.",
       "tags": ["exposure", "sharepoint"],
       "path": "findings/sharepoint",
       "product_family": "sharepoint",
@@ -35,8 +35,8 @@
     },
     {
       "name": "app_consent.high_privilege",
-      "title": "High privilege or weakly owned enterprise application consent",
-      "description": "An enterprise app has risky scopes or insufficient ownership.",
+      "title": "Sensitive enterprise application consent",
+      "description": "An enterprise application grant has sensitive scopes or insufficient ownership evidence.",
       "tags": ["application", "identity"],
       "path": "findings/apps",
       "product_family": "identity",
@@ -46,8 +46,8 @@
     },
     {
       "name": "response.blocked",
-      "title": "Guarded response action blocked",
-      "description": "A response action failed prerequisite checks or the command plan hit a blocker.",
+      "title": "Response action guardrail stop",
+      "description": "A response action did not meet its safety or prerequisite gates.",
       "tags": ["response"],
       "path": "response",
       "product_family": "response",
