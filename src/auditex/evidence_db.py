@@ -55,7 +55,7 @@ def _relative(path: Path, root: Path) -> str:
 
 
 def _record_key(record: Mapping[str, Any], section_name: str, index: int) -> str:
-    for key in ("key", "id", "display_name", "name"):
+    for key in ("key", "id", "display_name", "name", "collector", "surface"):
         value = record.get(key)
         if value is not None and str(value).strip():
             return f"{section_name}:{value}" if key != "key" else str(value)

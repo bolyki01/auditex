@@ -10,7 +10,8 @@ from typing import Any, Optional
 import time
 
 LOG = logging.getLogger("azure_tenant_audit.output")
-RUN_MANIFEST_SCHEMA_VERSION = "2026-04-18"
+RUN_MANIFEST_SCHEMA_VERSION = "2026-04-21"
+SUMMARY_SCHEMA_VERSION = "2026-04-21"
 
 
 def _now_iso() -> str:
@@ -106,7 +107,7 @@ class AuditWriter:
         existing_manifest = self._safe_load_json(existing_manifest_path)
         self._checkpoint_state: dict[str, dict[str, Any]] = self._load_checkpoint_state()
         self.coverage_index_path = self.index_dir / "coverage.jsonl"
-        self.summary: dict[str, Any] = {"collectors": []}
+        self.summary: dict[str, Any] = {"schema_version": SUMMARY_SCHEMA_VERSION, "tenant_name": tenant_name, "run_id": self.run_id, "collectors": []}
         self.coverage: list[dict[str, Any]] = []
         self._seed_existing_run_artifacts(existing_manifest)
         self.audit = AuditLogger(self.run_dir, listener=event_listener)
@@ -119,6 +120,7 @@ class AuditWriter:
             "artifacts": [
                 "raw/",
                 "chunks/",
+                "index/",
                 "blockers/",
                 "normalized/",
                 "ai_safe/",
@@ -159,6 +161,9 @@ class AuditWriter:
     def _seed_existing_run_artifacts(self, existing_manifest: Any) -> None:
         existing_summary = self._safe_load_json(self.run_dir / "summary.json")
         if isinstance(existing_summary, dict):
+            for key in ("schema_version", "tenant_name", "run_id", "overall_status", "duration_seconds"):
+                if existing_summary.get(key) is not None:
+                    self.summary[key] = existing_summary[key]
             existing_collectors = existing_summary.get("collectors")
             if isinstance(existing_collectors, list):
                 self.summary["collectors"] = [item for item in existing_collectors if isinstance(item, dict)]
@@ -437,6 +442,8 @@ class AuditWriter:
         self._manifest["duration_seconds"] = metadata.get("duration_seconds", 0)
         self._manifest["mode"] = metadata.get("mode", "live")
         self._manifest["auditor_profile"] = metadata.get("auditor_profile", "auto")
+        if metadata.get("tenant_id") is not None:
+            self._manifest["tenant_id"] = metadata.get("tenant_id")
         self._manifest["plane"] = metadata.get("plane", "inventory")
         self._manifest["session_context"] = metadata.get("session_context", {})
         self._manifest["command_line"] = metadata.get("command_line", [])
@@ -463,6 +470,9 @@ class AuditWriter:
             "privacy",
             "ai_context_path",
             "validation_path",
+            "contract_status",
+            "contract_issue_count",
+            "schema_contract_version",
         ):
             value = metadata.get(key)
             if value is not None:
@@ -489,6 +499,11 @@ class AuditWriter:
             self._record_artifact(coverage_path)
             self._manifest["coverage_count"] = len(self.coverage)
 
+        self.summary["schema_version"] = SUMMARY_SCHEMA_VERSION
+        self.summary["tenant_name"] = self._manifest["tenant_name"]
+        self.summary["run_id"] = self.run_id
+        self.summary["overall_status"] = self._manifest.get("overall_status")
+        self.summary["duration_seconds"] = self._manifest.get("duration_seconds", 0)
         summary_json_path = self.run_dir / "summary.json"
         summary_md_path = self.run_dir / "summary.md"
         self._write_json_atomic(summary_json_path, self.summary)
@@ -513,12 +528,15 @@ class AuditWriter:
         manifest_path = self.run_dir / "run-manifest.json"
         self._write_json_atomic(manifest_path, self._manifest)
 
-        self.log_event(
-            "run.completed",
-            "Run complete",
-            {
-                "overall_status": self._manifest["overall_status"],
-                "collector_count": len(self.summary.get("collectors", [])),
-                "duration_seconds": self._manifest["duration_seconds"],
-            },
-        )
+        if not metadata.get("_suppress_completion_log"):
+            self.log_event(
+                "run.completed",
+                "Run complete",
+                {
+                    "overall_status": self._manifest["overall_status"],
+                    "collector_count": len(self.summary.get("collectors", [])),
+                    "duration_seconds": self._manifest["duration_seconds"],
+                    "contract_status": self._manifest.get("contract_status"),
+                    "contract_issue_count": self._manifest.get("contract_issue_count"),
+                },
+            )

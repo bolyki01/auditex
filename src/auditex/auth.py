@@ -253,6 +253,42 @@ def _iso_from_epoch(value: Any) -> str | None:
     return datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _parse_utc(value: Any) -> datetime | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _token_freshness(token_claims: dict[str, Any]) -> dict[str, Any]:
+    expires_at = _parse_utc(token_claims.get("expires_at_utc"))
+    if expires_at is None:
+        return {"status": "unknown", "expires_at_utc": token_claims.get("expires_at_utc"), "seconds_remaining": None}
+    now = datetime.now(timezone.utc)
+    seconds = int((expires_at - now).total_seconds())
+    if seconds <= 0:
+        status = "expired"
+    elif seconds <= 3600:
+        status = "stale"
+    else:
+        status = "fresh"
+    return {
+        "status": status,
+        "expires_at_utc": expires_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "seconds_remaining": seconds,
+    }
+
+
 def inspect_token_claims(token: str) -> dict[str, Any]:
     token = token.strip()
     if token.lower().startswith("bearer "):
@@ -336,6 +372,8 @@ def list_auth_contexts() -> dict[str, Any]:
                 "token_preview": item.get("token_preview"),
                 "user_principal_name": ((item.get("token_claims") or {}).get("user_principal_name")),
                 "audience": ((item.get("token_claims") or {}).get("audience")),
+                "expires_at_utc": ((item.get("token_claims") or {}).get("expires_at_utc")),
+                "freshness": _token_freshness(item.get("token_claims") or {}),
             }
         )
     return {"active_context": active, "contexts": contexts}
@@ -432,11 +470,15 @@ def capability_for_context(
             "auth_type": context.get("auth_type"),
             "tenant_id": context.get("tenant_id"),
             "token_claims": {
+                "tenant_id": ((context.get("token_claims") or {}).get("tenant_id")),
                 "audience": ((context.get("token_claims") or {}).get("audience")),
                 "delegated_scopes": ((context.get("token_claims") or {}).get("delegated_scopes")) or [],
                 "app_roles": ((context.get("token_claims") or {}).get("app_roles")) or [],
+                "issued_at_utc": ((context.get("token_claims") or {}).get("issued_at_utc")),
                 "expires_at_utc": ((context.get("token_claims") or {}).get("expires_at_utc")),
+                "user_principal_name": ((context.get("token_claims") or {}).get("user_principal_name")),
             },
+            "freshness": _token_freshness(context.get("token_claims") or {}),
         },
         "capabilities": collector_capability_matrix(
             auth_context=context,
@@ -460,6 +502,12 @@ def get_auth_status(
     connections = _json_command(["m365", "connection", "list", "--output", "json"]) if include_m365 else {"status": "skipped"}
     exchange = _pwsh_exchange_module_status() if include_exchange else {"status": "skipped"}
 
+    try:
+        from azure_tenant_audit.adapters import list_adapters as _list_adapter_capabilities
+        adapter_capabilities = _list_adapter_capabilities()
+    except Exception:  # noqa: BLE001
+        adapter_capabilities = []
+
     result: dict[str, Any] = {
         "local_auth": _masked_local_auth_values(path),
         "azure_cli": {
@@ -470,6 +518,7 @@ def get_auth_status(
         },
         "exchange": exchange,
         "auth_contexts": list_auth_contexts(),
+        "adapter_capabilities": adapter_capabilities,
     }
     if azure.get("payload"):
         payload = azure["payload"]

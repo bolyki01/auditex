@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
+import types
 
 import pytest
 
@@ -18,9 +20,11 @@ from auditex.mcp_server import (
     preview_report,
     rules_inventory,
     list_response_actions,
+    main as mcp_main,
     summarize_run,
     tool_specs,
 )
+from azure_tenant_audit.contracts import contract_schema_manifest
 from azure_tenant_audit.cli import build_parser, run_offline
 from azure_tenant_audit.profiles import get_profile, profile_choices
 
@@ -111,6 +115,45 @@ def test_mcp_tool_specs_present() -> None:
     assert "auditex_rules_inventory" in names
     assert "auditex_list_response_actions" in names
     assert "auditex_run_response_action" in names
+    assert "auditex_auth_status" in names
+    assert "auditex_auth_inspect_token" in names
+    assert "auditex_auth_capability" in names
+    assert "auditex_contract_schema_manifest" in names
+
+
+def test_contract_schema_manifest_lists_shipped_schemas() -> None:
+    manifest = contract_schema_manifest("schemas")
+
+    assert manifest["contract_version"] == "2026-04-21"
+    assert "run_manifest.schema.json" in manifest["schemas"]
+    assert "validation.schema.json" in manifest["schemas"]
+
+
+def test_mcp_main_uses_current_fastmcp_tool_decorator(monkeypatch: pytest.MonkeyPatch) -> None:
+    registered: list[str] = []
+
+    class _FakeFastMCP:
+        def __init__(self, _name: str) -> None:
+            self._tools: list[str] = []
+
+        def tool(self):  # current API shape: must be called as @server.tool()
+            def decorator(func):
+                self._tools.append(func.__name__)
+                registered.append(func.__name__)
+                return func
+
+            return decorator
+
+        def run(self, transport: str = "stdio") -> None:
+            assert transport == "stdio"
+
+    fake_module = types.ModuleType("mcp.server.fastmcp")
+    fake_module.FastMCP = _FakeFastMCP
+    monkeypatch.setitem(sys.modules, "mcp.server.fastmcp", fake_module)
+
+    assert mcp_main() == 0
+    assert "auditex_contract_schema_manifest" in registered
+    assert "auditex_run_response_action" in registered
 
 
 def test_list_collectors_tool_shape_matches_definitions() -> None:

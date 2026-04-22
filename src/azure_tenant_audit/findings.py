@@ -222,7 +222,20 @@ def _finalize_finding(finding: dict[str, Any]) -> dict[str, Any]:
     affected = result.get("affected_objects")
     result["affected_objects"] = [str(item) for item in affected] if isinstance(affected, list) else []
     evidence_refs = result.get("evidence_refs")
-    result["evidence_refs"] = [dict(item) for item in evidence_refs if isinstance(item, dict)] if isinstance(evidence_refs, list) else []
+    normalized_refs = [dict(item) for item in evidence_refs if isinstance(item, dict)] if isinstance(evidence_refs, list) else []
+    if not normalized_refs:
+        collector = str(result.get("collector") or "unknown")
+        normalized_refs = [
+            _evidence_ref(
+                artifact_path="normalized/snapshot.json",
+                artifact_kind="normalized_json",
+                collector=collector,
+                record_key=str(result.get("id") or collector),
+                source_name="snapshot",
+            )
+        ]
+        result["evidence_ref_generated"] = True
+    result["evidence_refs"] = normalized_refs
     result.setdefault("control_ids", [])
     return result
 
@@ -626,7 +639,7 @@ def build_report_pack(
     if diff_summary:
         summary["diff_summary"] = diff_summary
     return {
-        "schema_version": "2026-04-18",
+        "schema_version": "2026-04-21",
         "summary": summary,
         "privacy": privacy or {},
         "artifact_map": artifact_map or {},

@@ -48,7 +48,7 @@ def test_writer(tmp_path: Path):
     assert (writer.run_dir / "index" / "coverage.jsonl").exists()
     assert (writer.run_dir / "session-context.json").exists()
     manifest = json.loads((writer.run_dir / "run-manifest.json").read_text(encoding="utf-8"))
-    assert manifest["schema_version"] == "2026-04-18"
+    assert manifest["schema_version"] == "2026-04-21"
     assert re.match(r"^\d{4}-\d{2}-\d{2}T", manifest["created_utc"])
     assert manifest["collector_preset"] == "identity-only"
     assert manifest["waiver_path"] == "configs/waivers.json"

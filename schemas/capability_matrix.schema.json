@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Auditex Capability Matrix",
+  "type": ["array", "object"],
+  "oneOf": [
+    {
+      "type": "array",
+      "items": { "$ref": "#/$defs/capabilityRow" }
+    },
+    {
+      "type": "object",
+      "required": ["kind", "records"],
+      "properties": {
+        "kind": { "type": "string" },
+        "records": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/capabilityRow" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "capabilityRow": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "collector": { "type": ["string", "null"] },
+        "surface": { "type": ["string", "null"] },
+        "probe_mode": { "type": ["string", "null"] },
+        "status": { "type": "string" },
+        "reason": { "type": ["string", "null"] },
+        "required_permissions": { "type": "array", "items": { "type": "string" } },
+        "missing_permissions": { "type": "array", "items": { "type": "string" } },
+        "observed_permissions": { "type": "array", "items": { "type": "string" } },
+        "delegated_roles": { "type": "array", "items": { "type": "string" } },
+        "toolchain": { "type": ["string", "null"] },
+        "message": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

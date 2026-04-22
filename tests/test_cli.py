@@ -266,7 +266,7 @@ def test_run_live_writes_auth_context_and_capability_artifacts(tmp_path: Path, m
     assert capability_matrix["records"][0]["collector"] == "identity"
     assert capability_matrix["records"][0]["status"] == "supported_exact_scope"
     assert coverage_ledger["records"][0]["collector"] == "identity"
-    assert coverage_ledger["records"][0]["coverage_status"] == "complete"
+    assert coverage_ledger["records"][0]["coverage_status"] == "complete_exact_scope"
     assert ai_context["privacy"]["safe_for_external_llm"] is False
     assert manifest["auth_context_path"] == "normalized/auth_context.json"
     assert manifest["capability_matrix_path"] == "normalized/capability_matrix.json"

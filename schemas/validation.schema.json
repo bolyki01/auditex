@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Auditex Validation Report",
+  "type": "object",
+  "required": ["schema_version", "contract_version", "valid", "issue_count", "issues"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "contract_version": { "type": "string" },
+    "valid": { "type": "boolean" },
+    "issue_count": { "type": "integer" },
+    "error_count": { "type": "integer" },
+    "warning_count": { "type": "integer" },
+    "required_artifacts": { "type": "array", "items": { "type": "string" } },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "severity"],
+        "properties": {
+          "code": { "type": "string" },
+          "severity": { "type": "string" },
+          "path": { "type": ["string", "null"] },
+          "details": {}
+        }
+      }
+    }
+  }
+}

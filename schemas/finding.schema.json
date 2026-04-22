@@ -2,75 +2,183 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Auditex Finding",
   "type": "object",
-  "required": ["id", "severity", "title", "status", "category"],
+  "required": [
+    "id",
+    "severity",
+    "title",
+    "status",
+    "category",
+    "evidence_refs"
+  ],
   "properties": {
-    "id": { "type": "string" },
-    "rule_id": { "type": "string" },
-    "severity": { "type": "string" },
-    "category": { "type": "string" },
-    "title": { "type": "string" },
-    "status": { "type": "string" },
-    "collector": { "type": "string" },
-    "description": { "type": ["string", "null"] },
-    "impact": { "type": ["string", "null"] },
-    "remediation": { "type": ["string", "null"] },
+    "id": {
+      "type": "string"
+    },
+    "rule_id": {
+      "type": "string"
+    },
+    "severity": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "collector": {
+      "type": "string"
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "impact": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "remediation": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "expected_value": {},
     "returned_value": {},
-    "risk_rating": { "type": ["string", "null"] },
+    "risk_rating": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "evidence_refs": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["artifact_path", "artifact_kind", "collector", "record_key"],
+        "required": [
+          "artifact_path",
+          "artifact_kind",
+          "collector",
+          "record_key"
+        ],
         "properties": {
-          "artifact_path": { "type": "string" },
-          "artifact_kind": { "type": "string" },
-          "collector": { "type": "string" },
-          "record_key": { "type": "string" },
-          "source_name": { "type": ["string", "null"] },
-          "json_pointer": { "type": ["string", "null"] },
-          "jsonl_line": { "type": ["integer", "null"] },
-          "endpoint": { "type": ["string", "null"] },
-          "response_status": { "type": ["string", "null"] }
+          "artifact_path": {
+            "type": "string"
+          },
+          "artifact_kind": {
+            "type": "string"
+          },
+          "collector": {
+            "type": "string"
+          },
+          "record_key": {
+            "type": "string"
+          },
+          "source_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "json_pointer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "jsonl_line": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "endpoint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "response_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       }
     },
     "references": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "framework_mappings": {
       "type": "object",
       "properties": {
         "cis": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "nist": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "attack": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false
     },
     "control_ids": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
-    "error_class": { "type": ["string", "null"] },
-    "error": { "type": ["string", "null"] },
-    "recommendations": { "type": "object" },
-    "waiver_applied": { "type": "boolean" },
+    "error_class": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "recommendations": {
+      "type": "object"
+    },
+    "waiver_applied": {
+      "type": "boolean"
+    },
     "waiver": {
-      "type": ["object", "null"]
+      "type": [
+        "object",
+        "null"
+      ]
     },
     "affected_objects": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     }
   }
 }

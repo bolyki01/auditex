@@ -1,53 +1,23 @@
 # Auditex
 
-Auditex is a portable, AI-first Microsoft 365 audit toolkit for Codex-operated tenant assessments.
+Auditex is a Python-first CLI and MCP toolkit for Microsoft 365 tenant audits. It keeps raw evidence local, emits normalized report packs, and supports three main operator modes:
 
-The operating model is:
+- delegated read-only audits,
+- one-time Exchange app bootstrap,
+- saved app-based reruns.
 
-- customer signs in with delegated `Global Reader` or another read role
-- Auditex collects evidence locally
-- operator control is CLI/MCP-first; there is no GUI
-- collector failures are isolated and written as blocker evidence
-- raw tenant data stays local
-- AI reads normalized and `ai_safe` artifacts by default
-- optional customer-local read-only app consent can unlock deeper second-pass collection
-- guarded response actions live in a separate `auditex response` namespace and are dry-run by default
+## Repo shape
 
-## Product shape
+- `src/azure_tenant_audit/` - core collectors, auth, diffing, findings, and report generation.
+- `src/auditex/` - product wrapper CLI plus MCP entrypoint.
+- `configs/` - collector definitions, permission maps, report sections, and rule packs.
+- `profiles/` - shipped operator profile notes for delegated and app-based runs.
+- `schemas/` - output contracts.
+- `scripts/` - login helpers and guided-run wrappers.
+- `tenant-bootstrap/` - portable tenant seeding kit for audit rehearsal and lab work.
+- `tests/` - pytest coverage.
 
-- `src/azure_tenant_audit/`
-  Canonical Python audit engine and collectors
-- `src/auditex/`
-  Product wrapper, stable CLI alias, and MCP server entrypoint
-- `skills/`
-  Local Codex-facing skill pack for repeatable operator behavior
-- `profiles/`
-  Profile documents for delegated and app-readonly audit modes
-- `schemas/`
-  Stable machine-readable output contracts
-- `docs/specs/`
-  Product and architecture specs
-- `tenant-bootstrap/`
-  Lab and bootstrap tooling for homelab population and tenant simulation
-
-## First-class platforms
-
-- macOS ARM
-- Linux x64/ARM
-
-Supported but secondary:
-
-- Windows
-
-The core runtime stays Python-only. `pwsh` and `m365` are optional adapters, not part of the critical path.
-
-## Prereqs
-
-- Python 3.11+
-- Azure CLI (`az`) for delegated sign-in
-- `m365` only for Exchange-backed collectors
-
-Local setup:
+## Local setup
 
 ```bash
 python3 -m venv .venv
@@ -56,174 +26,72 @@ pip install -e .
 auditex setup
 ```
 
-If you need the MCP server:
+Optional adapters:
 
 ```bash
 auditex setup --mcp
-```
-
-If you need Exchange-backed or PowerShell-backed paths:
-
-```bash
 auditex setup --exchange
 auditex setup --pwsh
 ```
 
-The local login flow uses `make login TENANT=<tenant>` or `./scripts/tenant-audit-login <tenant>`. For tenant-level reader accounts, that path now uses `az login --allow-no-subscriptions`.
-
-Readiness check:
+Fast checks:
 
 ```bash
+make test
+make lint
 auditex doctor
 ```
 
-JSON doctor output:
+## Main flows
 
-```bash
-auditex doctor --json
-```
-
-Guided first run:
+Guided operator flow:
 
 ```bash
 auditex guided-run
-```
-
-The guided flow is the main operator path.
-
-It can:
-
-- run a normal `Global Reader` audit
-- do a one-time `Global Admin` app setup for Exchange-backed collection
-- run an app audit with saved app credentials
-
-Normal path is `Global Reader`. `Global Admin` is only for the one-time app setup.
-
-First-time GA setup:
-
-```bash
-auditex guided-run --flow ga-setup-app
-```
-
-Normal GR audit after that:
-
-```bash
 auditex guided-run --flow gr-audit --include-exchange
-# or repo-local:
-./scripts/tenant-audit-flow --flow gr-audit --include-exchange
-```
-
-Saved app audit:
-
-```bash
+auditex guided-run --flow ga-setup-app
 auditex guided-run --flow app-audit
 ```
 
-The flow bootstraps tools, walks login, stores local app details in `.secrets/m365-auth.env`, runs preflight, then writes the full evidence bundle for later AI use.
-Supported guided flags:
-
-- `--flow`
-- `--auth-mode`
-- `--client-id`
-- `--client-secret`
-- `--tenant-id`
-- `--tenant-name`
-- `--auditor-profile`
-- `--out`
-- `--run-name`
-- `--top`
-- `--page-size`
-- `--browser-command`
-- `--collectors`
-- `--include-exchange`
-- `--throttle-mode`
-- `--include-blocked`
-- `--with-mcp`
-- `--non-interactive`
-- `--local-mode`
-- `--skip-login-check`
-- `--skip-tool-check`
-- `--report-format`
-- `--probe-first` / `--no-probe-first`
-
-App-guided flow:
+Direct CLI surface:
 
 ```bash
-auditex guided-run \
-  --auth-mode app \
-  --tenant-id <tenant-id-or-domain> \
-  --tenant-name <label> \
-  --client-id <app-id> \
-  --client-secret <secret> \
-  --auditor-profile app-readonly-full \
-  --non-interactive
-```
-
-For the full first-run path, see `docs/audit-runbook.md`.
-
-Source provenance:
-
-Auditex ships with a proprietary top-level license, a third-party notice file, and a provenance sheet under `docs/provenance/`. Legacy source-review tooling is not part of the product tree.
-
-## Install
-
-Use the `Prereqs` commands above. Keep `.venv/` local; it is already ignored.
-
-## Main flows
-
-Offline validation:
-
-```bash
-auditex --offline --tenant-name demo --out outputs/offline
-```
-
-Raw CLI surface:
-
-```bash
+auditex run --offline --tenant-name demo --out outputs/offline
 auditex compare --run-dir run-a --run-dir run-b
 auditex report render <run-dir> --format md
 auditex export list
 auditex export run <exporter-name> <run-dir>
 auditex notify send <run-dir> --sink teams
+auditex-mcp
 ```
 
-Supported flags:
+Use `auditex run ...` for explicit raw audit runs. Legacy raw flags without the `run` subcommand still work, but the docs prefer the explicit form.
 
-- `auditex compare`: `--allow-cross-tenant`
-- `auditex report render`: `--include-section`, `--exclude-section`, `--output`
-- `auditex export run`: `--include-section`, `--exclude-section`, `--output`
-- `auditex notify send`: `--execute`
-- `auditex notify send --sink`: `teams`, `slack`, `smtp`
-
-Delegated one-off audit with Azure CLI token reuse:
+The login helper stays local and uses `az login --allow-no-subscriptions` for tenant-level reader accounts:
 
 ```bash
-az login --tenant contoso.onmicrosoft.com
-auditex \
-  --tenant-name CONTOSO \
-  --tenant-id contoso.onmicrosoft.com \
-  --use-azure-cli-token \
-  --auditor-profile global-reader \
-  --out outputs/live
+make login TENANT=<tenant-id-or-domain>
 ```
 
-Access-token mode:
+## Canon docs
 
-```bash
-auditex \
-  --tenant-name CONTOSO \
-  --tenant-id contoso.onmicrosoft.com \
-  --access-token '<graph-token>' \
-  --auditor-profile global-reader \
-  --out outputs/live
-```
+- [AGENTS.md](AGENTS.md) - repo rules and edit guardrails.
+- [RUNBOOK.md](RUNBOOK.md) - setup, live audit flows, and tenant bootstrap commands.
+- [docs/provenance/provenance.md](docs/provenance/provenance.md) - provenance sheet.
+- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) - third-party notice file.
+
+## Data handling
+
+- Keep `.venv/`, `.secrets/`, and tenant exports local.
+- Treat `profiles/`, `schemas/`, and `skills/` as shipped operator/runtime content.
+- Treat generated audit outputs as artifacts, not hand-edited source.
 
 Saved auth contexts from `auditex auth import-token` can be reused for `auditex probe live --auth-context <name>` and `auditex response run --auth-context <name>`.
 
 Optional Exchange coverage:
 
 ```bash
-auditex \
+auditex run \
   --tenant-name CONTOSO \
   --tenant-id contoso.onmicrosoft.com \
   --use-azure-cli-token \
@@ -269,29 +137,24 @@ Use `auditex probe live --mode delegated|app` for probe runs and `auditex respon
 
 ## Output contract
 
-Current engine outputs:
+Current contract version: `2026-04-21`.
+
+Successful `run`, `probe`, and `response` bundles are finalized through one contract path. Required contract artifacts are:
 
 - `run-manifest.json`
 - `summary.json`
-- `summary.md`
-- `audit-log.jsonl`
-- `audit-debug.log`
-- `raw/`
-- `index/coverage.jsonl`
-- `blockers/blockers.json` and `diagnostics.json` when blockers exist
-- `normalized/`
-- `ai_safe/`
-- `findings/`
-- `reports/`
-- `chunks/`
-- `checkpoints/checkpoint-state.json`
+- `reports/report-pack.json`
+- `index/evidence.sqlite`
+- `ai_context.json`
+- `validation.json`
 
-Product target directories are fully implemented and documented in `schemas/` and `docs/specs/`.
+The manifest records `schema_contract_version`, `contract_status`, and `contract_issue_count`. `validation.json` fails loudly on missing required artifacts, broken finding evidence refs, malformed normalized records, invalid evidence DB shape, and unsafe `ai_safe/` drift. Raw evidence stays local; normalized, report, evidence-index, and `ai_safe` artifacts are the intended reasoning surfaces.
 
-Enterprise-scale architecture and backlog are documented in:
+Additional run artifacts include `summary.md`, `audit-log.jsonl`, `audit-debug.log`, `raw/`, `index/coverage.jsonl`, `blockers/`, `diagnostics.json`, `normalized/`, `ai_safe/`, `findings/`, `reports/`, `chunks/`, and `checkpoints/checkpoint-state.json`.
 
-- `docs/superpowers/specs/2026-04-17-enterprise-audit-architecture-design.md`
-- `docs/superpowers/plans/2026-04-17-enterprise-audit-backlog-plan.md`
+Schemas live in `schemas/`; contract notes live in [docs/OUTPUT_CONTRACT.md](docs/OUTPUT_CONTRACT.md).
+
+Enterprise-scale priorities and implementation guardrails are tracked in [improvement.md](improvement.md).
 
 ## MCP
 
@@ -301,9 +164,12 @@ Local MCP entrypoint:
 auditex-mcp
 ```
 
-Current MCP tools:
+Current MCP tools include local contract, auth, run, probe, report, export, notification, diff, and guarded response surfaces:
 
 - `auditex_list_profiles`
+- `auditex_list_collectors`
+- `auditex_list_adapters`
+- `auditex_contract_schema_manifest`
 - `auditex_run_offline_validation`
 - `auditex_run_delegated_audit`
 - `auditex_summarize_run`
@@ -321,6 +187,9 @@ Current MCP tools:
 - `auditex_auth_status`
 - `auditex_auth_list`
 - `auditex_auth_use`
+- `auditex_auth_import_token`
+- `auditex_auth_inspect_token`
+- `auditex_auth_capability`
 
 ## Response
 

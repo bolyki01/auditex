@@ -31,3 +31,18 @@ jobs:
           auditex --help
           auditex doctor --json
           auditex guided-run --help
+
+      - name: Contract smoke
+        run: |
+          auditex run --offline --sample examples/sample_audit_bundle/sample_result.json --tenant-name ci --run-name contract --out outputs/ci-contract
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          run = Path("outputs/ci-contract/ci-contract")
+          validation = json.loads((run / "validation.json").read_text(encoding="utf-8"))
+          manifest = json.loads((run / "run-manifest.json").read_text(encoding="utf-8"))
+          assert validation["valid"], validation["issues"]
+          assert manifest["contract_status"] == "valid"
+          assert (run / "index" / "evidence.sqlite").exists()
+          assert (run / "ai_context.json").exists()
+          PY

@@ -25,8 +25,8 @@ from .findings import build_findings, build_report_pack
 from .graph import GraphClient
 from .output import AuditWriter
 from .profiles import get_profile
-from auditex.evidence_db import build_run_evidence_index
-from .ai_context import build_ai_context, build_privacy_block, build_validation_report
+from .ai_context import build_privacy_block
+from .finalize import finalize_bundle_contract
 
 SUPPORTED_PROBE_MODES = ("delegated", "app", "response")
 DEFAULT_COLLECTOR_SURFACES = ("identity", "security", "auth_methods", "intune", "sharepoint", "teams", "exchange")
@@ -821,34 +821,9 @@ def run_live_probe(cfg: ProbeConfig) -> int:
     )
     evidence_index = {"artifacts": sorted(set(writer._manifest["artifacts"] + ["run-manifest.json", "summary.json", "summary.md"]))}
     evidence_index_path = writer.write_json_artifact("evidence-index.json", evidence_index)
-    evidence_db_path = build_run_evidence_index(writer.run_dir)
-    writer._record_artifact(evidence_db_path)
-    ai_context = build_ai_context(
-        run_dir=writer.run_dir,
-        run_metadata={
-            "tenant_name": cfg.tenant_name,
-            "tenant_id": cfg.tenant_id,
-            "run_id": writer.run_id,
-            "overall_status": overall_status,
-            "auditor_profile": cfg.auditor_profile,
-            "mode": auth_mode,
-            "plane": "inventory",
-            "selected_collectors": requested_surfaces,
-            "duration_seconds": 0,
-        },
-        normalized_snapshot=normalized_snapshot,
-        capability_rows=capability_matrix,
-        coverage_ledger=[],
-        blockers=blockers,
-        findings=findings,
-    )
-    writer.write_json_artifact("ai_context.json", ai_context)
-    writer.write_json_artifact(
-        "validation.json",
-        build_validation_report(run_dir=writer.run_dir, ai_context=ai_context, findings=findings),
-    )
-    writer.write_bundle(
-        {
+    finalize_bundle_contract(
+        writer=writer,
+        bundle_metadata={
             "executed_by": "auditex_probe",
             "collectors": requested_surfaces,
             "overall_status": overall_status,
@@ -865,15 +840,28 @@ def run_live_probe(cfg: ProbeConfig) -> int:
             "capability_matrix_path": str(capability_path.relative_to(writer.run_dir)),
             "toolchain_readiness_path": str(toolchain_path.relative_to(writer.run_dir)),
             "evidence_index_path": str(evidence_index_path.relative_to(writer.run_dir)),
-            "evidence_db_path": str(evidence_db_path.relative_to(writer.run_dir)),
             "auth_path": auth_path,
             "auth_context_path": str(auth_context_path.relative_to(writer.run_dir)) if auth_context_path else None,
             "data_handling_events": [],
             "lab_guard_state": lab_guard_state,
             "privacy": privacy,
-            "ai_context_path": "ai_context.json",
-            "validation_path": "validation.json",
-        }
+        },
+        run_metadata={
+            "tenant_name": cfg.tenant_name,
+            "tenant_id": cfg.tenant_id,
+            "run_id": writer.run_id,
+            "overall_status": overall_status,
+            "auditor_profile": cfg.auditor_profile,
+            "mode": auth_mode,
+            "plane": "inventory",
+            "selected_collectors": requested_surfaces,
+            "duration_seconds": 0,
+        },
+        normalized_snapshot=normalized_snapshot,
+        capability_rows=capability_matrix,
+        coverage_ledger=[],
+        blockers=blockers,
+        findings=findings,
     )
     writer.log_event(
         "probe.completed",

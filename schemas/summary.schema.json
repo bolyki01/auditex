@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Auditex Summary",
+  "type": "object",
+  "required": ["schema_version", "tenant_name", "run_id", "overall_status", "collectors"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "tenant_name": { "type": "string" },
+    "run_id": { "type": "string" },
+    "overall_status": { "type": ["string", "null"] },
+    "duration_seconds": { "type": ["number", "integer", "null"] },
+    "collectors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "item_count"],
+        "properties": {
+          "name": { "type": "string" },
+          "status": { "type": "string" },
+          "item_count": { "type": "integer" },
+          "message": { "type": ["string", "null"] },
+          "error": { "type": ["string", "null"] },
+          "coverage_rows": { "type": ["integer", "null"] }
+        }
+      }
+    }
+  }
+}

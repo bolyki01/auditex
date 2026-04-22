@@ -85,7 +85,7 @@ def build_ai_context(
             artifact_map["root"].append(item)
     artifact_map["root"] = sorted(artifact_map["root"])
     return {
-        "schema_version": "2026-04-19",
+        "schema_version": "2026-04-21",
         "run": {
             "tenant_name": run_metadata.get("tenant_name"),
             "tenant_id": run_metadata.get("tenant_id"),
@@ -136,29 +136,6 @@ def build_validation_report(
     ai_context: dict[str, Any],
     findings: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    issues: list[dict[str, Any]] = []
-    ids = [str(item.get("id")) for item in findings if isinstance(item, dict) and item.get("id")]
-    duplicate_ids = sorted({item for item in ids if ids.count(item) > 1})
-    if duplicate_ids:
-        issues.append({"code": "duplicate_finding_ids", "details": duplicate_ids})
-    missing_refs = sorted(str(item.get("id")) for item in findings if not item.get("evidence_refs"))
-    if missing_refs:
-        issues.append({"code": "missing_evidence_refs", "details": missing_refs})
+    from .contracts import build_validation_report as _build_contract_validation_report
 
-    counts = ai_context.get("counts", {})
-    if not isinstance(counts.get("normalized_counts"), dict):
-        issues.append({"code": "missing_normalized_counts"})
-
-    artifact_paths = [path for values in ai_context.get("artifacts", {}).values() if isinstance(values, list) for path in values]
-    missing_artifacts = sorted(
-        path for path in artifact_paths if path != "validation.json" and not (run_dir / path).exists()
-    )
-    if missing_artifacts:
-        issues.append({"code": "missing_artifacts", "details": missing_artifacts})
-
-    return {
-        "schema_version": "2026-04-19",
-        "valid": not issues,
-        "issue_count": len(issues),
-        "issues": issues,
-    }
+    return _build_contract_validation_report(run_dir=run_dir, ai_context=ai_context, findings=findings)

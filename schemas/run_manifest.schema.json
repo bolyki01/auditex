@@ -2,28 +2,94 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Auditex Run Manifest",
   "type": "object",
-  "required": ["schema_version", "tenant_name", "run_id", "overall_status", "mode", "auditor_profile", "selected_collectors"],
+  "required": [
+    "schema_version",
+    "tenant_name",
+    "run_id",
+    "overall_status",
+    "mode",
+    "auditor_profile",
+    "selected_collectors",
+    "artifacts",
+    "evidence_db_path",
+    "ai_context_path",
+    "validation_path"
+  ],
   "properties": {
-    "schema_version": { "type": "string" },
-    "tenant_name": { "type": "string" },
-    "run_id": { "type": "string" },
-    "created_utc": { "type": "string" },
-    "overall_status": { "type": "string" },
-    "mode": { "type": "string" },
-    "auditor_profile": { "type": "string" },
-    "plane": { "type": "string" },
+    "schema_version": {
+      "type": "string"
+    },
+    "tenant_name": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": ["string", "null"]
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "created_utc": {
+      "type": "string"
+    },
+    "overall_status": {
+      "type": "string"
+    },
+    "mode": {
+      "type": "string"
+    },
+    "auditor_profile": {
+      "type": "string"
+    },
+    "plane": {
+      "type": "string"
+    },
     "selected_collectors": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
-    "blocker_count": { "type": "integer" },
-    "findings_count": { "type": "integer" },
-    "report_pack_path": { "type": "string" },
-    "action_plan_path": { "type": "string" },
-    "evidence_db_path": { "type": "string" },
-    "ai_context_path": { "type": "string" },
-    "validation_path": { "type": "string" },
-    "privacy": { "type": "object" },
-    "time_window": { "type": "object" }
+    "blocker_count": {
+      "type": "integer"
+    },
+    "findings_count": {
+      "type": "integer"
+    },
+    "report_pack_path": {
+      "type": "string"
+    },
+    "action_plan_path": {
+      "type": "string"
+    },
+    "evidence_db_path": {
+      "type": "string"
+    },
+    "ai_context_path": {
+      "type": "string"
+    },
+    "validation_path": {
+      "type": "string"
+    },
+    "privacy": {
+      "type": "object"
+    },
+    "time_window": {
+      "type": "object"
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "contract_status": {
+      "type": "string"
+    },
+    "contract_issue_count": {
+      "type": "integer"
+    },
+    "schema_contract_version": {
+      "type": "string"
+    }
   }
 }

@@ -1,19 +1,41 @@
-# Repository Guidelines
+# Auditex Agent Notes
 
-## Project Structure & Module Organization
-`src/azure_tenant_audit/` holds the core audit engine, collectors, adapters, and output logic. `src/auditex/` is the product wrapper with the CLI and MCP entrypoint. `tests/` contains automated tests named `test_*.py`. Keep reference material in `docs/specs/`, machine-readable contracts in `schemas/`, operator profiles in `profiles/`, and bootstrap/lab helpers in `tenant-bootstrap/`. Treat generated outputs as build artifacts, not hand-edited source.
+## Canon docs
 
-## Build, Test, and Development Commands
-Use `python3 -m venv .venv && source .venv/bin/activate && pip install -e .` for local setup. `make install` installs pinned requirements from `requirements.txt`. `make test` runs the full pytest suite. `make lint` runs `python -m compileall -q src tests` as a fast syntax check. Run the CLI with `auditex --offline --tenant-name demo --out outputs/offline`, or start the MCP server with `auditex-mcp`.
+- `README.md` for repo overview.
+- `RUNBOOK.md` for setup, operator flows, and tenant bootstrap usage.
+- `docs/OUTPUT_CONTRACT.md` for bundle contract rules.
+- `docs/RELEASE_CHECKLIST.md` for ship checks.
+- `docs/provenance/provenance.md` and `THIRD_PARTY_NOTICES.md` for provenance and legal context.
 
-## Coding Style & Naming Conventions
-Use Python 3.11+ and keep code readable, small, and explicit. Follow existing module names and keep collector files focused by service or concern, such as `collectors/conditional_access.py`. Prefer clear snake_case for functions, variables, and filenames. Match the repository’s current formatting style; there is no separate formatter enforced in this tree, so keep edits consistent with nearby code.
+Deleted plan, status, and duplicate AI docs are not part of the working canon.
 
-## Testing Guidelines
-Add or update tests in `tests/` alongside the behavior you change. Use `test_<feature>.py` names and descriptive test functions. Prefer focused tests for collectors, normalization, CLI behavior, and output contracts. Run `make test` before shipping changes; use `make lint` for quick sanity checks when touching Python syntax or imports.
+## Commands
 
-## Commit & Pull Request Guidelines
-Commit history uses short Conventional Commit prefixes such as `feat:`, `fix:`, `docs:`, and `chore:`. Keep messages imperative and scoped. For pull requests, state the user-visible change, list key commands run, link the related issue if there is one, and include sample output or screenshots only when the change affects reports, CLI output, or generated artifacts.
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+make test
+make lint
+auditex doctor
+auditex guided-run
+auditex-mcp
+make contract-smoke
+```
 
-## Security & Data Handling
-Keep raw tenant evidence local. Do not commit secrets, tokens, or tenant exports. Review `README.md` and `docs/specs/` before changing audit flow, output contracts, or response behavior.
+## Repo rules
+
+- Core audit engine lives in `src/azure_tenant_audit/`.
+- Product wrapper CLI and MCP surface live in `src/auditex/`.
+- Keep `configs/`, `profiles/`, and `schemas/` aligned with code and tests.
+- Treat `skills/` and `agent/` as shipped operator/runtime content, not scratch notes.
+- Treat `tenant-bootstrap/` as a portable helper kit; keep it aligned with the root runtime instead of forking behavior into separate docs.
+- Do not hand-edit generated outputs, tenant evidence bundles, or anything under local secrets/output folders.
+
+## Editing guidance
+
+- Use Python 3.11+ and match nearby style.
+- Keep collector and adapter changes narrow by service or concern.
+- Add or update focused pytest coverage in `tests/` when behavior changes.
+- Keep raw tenant evidence, tokens, and secrets out of git.

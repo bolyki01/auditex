@@ -12,6 +12,7 @@ from azure_tenant_audit.diffing import diff_run_directories
 from azure_tenant_audit.profiles import PROFILES
 from azure_tenant_audit.adapters import ADAPTERS, list_adapters as _list_adapters
 from azure_tenant_audit.response import response_actions
+from azure_tenant_audit.contracts import contract_schema_manifest
 from .rules import list_rule_inventory
 SUPPORTED_PLANES = ("inventory", "full", "export")
 SUPPORTED_PROBE_MODES = ("delegated", "app", "response")
@@ -111,6 +112,11 @@ def tool_specs() -> list[dict[str, Any]]:
         {
             "name": "auditex_auth_capability",
             "description": "Map a saved auth context to collector capability and missing read permissions.",
+            "readOnlyHint": True,
+        },
+        {
+            "name": "auditex_contract_schema_manifest",
+            "description": "List versioned output contract schemas shipped with this Auditex build.",
             "readOnlyHint": True,
         },
         {
@@ -369,6 +375,7 @@ def summarize_run(run_dir: str) -> dict[str, Any]:
     findings_path = path / "findings" / "findings.json"
     report_pack_path = path / "reports" / "report-pack.json"
     action_plan_path = path / "reports" / "action-plan.json"
+    evidence_db_path = path / "index" / "evidence.sqlite"
     if capability_matrix_path.exists():
         result["capability_matrix_path"] = str(capability_matrix_path)
         result["capability_matrix"] = json.loads(capability_matrix_path.read_text(encoding="utf-8"))
@@ -393,6 +400,13 @@ def summarize_run(run_dir: str) -> dict[str, Any]:
     if validation_path.exists():
         result["validation_path"] = str(validation_path)
         result["validation"] = json.loads(validation_path.read_text(encoding="utf-8"))
+        result["contract_validation"] = {
+            "valid": result["validation"].get("valid"),
+            "issue_count": result["validation"].get("issue_count", 0),
+            "contract_version": result["validation"].get("contract_version"),
+        }
+    if evidence_db_path.exists():
+        result["evidence_db_path"] = str(evidence_db_path)
     if blockers_path.exists():
         result["blockers_path"] = str(blockers_path)
         result["blockers"] = json.loads(blockers_path.read_text(encoding="utf-8"))
@@ -482,43 +496,43 @@ def main() -> int:
 
     server = FastMCP("auditex")
 
-    @server.tool
+    @server.tool()
     def auditex_list_profiles() -> dict[str, Any]:
         return {"profiles": [profile.__dict__ for profile in PROFILES.values()]}
 
-    @server.tool
+    @server.tool()
     def auditex_list_collectors(config_path: str = "configs/collector-definitions.json") -> dict[str, Any]:
         return list_collectors(config_path=config_path)
 
-    @server.tool
+    @server.tool()
     def auditex_list_adapters() -> dict[str, Any]:
         return list_adapters()
 
-    @server.tool
+    @server.tool()
     def auditex_list_response_actions() -> dict[str, Any]:
         return list_response_actions()
 
-    @server.tool
+    @server.tool()
     def auditex_auth_status() -> dict[str, Any]:
         return auditex_auth.get_auth_status()
 
-    @server.tool
+    @server.tool()
     def auditex_auth_list() -> dict[str, Any]:
         return auditex_auth.list_connections()
 
-    @server.tool
+    @server.tool()
     def auditex_auth_use(connection_name: str) -> dict[str, Any]:
         return auditex_auth.use_connection(connection_name)
 
-    @server.tool
+    @server.tool()
     def auditex_auth_import_token(name: str, token: str, tenant_id: str = "") -> dict[str, Any]:
         return auditex_auth.import_token_context(name=name, token=token, tenant_id=tenant_id or None)
 
-    @server.tool
+    @server.tool()
     def auditex_auth_inspect_token(token: str) -> dict[str, Any]:
         return auditex_auth.inspect_token_claims(token)
 
-    @server.tool
+    @server.tool()
     def auditex_auth_capability(name: str = "", collectors: str = "", auditor_profile: str = "auto") -> dict[str, Any]:
         selected_collectors = [item.strip() for item in collectors.split(",") if item.strip()]
         return auditex_auth.capability_for_context(
@@ -527,7 +541,11 @@ def main() -> int:
             auditor_profile=auditor_profile,
         )
 
-    @server.tool
+    @server.tool()
+    def auditex_contract_schema_manifest(schema_dir: str = "schemas") -> dict[str, Any]:
+        return contract_schema_manifest(schema_dir=schema_dir)
+
+    @server.tool()
     def auditex_run_offline_validation(
         tenant_name: str,
         out_dir: str = "outputs/offline",
@@ -542,7 +560,7 @@ def main() -> int:
         )
         return run_cli_command(command)
 
-    @server.tool
+    @server.tool()
     def auditex_run_delegated_audit(
         tenant_name: str,
         tenant_id: str = "organizations",
@@ -568,19 +586,19 @@ def main() -> int:
         )
         return run_cli_command(command)
 
-    @server.tool
+    @server.tool()
     def auditex_summarize_run(run_dir: str) -> dict[str, Any]:
         return summarize_run(run_dir)
 
-    @server.tool
+    @server.tool()
     def auditex_diff_runs(run_a: str, run_b: str) -> dict[str, Any]:
         return diff_runs(run_a, run_b)
 
-    @server.tool
+    @server.tool()
     def auditex_compare_runs(run_dirs: list[str], allow_cross_tenant: bool = False) -> dict[str, Any]:
         return compare_many_runs(run_dirs, allow_cross_tenant=allow_cross_tenant)
 
-    @server.tool
+    @server.tool()
     def auditex_probe_live(
         tenant_name: str,
         tenant_id: str = "organizations",
@@ -611,15 +629,15 @@ def main() -> int:
         )
         return run_cli_command(command)
 
-    @server.tool
+    @server.tool()
     def auditex_probe_summarize(run_dir: str) -> dict[str, Any]:
         return summarize_run(run_dir)
 
-    @server.tool
+    @server.tool()
     def auditex_list_blockers(run_dir: str) -> dict[str, Any]:
         return list_blockers(run_dir)
 
-    @server.tool
+    @server.tool()
     def auditex_report_preview(
         run_dir: str,
         format_name: str = "json",
@@ -633,15 +651,15 @@ def main() -> int:
             exclude_sections=exclude_sections,
         )
 
-    @server.tool
+    @server.tool()
     def auditex_export_list() -> dict[str, Any]:
         return list_available_exporters()
 
-    @server.tool
+    @server.tool()
     def auditex_notify_preview(run_dir: str, sink: str = "teams") -> dict[str, Any]:
         return preview_notification(run_dir=run_dir, sink=sink)
 
-    @server.tool
+    @server.tool()
     def auditex_rules_inventory(
         tag: str = "",
         path_prefix: str = "",
@@ -657,7 +675,7 @@ def main() -> int:
             audit_level=audit_level,
         )
 
-    @server.tool
+    @server.tool()
     def auditex_run_response_action(
         tenant_name: str,
         action: str,

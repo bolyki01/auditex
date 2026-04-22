@@ -22,8 +22,8 @@ from .output import AuditWriter
 from .presets import load_collector_presets, resolve_collector_selection
 from .profiles import get_profile, profile_choices
 from .utils import load_env_file, parse_csv_list
-from .ai_context import build_ai_context, build_privacy_block, build_validation_report
-from auditex.evidence_db import build_run_evidence_index
+from .ai_context import build_privacy_block
+from .finalize import finalize_bundle_contract
 
 LOG = logging.getLogger("azure_tenant_audit")
 
@@ -393,38 +393,60 @@ def _build_coverage_ledger(
         collector = str(item.get("collector") or "")
         if collector:
             diagnostics_by_collector[collector].append(item)
+
+    def _has_permission_block(collector: str) -> bool:
+        classes = {str(item.get("error_class") or "") for item in diagnostics_by_collector.get(collector, [])}
+        return any(value in {"insufficient_permissions", "unauthenticated", "blocked_by_scope"} for value in classes)
+
     ledger: list[dict[str, Any]] = []
     for capability in capability_rows:
         collector = str(capability.get("collector") or "")
         result = results_by_collector.get(collector, {})
+        actual_status = result.get("status")
+        expected_status = capability.get("status")
+        if not result:
+            coverage_status = "not_run"
+            coverage_reason = "collector_not_executed"
+        elif _has_permission_block(collector):
+            coverage_status = "blocked_permission"
+            coverage_reason = "permission_or_auth_blocker"
+        elif actual_status == "ok":
+            if expected_status == "supported_effective_role":
+                coverage_status = "complete_effective_role"
+                coverage_reason = "runtime_success_with_effective_role"
+            elif expected_status == "supported_equivalent_scope":
+                coverage_status = "complete_equivalent_scope"
+                coverage_reason = "runtime_success_with_equivalent_permission"
+            elif expected_status == "offline_sample":
+                coverage_status = "complete_offline_sample"
+                coverage_reason = "offline_sample_materialized"
+            else:
+                coverage_status = "complete_exact_scope"
+                coverage_reason = "runtime_success_with_expected_scope"
+        elif actual_status == "partial":
+            coverage_status = "partial_success"
+            coverage_reason = "collector_returned_partial"
+        elif actual_status == "skipped":
+            coverage_status = "not_applicable" if expected_status not in {"blocked_by_scope", "blocked_by_role"} else "blocked_permission"
+            coverage_reason = "collector_skipped"
+        else:
+            coverage_status = "failed_runtime"
+            coverage_reason = "collector_failed_runtime"
         ledger.append(
             {
                 "collector": collector,
-                "expected_status": capability.get("status"),
+                "expected_status": expected_status,
                 "expected_reason": capability.get("reason"),
-                "actual_status": result.get("status"),
-                "coverage_status": "complete"
-                if result.get("status") == "ok"
-                else "partial_success"
-                if result.get("status") == "partial"
-                else "not_applicable"
-                if result.get("status") == "skipped"
-                else "not_run"
-                if not result
-                else "failed_runtime",
+                "actual_status": actual_status,
+                "coverage_status": coverage_status,
+                "coverage_reason": coverage_reason,
                 "item_count": result.get("item_count", 0),
                 "message": result.get("message"),
                 "diagnostic_count": len(diagnostics_by_collector.get(collector, [])),
                 "diagnostics": diagnostics_by_collector.get(collector, []),
             }
         )
-        if diagnostics_by_collector.get(collector):
-            latest = ledger[-1]
-            classes = {str(item.get("error_class") or "") for item in diagnostics_by_collector.get(collector)}
-            if any(value in {"insufficient_permissions", "unauthenticated"} for value in classes):
-                latest["coverage_status"] = "blocked_permission"
     return ledger
-
 
 def run_offline(
     sample_path: Path,
@@ -460,21 +482,93 @@ def run_offline(
         },
     )
 
+    collector_payloads: dict[str, dict[str, Any]] = {}
+    result_rows: list[dict[str, Any]] = []
     (writer.raw_dir / "sample_input.json").write_text(
         json.dumps(sample, indent=2),
         encoding="utf-8",
     )
+    writer._record_artifact(writer.raw_dir / "sample_input.json")
     for key, value in sample.items():
-        row = {
-            "name": key,
+        if isinstance(value, dict):
+            collector_payloads[str(key)] = value
+        row: dict[str, Any] = {
+            "name": str(key),
             "status": "ok",
             "item_count": len(value.get("value", [])) if isinstance(value, dict) else 0,
             "message": "offline simulation",
+            "coverage_rows": 0,
         }
+        result_rows.append(row)
         writer.write_summary(row)
+        writer.write_checkpoint(str(key), row)
         writer.log_event("collector.synthetic", "Offline collector simulated", {"name": key, "item_count": row["item_count"]})
-    writer.write_bundle(
+
+    diagnostics: list[dict[str, Any]] = []
+    coverage_rows: list[dict[str, Any]] = []
+    capability_rows = [
         {
+            "collector": row["name"],
+            "status": "offline_sample",
+            "reason": "offline_bundle",
+            "required_permissions": [],
+            "missing_permissions": [],
+            "observed_permissions": [],
+            "delegated_roles": [],
+            "minimum_role_hints": [],
+            "notes": "Offline sample run; no tenant auth exercised.",
+        }
+        for row in result_rows
+    ]
+    coverage_ledger = _build_coverage_ledger(
+        capability_rows=capability_rows,
+        result_rows=result_rows,
+        diagnostics=diagnostics,
+    )
+    normalized_snapshot = build_normalized_snapshot(
+        tenant_name=tenant_name,
+        run_id=writer.run_id,
+        collector_payloads=collector_payloads,
+        diagnostics=diagnostics,
+        result_rows=result_rows,
+        coverage_rows=coverage_rows,
+        run_dir=writer.run_dir,
+    )
+    findings = build_findings(diagnostics, normalized_snapshot=normalized_snapshot)
+    writer.write_normalized("capability_matrix", {"kind": "capability_matrix", "records": capability_rows})
+    writer.write_normalized("coverage_ledger", {"kind": "coverage_ledger", "records": coverage_ledger})
+    for name, payload in normalized_snapshot.items():
+        writer.write_normalized(name, payload)
+    writer.write_ai_safe("run_summary", build_ai_safe_summary(normalized_snapshot, findings=findings))
+    if findings:
+        writer.write_findings(findings)
+
+    evidence_paths = [
+        "run-manifest.json",
+        "summary.json",
+        "reports/report-pack.json",
+        "index/evidence.sqlite",
+        "ai_context.json",
+        "validation.json",
+        "ai_safe/run_summary.json",
+    ]
+    if findings:
+        evidence_paths.append("findings/findings.json")
+    evidence_paths.extend(f"normalized/{name}.json" for name in ["capability_matrix", "coverage_ledger", *normalized_snapshot.keys()])
+    privacy = build_privacy_block(safe_for_external_llm=False)
+    writer.write_report_pack(
+        build_report_pack(
+            tenant_name=tenant_name,
+            overall_status="ok",
+            findings=findings,
+            evidence_paths=evidence_paths,
+            blocker_count=0,
+            privacy=privacy,
+        )
+    )
+    finalize_bundle_contract(
+        writer=writer,
+        bundle_metadata={
             "executed_by": "azure_tenant_audit",
             "collectors": list(sample.keys()),
             "overall_status": "ok",
@@ -485,11 +579,28 @@ def run_offline(
             "since": since,
             "until": until,
             "command_line": [],
-        }
+            "coverage_count": 0,
+            "privacy": privacy,
+        },
+        run_metadata={
+            "tenant_name": tenant_name,
+            "tenant_id": None,
+            "run_id": writer.run_id,
+            "overall_status": "ok",
+            "auditor_profile": auditor_profile,
+            "mode": "offline",
+            "plane": plane,
+            "selected_collectors": list(sample.keys()),
+            "duration_seconds": 0,
+        },
+        normalized_snapshot=normalized_snapshot,
+        capability_rows=capability_rows,
+        coverage_ledger=coverage_ledger,
+        blockers=diagnostics,
+        findings=findings,
     )
     LOG.info("Offline sample written to %s", writer.run_dir)
     return 0
-
 
 def _load_permission_hints(path: Path) -> dict[str, dict[str, Any]]:
     if not path.exists():
@@ -1227,34 +1338,9 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
         "Live run completed",
         {"failures": failures, "collectors": len(result_rows), "coverage_rows": len(coverage_rows)},
     )
-    evidence_db_path = build_run_evidence_index(writer.run_dir)
-    writer._record_artifact(evidence_db_path)
-    ai_context = build_ai_context(
-        run_dir=writer.run_dir,
-        run_metadata={
-            "tenant_name": run_cfg.tenant_name,
-            "tenant_id": args.tenant_id,
-            "run_id": writer.run_id,
-            "overall_status": overall_status,
-            "auditor_profile": run_cfg.auditor_profile,
-            "mode": auth_mode,
-            "plane": run_cfg.plane,
-            "selected_collectors": selected,
-            "duration_seconds": duration,
-        },
-        normalized_snapshot=normalized_snapshot,
-        capability_rows=capability_rows,
-        coverage_ledger=coverage_ledger,
-        blockers=diagnostics,
-        findings=findings,
-    )
-    writer.write_json_artifact("ai_context.json", ai_context)
-    writer.write_json_artifact(
-        "validation.json",
-        build_validation_report(run_dir=writer.run_dir, ai_context=ai_context, findings=findings),
-    )
-    writer.write_bundle(
-        {
+    finalize_bundle_contract(
+        writer=writer,
+        bundle_metadata={
             "executed_by": "azure_tenant_audit",
             "collectors": selected,
             "overall_status": overall_status,
@@ -1274,11 +1360,24 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
             "coverage_count": len(coverage_rows),
             "throttle_mode": args.throttle_mode,
             "preflight_path": preflight_path,
-            "evidence_db_path": str(evidence_db_path.relative_to(writer.run_dir)),
             "privacy": privacy,
-            "ai_context_path": "ai_context.json",
-            "validation_path": "validation.json",
-        }
+        },
+        run_metadata={
+            "tenant_name": run_cfg.tenant_name,
+            "tenant_id": args.tenant_id,
+            "run_id": writer.run_id,
+            "overall_status": overall_status,
+            "auditor_profile": run_cfg.auditor_profile,
+            "mode": auth_mode,
+            "plane": run_cfg.plane,
+            "selected_collectors": selected,
+            "duration_seconds": duration,
+        },
+        normalized_snapshot=normalized_snapshot,
+        capability_rows=capability_rows,
+        coverage_ledger=coverage_ledger,
+        blockers=diagnostics,
+        findings=findings,
     )
     LOG.info("Completed in %.2fs. Output in %s", duration, writer.run_dir)
     return 1 if failures or preflight_skipped else 0

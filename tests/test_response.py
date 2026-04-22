@@ -60,8 +60,11 @@ def test_response_execute_requires_matching_lab_tenant_even_with_allow_flag(tmp_
     run_dir = tmp_path / "contoso-response-blocked"
     blockers = json.loads((run_dir / "blockers" / "blockers.json").read_text(encoding="utf-8"))
     manifest = json.loads((run_dir / "run-manifest.json").read_text(encoding="utf-8"))
+    validation = json.loads((run_dir / "validation.json").read_text(encoding="utf-8"))
     assert blockers[0]["error_class"] == "lab_guard"
     assert manifest["overall_status"] == "partial"
+    assert manifest["contract_status"] == "valid"
+    assert validation["valid"] is True
 
 
 def test_response_execute_runs_when_lab_guard_is_satisfied(tmp_path: Path, monkeypatch) -> None:
@@ -89,17 +92,22 @@ def test_response_execute_runs_when_lab_guard_is_satisfied(tmp_path: Path, monke
 
     run_dir = tmp_path / "contoso-response-allowed"
     normalized = json.loads((run_dir / "normalized" / "response.json").read_text(encoding="utf-8"))
+    ai_context = json.loads((run_dir / "ai_context.json").read_text(encoding="utf-8"))
     manifest = json.loads((run_dir / "run-manifest.json").read_text(encoding="utf-8"))
     assert normalized["response"]["ran"] is True
     assert normalized["response"]["adapter"] == "powershell_graph"
+    validation = json.loads((run_dir / "validation.json").read_text(encoding="utf-8"))
     assert manifest["plane"] == "response"
     assert manifest["overall_status"] == "ok"
+    assert manifest["contract_status"] == "valid"
+    assert ai_context["coverage"]["coverage_row_count"] == 1
+    assert validation["valid"] is True
 
 
-def test_response_execute_uses_saved_auth_context_and_writes_auth_artifact(tmp_path: Path, monkeypatch) -> None:
+def test_response_execute_uses_jwt_saved_auth_context_and_writes_auth_artifact(tmp_path: Path, monkeypatch) -> None:
     adapter = _FakeAdapter()
     monkeypatch.setattr("azure_tenant_audit.response.get_adapter", lambda _name: adapter)
-    monkeypatch.setattr("azure_tenant_audit.response._lab_tenant_ids", lambda: {"lab-tenant"})
+    monkeypatch.setattr("azure_tenant_audit.response._lab_tenant_ids", lambda: {"tenant-saved"})
     monkeypatch.setattr(
         "auditex.auth.resolve_auth_context",
         lambda name=None: {
@@ -151,7 +159,10 @@ def test_response_execute_uses_saved_auth_context_and_writes_auth_artifact(tmp_p
     assert auth_context["tenant_id"] == "tenant-saved"
     assert auth_context["token_claims"]["delegated_scopes"] == ["Directory.Read.All"]
     assert manifest["tenant_id"] == "tenant-saved"
+    validation = json.loads((run_dir / "validation.json").read_text(encoding="utf-8"))
     assert manifest["auth_context_path"] == "auth-context.json"
+    assert manifest["contract_status"] == "valid"
+    assert validation["valid"] is True
     assert (run_dir / "index" / "evidence.sqlite").exists()
 
 
