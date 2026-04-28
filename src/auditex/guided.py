@@ -13,6 +13,7 @@ from azure_tenant_audit.profiles import profile_choices
 
 from . import auth as auditex_auth
 from .bootstrap import build_doctor_report, run_setup
+from .operator_flow import flow_choices, flow_plan, guided_choice_options, resolve_auto_flow
 
 
 def _default_browser_command() -> str:
@@ -155,15 +156,12 @@ def _default_tenant_name(tenant_id: str | None) -> str:
 def _resolve_flow(args: argparse.Namespace) -> str:
     if args.flow != "auto":
         return args.flow
-    if args.non_interactive:
-        return "app-audit" if args.auth_mode == "app" else "gr-audit"
+    auto_flow = resolve_auto_flow(auth_mode=args.auth_mode, non_interactive=args.non_interactive)
+    if auto_flow:
+        return auto_flow
     return _prompt_choice(
         "Flow",
-        [
-            ("gr-audit", "GR audit"),
-            ("ga-setup-app", "GA one-time app setup"),
-            ("app-audit", "App audit"),
-        ],
+        list(guided_choice_options()),
         default="gr-audit",
     )
 
@@ -297,7 +295,7 @@ def _ensure_m365_login(
 
 def build_guided_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="auditex guided-run", description="Interactive guided tenant audit.")
-    parser.add_argument("--flow", choices=("auto", "gr-audit", "ga-setup-app", "app-audit"), default="auto")
+    parser.add_argument("--flow", choices=flow_choices(), default="auto")
     parser.add_argument("--tenant-id", default=None)
     parser.add_argument("--tenant-name", default=None)
     parser.add_argument("--auth-mode", choices=("delegated", "app"), default="delegated")
@@ -408,35 +406,33 @@ def _run_ga_setup_flow(
 
 def run_guided(args: argparse.Namespace) -> int:
     flow = _resolve_flow(args)
-    auth_mode = "app" if flow == "app-audit" else "delegated"
+    plan = flow_plan(flow)
+    auth_mode = plan.auth_mode
     print("Auditex guided run")
 
     tenant_id = args.tenant_id or _saved_value("AUDITEX_TENANT_ID", "AZURE_TENANT_ID")
     tenant_name = args.tenant_name or _saved_value("AUDITEX_TENANT_NAME")
     browser_command = args.browser_command or _default_browser_command()
-    include_exchange = args.include_exchange or flow == "ga-setup-app"
+    include_exchange = args.include_exchange or plan.include_exchange
     client_id = args.client_id or _saved_value("AZURE_CLIENT_ID", "M365_CLI_APP_ID", "M365_CLI_CLIENT_ID")
     client_secret = args.client_secret or _saved_value("AZURE_CLIENT_SECRET")
 
     if not args.non_interactive:
-        tenant_default = (
-            tenant_id
-            or (None if flow in {"ga-setup-app", "app-audit"} else "organizations")
-        )
+        tenant_default = tenant_id or plan.tenant_default
         tenant_id = tenant_id or _prompt("Tenant id or domain", default=tenant_default)
         tenant_name = tenant_name or _prompt("Tenant label", default=_default_tenant_name(tenant_id))
-        if flow == "app-audit":
+        if plan.requires_app_credentials:
             client_id = client_id or _prompt("Client id")
             client_secret = client_secret or _prompt("Client secret")
         if flow == "gr-audit" and not args.include_exchange:
             include_exchange = _confirm("Include Exchange checks?", default=False)
     else:
-        tenant_id = tenant_id or ("organizations" if auth_mode == "delegated" and flow != "ga-setup-app" else None)
+        tenant_id = tenant_id or plan.tenant_default
         tenant_name = tenant_name or _default_tenant_name(tenant_id)
-    if flow in {"ga-setup-app", "app-audit"} and (not tenant_id or tenant_id == "organizations"):
+    if plan.requires_real_tenant and (not tenant_id or tenant_id == "organizations"):
         print("Real tenant id or domain needed")
         return 2
-    if flow == "app-audit" and (not client_id or not client_secret):
+    if plan.requires_app_credentials and (not client_id or not client_secret):
         print("App credentials missing")
         return 2
     if flow == "ga-setup-app":

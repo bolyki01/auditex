@@ -9,7 +9,7 @@ from typing import Any
 
 import requests
 
-from .mcp_server import summarize_run
+from .run_bundle import RunBundle
 
 
 WEBHOOK_ENV = {
@@ -19,15 +19,13 @@ WEBHOOK_ENV = {
 
 
 def _build_payload(run_dir: str | Path) -> dict[str, Any]:
-    summary = summarize_run(str(run_dir))
-    report_pack = summary.get("report_pack") or {}
-    report_summary = report_pack.get("summary") or {}
-    action_plan = report_pack.get("action_plan") or summary.get("action_plan") or []
-    manifest = summary.get("manifest") or {}
-    findings_doc = summary.get("findings") or {}
-    findings_rows = findings_doc.get("findings") if isinstance(findings_doc, dict) else []
-    if not isinstance(findings_rows, list):
-        findings_rows = []
+    bundle = RunBundle(run_dir)
+    report_summary = bundle.report_summary()
+    action_plan = bundle.action_plan_rows()
+    manifest = bundle.manifest()
+    findings_rows = bundle.finding_rows()
+    report_pack_path, _ = bundle.report_pack()
+    action_plan_path, _ = bundle.action_plan()
     open_count = sum(1 for item in findings_rows if isinstance(item, dict) and item.get("status") == "open")
     accepted_count = sum(1 for item in findings_rows if isinstance(item, dict) and item.get("status") == "accepted_risk")
     return {
@@ -39,8 +37,8 @@ def _build_payload(run_dir: str | Path) -> dict[str, Any]:
         "open_count": report_summary.get("open_count", open_count),
         "accepted_count": report_summary.get("accepted_count", accepted_count),
         "action_plan": action_plan,
-        "report_pack_path": summary.get("report_pack_path"),
-        "action_plan_path": summary.get("action_plan_path"),
+        "report_pack_path": str(report_pack_path) if report_pack_path is not None else None,
+        "action_plan_path": str(action_plan_path) if action_plan_path is not None else None,
     }
 
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import auth as auditex_auth
+from .auth_runtime import ToolchainRuntime, ToolchainRuntimeAdapters
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -24,6 +25,20 @@ def detect_package_manager() -> str | None:
     if shutil.which("dnf"):
         return "dnf"
     return None
+
+
+def _toolchain_runtime() -> ToolchainRuntime:
+    return ToolchainRuntime(
+        ToolchainRuntimeAdapters(
+            which=shutil.which,
+            run_json_command=_run_json_command,
+            detect_package_manager=detect_package_manager,
+        ),
+        repo_root=REPO_ROOT,
+        bootstrap_script=BOOTSTRAP_SCRIPT,
+        select_python_script=SELECT_PYTHON_SCRIPT,
+        venv_dir=DEFAULT_VENV_DIR,
+    )
 
 
 def _run_json_command(command: list[str]) -> dict[str, Any]:
@@ -51,22 +66,7 @@ def _run_json_command(command: list[str]) -> dict[str, Any]:
 
 
 def _command_version(command: list[str], *, parser: Callable[[str], str | None] | None = None) -> tuple[str | None, str | None]:
-    result = _run_json_command(command)
-    if result["status"] != "supported":
-        error = (result.get("stderr") or result.get("stdout") or "").strip() or "version_check_failed"
-        return None, error
-    output = (result.get("stdout") or result.get("stderr") or "").strip()
-    if not output:
-        return None, "empty_version_output"
-    if parser is not None:
-        try:
-            parsed = parser(output)
-        except Exception as exc:  # noqa: BLE001
-            return None, str(exc)
-        if not parsed:
-            return None, "empty_version_output"
-        return parsed, None
-    return output, None
+    return _toolchain_runtime().command_version(command, parser=parser)
 
 
 def _tool_status(
@@ -75,63 +75,15 @@ def _tool_status(
     version_args: list[str] | None = None,
     version_parser: Callable[[str], str | None] | None = None,
 ) -> dict[str, Any]:
-    path = shutil.which(command_name)
-    if not path:
-        return {
-            "name": command_name,
-            "status": "blocked",
-            "path": None,
-            "version": None,
-            "error": "command_not_found",
-        }
-    version = None
-    error = None
-    if version_args is not None:
-        version, error = _command_version([path, *version_args], parser=version_parser)
-    status = "supported" if version or version_args is None else "blocked"
-    return {
-        "name": command_name,
-        "status": status,
-        "path": path,
-        "version": version,
-        "error": error,
-    }
+    return _toolchain_runtime().tool_status(command_name, version_args=version_args, version_parser=version_parser)
 
 
 def _selected_python() -> dict[str, Any]:
-    if not SELECT_PYTHON_SCRIPT.exists():
-        return {
-            "status": "blocked",
-            "error": "missing_select_python_script",
-            "path": str(SELECT_PYTHON_SCRIPT),
-        }
-
-    result = _run_json_command(["bash", str(SELECT_PYTHON_SCRIPT)])
-    stdout = (result.get("stdout") or "").strip()
-    if result["status"] == "supported" and stdout:
-        version, version_error = _command_version([stdout, "--version"])
-        return {
-            "status": "supported" if version else "blocked",
-            "path": stdout,
-            "version": version,
-            "selector": str(SELECT_PYTHON_SCRIPT),
-            "error": version_error,
-        }
-    return {
-        "status": "blocked",
-        "path": None,
-        "selector": str(SELECT_PYTHON_SCRIPT),
-        "error": (result.get("stderr") or result.get("stdout") or "").strip() or "no_supported_python",
-    }
+    return _toolchain_runtime().selected_python()
 
 
 def _venv_status() -> dict[str, Any]:
-    python_path = DEFAULT_VENV_DIR / "bin" / "python"
-    return {
-        "status": "supported" if python_path.exists() else "blocked",
-        "path": str(DEFAULT_VENV_DIR),
-        "python_path": str(python_path),
-    }
+    return _toolchain_runtime().venv_status()
 
 
 def build_doctor_report(

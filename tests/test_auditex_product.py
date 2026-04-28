@@ -27,6 +27,7 @@ from auditex.mcp_server import (
 from azure_tenant_audit.contracts import contract_schema_manifest
 from azure_tenant_audit.cli import build_parser, run_offline
 from azure_tenant_audit.profiles import get_profile, profile_choices
+from support import RunBundleBuilder
 
 
 def test_profile_choices_include_global_reader() -> None:
@@ -130,16 +131,16 @@ def test_contract_schema_manifest_lists_shipped_schemas() -> None:
 
 
 def test_mcp_main_uses_current_fastmcp_tool_decorator(monkeypatch: pytest.MonkeyPatch) -> None:
-    registered: list[str] = []
+    registered: list[tuple[str, bool]] = []
 
     class _FakeFastMCP:
         def __init__(self, _name: str) -> None:
             self._tools: list[str] = []
 
-        def tool(self):  # current API shape: must be called as @server.tool()
+        def tool(self, **metadata):
             def decorator(func):
                 self._tools.append(func.__name__)
-                registered.append(func.__name__)
+                registered.append((metadata["name"], metadata["annotations"]["readOnlyHint"]))
                 return func
 
             return decorator
@@ -152,8 +153,8 @@ def test_mcp_main_uses_current_fastmcp_tool_decorator(monkeypatch: pytest.Monkey
     monkeypatch.setitem(sys.modules, "mcp.server.fastmcp", fake_module)
 
     assert mcp_main() == 0
-    assert "auditex_contract_schema_manifest" in registered
-    assert "auditex_run_response_action" in registered
+    expected = [(item["name"], item["readOnlyHint"]) for item in tool_specs()]
+    assert registered == expected
 
 
 def test_list_collectors_tool_shape_matches_definitions() -> None:
@@ -384,11 +385,7 @@ def test_response_parser_accepts_saved_auth_context() -> None:
 
 
 def test_summarize_run_reads_manifest(tmp_path: Path) -> None:
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    (run_dir / "run-manifest.json").write_text(json.dumps({"tenant_name": "acme"}), encoding="utf-8")
-    (run_dir / "summary.json").write_text(json.dumps({"collectors": []}), encoding="utf-8")
-    (run_dir / "summary.md").write_text("# Audit Summary", encoding="utf-8")
+    run_dir = RunBundleBuilder(tmp_path).summary_md("# Audit Summary").build()
 
     summary = summarize_run(str(run_dir))
     assert summary["manifest"]["tenant_name"] == "acme"
@@ -397,12 +394,12 @@ def test_summarize_run_reads_manifest(tmp_path: Path) -> None:
 
 
 def test_summarize_run_reads_probe_artifacts(tmp_path: Path) -> None:
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    (run_dir / "run-manifest.json").write_text(json.dumps({"tenant_name": "acme"}), encoding="utf-8")
-    (run_dir / "summary.json").write_text(json.dumps({"collectors": []}), encoding="utf-8")
-    (run_dir / "capability-matrix.json").write_text(json.dumps([{"surface": "identity"}]), encoding="utf-8")
-    (run_dir / "toolchain-readiness.json").write_text(json.dumps({"m365_cli": {"status": "blocked"}}), encoding="utf-8")
+    run_dir = (
+        RunBundleBuilder(tmp_path)
+        .capability_matrix([{"surface": "identity"}])
+        .toolchain_readiness({"m365_cli": {"status": "blocked"}})
+        .build()
+    )
 
     summary = summarize_run(str(run_dir))
     assert summary["capability_matrix"][0]["surface"] == "identity"
@@ -410,35 +407,25 @@ def test_summarize_run_reads_probe_artifacts(tmp_path: Path) -> None:
 
 
 def test_summarize_run_reads_probe_auth_context_artifact(tmp_path: Path) -> None:
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    (run_dir / "run-manifest.json").write_text(json.dumps({"tenant_name": "acme"}), encoding="utf-8")
-    (run_dir / "summary.json").write_text(json.dumps({"collectors": []}), encoding="utf-8")
-    (run_dir / "auth-context.json").write_text(json.dumps({"name": "customer-token"}), encoding="utf-8")
+    run_dir = RunBundleBuilder(tmp_path).auth_context({"name": "customer-token"}).build()
 
     summary = summarize_run(str(run_dir))
     assert summary["auth_context"]["name"] == "customer-token"
 
 
 def test_summarize_run_reads_response_auth_context_artifact(tmp_path: Path) -> None:
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    (run_dir / "run-manifest.json").write_text(
-        json.dumps({"tenant_name": "acme", "auth_context_path": "auth-context.json"}),
-        encoding="utf-8",
-    )
-    (run_dir / "summary.json").write_text(json.dumps({"collectors": []}), encoding="utf-8")
-    (run_dir / "session-context.json").write_text(json.dumps({"tenant_id": "tenant-saved"}), encoding="utf-8")
-    (run_dir / "auth-context.json").write_text(
-        json.dumps(
+    run_dir = (
+        RunBundleBuilder(tmp_path)
+        .session_context({"tenant_id": "tenant-saved"})
+        .auth_context(
             {
                 "name": "customer-token",
                 "auth_type": "imported_token",
                 "tenant_id": "tenant-saved",
                 "token_claims": {"delegated_scopes": ["Directory.Read.All"]},
             }
-        ),
-        encoding="utf-8",
+        )
+        .build()
     )
 
     summary = summarize_run(str(run_dir))
@@ -448,18 +435,11 @@ def test_summarize_run_reads_response_auth_context_artifact(tmp_path: Path) -> N
 
 
 def test_summarize_run_reads_report_pack_and_action_plan_artifacts(tmp_path: Path) -> None:
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    (run_dir / "run-manifest.json").write_text(json.dumps({"tenant_name": "acme"}), encoding="utf-8")
-    (run_dir / "summary.json").write_text(json.dumps({"collectors": []}), encoding="utf-8")
-    (run_dir / "reports").mkdir()
-    (run_dir / "reports" / "report-pack.json").write_text(
-        json.dumps({"summary": {"overall_status": "partial"}, "findings": [], "evidence_paths": []}),
-        encoding="utf-8",
-    )
-    (run_dir / "reports" / "action-plan.json").write_text(
-        json.dumps({"open_findings": [], "waived_findings": [], "blocked": []}),
-        encoding="utf-8",
+    run_dir = (
+        RunBundleBuilder(tmp_path)
+        .report_pack(summary={"overall_status": "partial"}, findings=[], evidence_paths=[])
+        .action_plan({"open_findings": [], "waived_findings": [], "blocked": []})
+        .build()
     )
 
     summary = summarize_run(str(run_dir))
@@ -471,22 +451,16 @@ def test_summarize_run_reads_report_pack_and_action_plan_artifacts(tmp_path: Pat
 
 
 def test_compare_many_runs_uses_same_tenant_gate(tmp_path: Path) -> None:
-    run_a = tmp_path / "run-a"
-    run_b = tmp_path / "run-b"
-    for name, run_dir in (("run-a", run_a), ("run-b", run_b)):
-        run_dir.mkdir()
-        (run_dir / "run-manifest.json").write_text(
-            json.dumps(
-                {
-                    "tenant_name": "acme",
-                    "tenant_id": "tenant-1",
-                    "run_id": name,
-                    "created_utc": "2026-04-18T09:00:00Z",
-                }
-            ),
-            encoding="utf-8",
-        )
-        (run_dir / "summary.json").write_text(json.dumps({"collectors": []}), encoding="utf-8")
+    run_a = (
+        RunBundleBuilder(tmp_path, name="run-a")
+        .manifest(run_id="run-a", created_utc="2026-04-18T09:00:00Z")
+        .build()
+    )
+    run_b = (
+        RunBundleBuilder(tmp_path, name="run-b")
+        .manifest(run_id="run-b", created_utc="2026-04-18T09:00:00Z")
+        .build()
+    )
 
     result = compare_many_runs([str(run_a), str(run_b)])
 
@@ -495,29 +469,17 @@ def test_compare_many_runs_uses_same_tenant_gate(tmp_path: Path) -> None:
 
 
 def test_preview_report_and_notification_are_read_only_helpers(tmp_path: Path) -> None:
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    (run_dir / "run-manifest.json").write_text(json.dumps({"tenant_name": "acme"}), encoding="utf-8")
-    (run_dir / "summary.json").write_text(json.dumps({"collectors": []}), encoding="utf-8")
-    (run_dir / "reports").mkdir()
-    (run_dir / "findings").mkdir()
-    (run_dir / "reports" / "report-pack.json").write_text(
-        json.dumps(
-            {
-                "summary": {"tenant_name": "acme", "overall_status": "partial", "finding_count": 1},
-                "findings": [{"id": "finding-1", "title": "Fix sharing", "severity": "high", "status": "open"}],
-                "action_plan": [{"id": "finding-1", "title": "Fix sharing", "severity": "high"}],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_dir / "reports" / "action-plan.json").write_text(
-        json.dumps([{"id": "finding-1", "title": "Fix sharing", "severity": "high"}]),
-        encoding="utf-8",
-    )
-    (run_dir / "findings" / "findings.json").write_text(
-        json.dumps([{"id": "finding-1", "title": "Fix sharing", "severity": "high", "status": "open"}]),
-        encoding="utf-8",
+    finding = {"id": "finding-1", "title": "Fix sharing", "severity": "high", "status": "open"}
+    run_dir = (
+        RunBundleBuilder(tmp_path)
+        .report_pack(
+            summary={"tenant_name": "acme", "overall_status": "partial", "finding_count": 1},
+            findings=[finding],
+            action_plan=[{"id": "finding-1", "title": "Fix sharing", "severity": "high"}],
+        )
+        .action_plan([{"id": "finding-1", "title": "Fix sharing", "severity": "high"}])
+        .findings([finding])
+        .build()
     )
 
     report = preview_report(str(run_dir), format_name="json")

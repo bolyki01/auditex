@@ -1,38 +1,15 @@
 from __future__ import annotations
 
-from azure_tenant_audit.config import AuthConfig
 from azure_tenant_audit.collectors.base import _classify_graph_error
-from azure_tenant_audit.graph import GraphClient, GraphError
-
-
-class _FakeResponse:
-    def __init__(self, status_code: int, body, *, headers=None):
-        self.status_code = status_code
-        self._body = body
-        self.headers = headers or {}
-        self.url = "https://graph.microsoft.com/v1.0/me"
-
-    @property
-    def text(self) -> str:
-        if isinstance(self._body, str):
-            return self._body
-        return str(self._body)
-
-    def json(self):
-        return self._body
+from azure_tenant_audit.graph import GraphError
+from support import fake_graph_client, graph_response
 
 
 def test_graph_error_includes_http_status_and_code(monkeypatch) -> None:
-    auth = AuthConfig(
-        tenant_id="t-1",
-        client_id="c-1",
-        auth_mode="access_token",
-        access_token="x",
-    )
-    client = GraphClient(auth)
+    client = fake_graph_client()
 
     def _request(method, url, **kwargs):  # noqa: ARG001
-        return _FakeResponse(
+        return graph_response(
             403,
             {
                 "error": {
@@ -67,16 +44,10 @@ def test_classify_graph_error_known_statuses() -> None:
 
 
 def test_get_all_requires_dict_payload(monkeypatch) -> None:
-    auth = AuthConfig(
-        tenant_id="t-1",
-        client_id="c-1",
-        auth_mode="access_token",
-        access_token="x",
-    )
-    client = GraphClient(auth)
+    client = fake_graph_client()
 
     def _request(method, url, **kwargs):  # noqa: ARG001
-        return _FakeResponse(200, [1, 2, 3])
+        return graph_response(200, [1, 2, 3])
 
     monkeypatch.setattr(client, "_request", _request)
 
@@ -91,23 +62,24 @@ def test_get_all_requires_dict_payload(monkeypatch) -> None:
 
 
 def test_graph_client_retries_429_with_retry_after(monkeypatch) -> None:
-    auth = AuthConfig(
-        tenant_id="t-1",
-        client_id="c-1",
-        auth_mode="access_token",
-        access_token="x",
-        throttle_mode="safe",
-    )
-    client = GraphClient(auth)
+    client = fake_graph_client(throttle_mode="safe")
     sleeps: list[float] = []
     responses = [
-        _FakeResponse(429, {"error": {"code": "TooManyRequests", "message": "slow down"}}, headers={"Retry-After": "3"}),
-        _FakeResponse(200, {"value": [{"id": "1"}]}),
+        graph_response(
+            429,
+            {"error": {"code": "TooManyRequests", "message": "slow down"}},
+            headers={"Retry-After": "3"},
+        ),
+        graph_response(200, {"value": [{"id": "1"}]}),
     ]
 
     monkeypatch.setattr("azure_tenant_audit.graph.time.sleep", lambda seconds: sleeps.append(seconds))
     monkeypatch.setattr("azure_tenant_audit.graph.random.uniform", lambda start, end: 0.0)
-    monkeypatch.setattr(client.session, "request", lambda method, url, headers=None, timeout=None, **kwargs: responses.pop(0))
+    monkeypatch.setattr(
+        client.session,
+        "request",
+        lambda method, url, headers=None, timeout=None, **kwargs: responses.pop(0),
+    )
 
     payload = client.get_json("/users")
 
@@ -116,19 +88,12 @@ def test_graph_client_retries_429_with_retry_after(monkeypatch) -> None:
 
 
 def test_graph_client_stops_after_repeated_permission_failures(monkeypatch) -> None:
-    auth = AuthConfig(
-        tenant_id="t-1",
-        client_id="c-1",
-        auth_mode="access_token",
-        access_token="x",
-        throttle_mode="safe",
-    )
-    client = GraphClient(auth)
+    client = fake_graph_client(throttle_mode="safe")
     calls = {"count": 0}
 
     def _request(method, url, headers=None, timeout=None, **kwargs):  # noqa: ARG001
         calls["count"] += 1
-        return _FakeResponse(
+        return graph_response(
             403,
             {
                 "error": {
@@ -158,14 +123,7 @@ def test_graph_client_stops_after_repeated_permission_failures(monkeypatch) -> N
 
 
 def test_graph_client_batches_get_requests_in_chunks_of_20_and_preserves_order(monkeypatch) -> None:
-    auth = AuthConfig(
-        tenant_id="t-1",
-        client_id="c-1",
-        auth_mode="access_token",
-        access_token="x",
-        throttle_mode="fast",
-    )
-    client = GraphClient(auth)
+    client = fake_graph_client(throttle_mode="fast")
     calls: list[dict[str, object]] = []
 
     def _request(method, url, **kwargs):  # noqa: ANN001, ARG001
@@ -187,7 +145,7 @@ def test_graph_client_batches_get_requests_in_chunks_of_20_and_preserves_order(m
                     },
                 }
             )
-        return _FakeResponse(200, {"responses": responses})
+        return graph_response(200, {"responses": responses})
 
     monkeypatch.setattr(client, "_request", _request)
 
@@ -204,18 +162,11 @@ def test_graph_client_batches_get_requests_in_chunks_of_20_and_preserves_order(m
 
 
 def test_graph_client_batches_get_requests_exposes_item_errors(monkeypatch) -> None:
-    auth = AuthConfig(
-        tenant_id="t-1",
-        client_id="c-1",
-        auth_mode="access_token",
-        access_token="x",
-        throttle_mode="fast",
-    )
-    client = GraphClient(auth)
+    client = fake_graph_client(throttle_mode="fast")
 
     def _request(method, url, **kwargs):  # noqa: ANN001, ARG001
         requests = kwargs["json"]["requests"]
-        return _FakeResponse(
+        return graph_response(
             200,
             {
                 "responses": [

@@ -19,7 +19,7 @@ def test_selected_collectors_respects_include_exclude():
     )
     available = ["identity", "security", "intune", "teams", "exchange"]
     selected = run.selected_collectors(available)
-    assert selected == ["identity"]
+    assert selected == ["identity", "exchange"]
 
 
 def test_selected_collectors_includes_exchange_only_when_explicitly_requested():
@@ -43,7 +43,7 @@ def test_selected_collectors_includes_exchange_only_when_explicitly_requested():
         include_exchange=True,
     )
     selected_with_exchange = run_include_exchange.selected_collectors(available)
-    assert "exchange" not in selected_with_exchange
+    assert "exchange" in selected_with_exchange
 
 
 def test_selected_collectors_prefers_explicit_over_profile_defaults():

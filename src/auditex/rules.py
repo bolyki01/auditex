@@ -5,11 +5,13 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from azure_tenant_audit.resources import resolve_resource_path
 
-DEFAULT_RULE_PACKS_PATH = Path(__file__).resolve().parents[2] / "configs" / "rule-packs.json"
+DEFAULT_RULE_PACKS_PATH = Path("configs/rule-packs.json")
 
 
 def _read_rules(path: Path) -> list[Mapping[str, Any]]:
+    path = resolve_resource_path(path)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):

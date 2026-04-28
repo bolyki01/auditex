@@ -81,6 +81,9 @@ The shipped bundle must keep these aligned:
 - configs under `configs/`
 - profiles under `profiles/`
 - schemas under `schemas/`
+- agent prompts under `agent/`
+- skills under `skills/`
+- sample bundle under `examples/sample_audit_bundle/`
 - provenance docs under `docs/provenance/`
 - `THIRD_PARTY_NOTICES.md`
 - this checklist

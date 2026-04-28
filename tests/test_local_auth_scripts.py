@@ -81,6 +81,12 @@ def test_tenant_audit_full_sources_local_auth_helper() -> None:
     assert 'source "${CURRENT_DIR}/load-local-auth.sh"' in script
 
 
+def test_select_python_prefers_repo_venv() -> None:
+    script = (REPO_ROOT / "scripts" / "select-python.sh").read_text(encoding="utf-8")
+    assert 'repo_venv_python="${script_dir}/../.venv/bin/python"' in script
+    assert script.index("repo_venv_python=") < script.index("for candidate in")
+
+
 def test_tenant_audit_full_uses_allow_no_subscriptions(tmp_path: Path) -> None:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()

@@ -3,10 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from auditex.evidence_db import build_run_evidence_index
-
 from .ai_context import build_ai_context, build_privacy_block, build_validation_report
 from .contracts import CONTRACT_VERSION
+from .evidence_db import build_run_evidence_index
 from .output import AuditWriter
 
 
@@ -42,7 +41,7 @@ def finalize_bundle_contract(
 
     writer.write_bundle({**metadata, "_suppress_completion_log": True})
     evidence_db_path = build_run_evidence_index(writer.run_dir)
-    writer._record_artifact(evidence_db_path)
+    writer.record_artifact(evidence_db_path)
 
     ai_context = build_ai_context(
         run_dir=writer.run_dir,

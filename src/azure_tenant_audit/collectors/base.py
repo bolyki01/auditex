@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from ..graph import GraphClient, GraphError
+
+if TYPE_CHECKING:
+    from ..collector_runner import CollectorRunContext
 
 
 def _classify_graph_error(exc: Exception) -> tuple[str, str]:
@@ -210,7 +213,7 @@ class Collector:
     required_permissions: list[str] = []
     command_collectors: list[dict[str, str]] | None = None
 
-    def run(self, context: Any) -> CollectorResult:
+    def run(self, context: "CollectorRunContext | dict[str, Any]") -> CollectorResult:
         raise NotImplementedError
 
     @staticmethod

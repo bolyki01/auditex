@@ -6,16 +6,15 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from .resources import resolve_resource_path
 from .waivers import apply_waivers, load_waivers
 
 
 _PERMISSION_CLASSES = {"insufficient_permissions", "unauthenticated"}
 _SERVICE_CLASSES = {"service_unavailable", "not_found", "not_enabled"}
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
 def _load_rule_registry(path: Path) -> dict[str, dict[str, Any]]:
+    path = resolve_resource_path(path)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -29,8 +28,8 @@ def _load_rule_registry(path: Path) -> dict[str, dict[str, Any]]:
     return registry
 
 
-_FINDING_TEMPLATE_REGISTRY = _load_rule_registry(_REPO_ROOT / "configs" / "finding-templates.json")
-_CONTROL_MAPPING_REGISTRY = _load_rule_registry(_REPO_ROOT / "configs" / "control-mappings.json")
+_FINDING_TEMPLATE_REGISTRY = _load_rule_registry(Path("configs/finding-templates.json"))
+_CONTROL_MAPPING_REGISTRY = _load_rule_registry(Path("configs/control-mappings.json"))
 
 _FALLBACK_FINDING_TEMPLATES = {
     "collector.issue.permission": {

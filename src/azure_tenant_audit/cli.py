@@ -1,59 +1,41 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 import json
 import importlib
 import logging
 import os
-from collections import defaultdict
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 import sys
 import time
 from pathlib import Path
 
+from .auth_runtime import (
+    acquire_azure_cli_access_token as _acquire_azure_cli_access_token,
+    build_auth_context_payload as _build_auth_context_payload,
+    capture_signed_in_context as _capture_signed_in_context,
+    inspect_access_token as _inspect_access_token,
+    scrub_command_line as _scrub_command_line,
+)
 from .collectors import REGISTRY
-from .collectors.base import CollectorResult
-from .config import AuthConfig, CollectorConfig, RunConfig
+from .collector_runner import AuditWriterCollectorAdapter, CollectorRunContext, CollectorRunner
+from .config import AuthConfig, CollectorConfig
+from .diagnostics import build_diagnostics as _build_diagnostics, load_permission_hints as _load_permission_hints
 from .findings import build_findings, build_report_pack
 from .graph import GraphClient
 from .normalize import build_ai_safe_summary, build_normalized_snapshot
 from .output import AuditWriter
-from .presets import load_collector_presets, resolve_collector_selection
+from .presets import load_collector_presets
 from .profiles import get_profile, profile_choices
-from .utils import load_env_file, parse_csv_list
+from .resources import resolve_resource_path
+from .utils import load_env_file
 from .ai_context import build_privacy_block
 from .finalize import finalize_bundle_contract
+from . import run as run_core
 
 LOG = logging.getLogger("azure_tenant_audit")
 
-SENSITIVE_CLI_ARGS = {"--client-secret", "--access-token"}
 PLANE_CHOICES = ("inventory", "full", "export")
-
-
-def _scrub_command_line(command_line: list[str]) -> list[str]:
-    """Remove token values from command history before writing into logs/manifest."""
-    scrubbed: list[str] = []
-    skip_next = False
-    for item in command_line:
-        if skip_next:
-            scrubbed.append("***redacted***")
-            skip_next = False
-            continue
-        if item in SENSITIVE_CLI_ARGS:
-            scrubbed.append(item)
-            skip_next = True
-            continue
-        if item.startswith("--client-secret="):
-            scrubbed.append("--client-secret=***redacted***")
-            continue
-        if item.startswith("--access-token="):
-            scrubbed.append("--access-token=***redacted***")
-            continue
-        scrubbed.append(item)
-    if skip_next:
-        scrubbed.append("***redacted***")
-    return scrubbed
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -132,322 +114,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _acquire_azure_cli_access_token(
-    tenant_id: str | None, log_event: Optional[Callable[[str, str, Optional[dict[str, Any]]], None]] = None
-) -> str:
-    """Load a Microsoft Graph token from Azure CLI for environments without app registration."""
-
-    command = [
-        "az",
-        "account",
-        "get-access-token",
-        "--resource",
-        "https://graph.microsoft.com",
-        "--output",
-        "json",
-    ]
-    if tenant_id:
-        command.extend(["--tenant", tenant_id])
-
-    start = time.time()
-    if log_event:
-        log_event(
-            "auth.cli.token.requested",
-            "Requesting Microsoft Graph token from Azure CLI",
-            {"tenant_id": tenant_id or "organizations", "resource": "https://graph.microsoft.com"},
-        )
-    try:
-        completed = subprocess.run(
-            command,
-            check=False,
-            text=True,
-            capture_output=True,
-            timeout=120,
-        )
-    except FileNotFoundError as exc:
-        raise RuntimeError("Azure CLI is not available. Install azure-cli and sign in with 'az login'.") from exc
-
-    duration_ms = round((time.time() - start) * 1000, 2)
-
-    if completed.returncode != 0:
-        message = (completed.stderr or completed.stdout or "").strip() or "Azure CLI token command failed."
-        if "Please run 'az login'" in message or "Please run: az login" in message:
-            if log_event:
-                log_event(
-                    "auth.cli.token.failed",
-                    "Azure CLI token acquisition failed because login is required.",
-                    {"tenant_id": tenant_id or "organizations", "duration_ms": duration_ms},
-                )
-            raise RuntimeError("Azure CLI is not signed in. Run 'az login' in a browser first, then retry.") from None
-        if log_event:
-            log_event(
-                "auth.cli.token.failed",
-                "Azure CLI token acquisition failed.",
-                {
-                    "tenant_id": tenant_id or "organizations",
-                    "duration_ms": duration_ms,
-                    "error": message,
-                },
-            )
-        raise RuntimeError(f"Azure CLI token fetch failed: {message}")
-
-    try:
-        payload = json.loads(completed.stdout)
-    except json.JSONDecodeError as exc:
-        if log_event:
-            log_event(
-                "auth.cli.token.failed",
-                "Azure CLI token response was not valid JSON.",
-                {
-                    "tenant_id": tenant_id or "organizations",
-                    "duration_ms": duration_ms,
-                },
-            )
-        raise RuntimeError("Azure CLI returned non-JSON token response.") from exc
-
-    token = payload.get("accessToken") or payload.get("access_token")
-    if not token:
-        if log_event:
-            log_event(
-                "auth.cli.token.failed",
-                "Azure CLI token response missing access token field.",
-                {"tenant_id": tenant_id or "organizations", "duration_ms": duration_ms},
-            )
-        raise RuntimeError("Azure CLI token response was missing accessToken.")
-
-    if log_event:
-        log_event(
-            "auth.cli.token.acquired",
-            "Azure CLI token acquired.",
-            {
-                "tenant_id": tenant_id or "organizations",
-                "duration_ms": duration_ms,
-            },
-        )
-    return token
-
-
-def _capture_signed_in_context(
-    client: GraphClient, log_event: Optional[Callable[[str, str, Optional[dict[str, Any]]], None]] = None
-) -> dict[str, Any]:
-    """Best-effort capture of the current delegated identity and directory roles."""
-
-    try:
-        me = client.get_json("/me")
-        roles = client.get_all(
-            "/me/memberOf/microsoft.graph.directoryRole",
-            params={"$select": "id,displayName,roleTemplateId"},
-        )
-    except Exception as exc:  # noqa: BLE001
-        if log_event:
-            log_event(
-                "auth.session.unavailable",
-                "Unable to capture signed-in identity and directory roles.",
-                {"error": str(exc)},
-            )
-        return {}
-
-    role_names = sorted(
-        {
-            role.get("displayName")
-            for role in roles
-            if isinstance(role, dict) and role.get("displayName")
-        }
-    )
-    context = {
-        "display_name": me.get("displayName"),
-        "user_principal_name": me.get("userPrincipalName"),
-        "object_id": me.get("id"),
-        "roles": role_names,
-    }
-    if log_event:
-        log_event(
-            "auth.session.context",
-            "Captured signed-in identity and directory roles.",
-            context,
-        )
-    return context
-
-
-def _inspect_access_token(token: str) -> dict[str, Any]:
-    return importlib.import_module("auditex.auth").inspect_token_claims(token)
-
-
-def _build_auth_context_payload(
-    *,
-    auth_mode: str,
-    tenant_id: str,
-    token_claims: dict[str, Any] | None = None,
-    session_context: dict[str, Any] | None = None,
-    saved_context: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "auth_mode": auth_mode,
-        "tenant_id": tenant_id,
-        "token_claims": token_claims or {},
-        "session_context": session_context or {},
-    }
-    if saved_context:
-        payload["saved_auth_context"] = {
-            "name": saved_context.get("name"),
-            "auth_type": saved_context.get("auth_type"),
-            "tenant_id": saved_context.get("tenant_id"),
-        }
-        delegated_roles = saved_context.get("delegated_roles") or []
-    else:
-        delegated_roles = []
-    session_roles = (session_context or {}).get("roles") or []
-    payload["delegated_roles"] = list(dict.fromkeys([*delegated_roles, *session_roles]))
-    return payload
-
-
-def _build_capability_matrix_rows(
-    *,
-    auth_context: dict[str, Any],
-    selected_collectors: list[str],
-    auditor_profile: str,
-    collector_config: CollectorConfig,
-    permission_hints: dict[str, dict[str, Any]],
-) -> list[dict[str, Any]]:
-    token_claims = auth_context.get("token_claims") or {}
-    available = {
-        *[str(item) for item in token_claims.get("delegated_scopes") or [] if item],
-        *[str(item) for item in token_claims.get("app_roles") or [] if item],
-    }
-    delegated_roles = {str(item) for item in auth_context.get("delegated_roles") or [] if item}
-    has_global_reader = any(role.lower() == "global reader" for role in delegated_roles)
-    profile = get_profile(auditor_profile)
-    rows: list[dict[str, Any]] = []
-    for collector_name in selected_collectors:
-        definition = collector_config.collectors.get(collector_name)
-        hints = permission_hints.get(collector_name, {})
-        required = list(definition.required_permissions) if definition else list(hints.get("graph_scopes") or [])
-        missing = [perm for perm in required if perm not in available]
-        status = "supported_exact_scope"
-        reason = "required_permissions_present"
-        if missing:
-            status = "blocked_by_scope"
-            reason = "missing_required_permissions"
-        if definition and getattr(definition, "command_collectors", None) and not required:
-            status = "supported_effective_role"
-            reason = "command_toolchain_required"
-        if collector_name in {"purview", "ediscovery"} and has_global_reader:
-            status = "blocked_by_role"
-            reason = "global_reader_limit"
-        elif collector_name == "reports_usage" and has_global_reader and "Reports.Read.All" not in available:
-            status = "partial"
-            reason = "global_reader_tenant_level_reports_only"
-        rows.append(
-            {
-                "collector": collector_name,
-                "status": status,
-                "reason": reason,
-                "required_permissions": required,
-                "missing_permissions": missing,
-                "observed_permissions": sorted(available),
-                "delegated_roles": sorted(delegated_roles),
-                "minimum_role_hints": list(hints.get("minimum_role_hints") or profile.delegated_role_hints),
-                "notes": hints.get("notes") or profile.notes,
-            }
-        )
-    return rows
-
-
-def _reconcile_capability_matrix_rows(
-    capability_rows: list[dict[str, Any]],
-    result_rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    results_by_collector = {str(row.get("name")): row for row in result_rows if isinstance(row, dict)}
-    reconciled: list[dict[str, Any]] = []
-    for row in capability_rows:
-        item = dict(row)
-        collector = str(item.get("collector") or "")
-        result = results_by_collector.get(collector, {})
-        actual_status = str(result.get("status") or "")
-        missing_permissions = list(item.get("missing_permissions") or [])
-        delegated_roles = list(item.get("delegated_roles") or [])
-        if actual_status == "ok":
-            if missing_permissions:
-                item["status"] = "supported_effective_role" if delegated_roles else "supported_equivalent_scope"
-            elif item.get("status") not in {"supported_effective_role"}:
-                item["status"] = "supported_exact_scope"
-        elif actual_status == "partial":
-            item["status"] = "partial"
-        elif actual_status == "failed":
-            item["status"] = "blocked"
-        elif actual_status == "skipped":
-            item["status"] = "not_applicable"
-        reconciled.append(item)
-    return reconciled
-
-
-def _build_coverage_ledger(
-    *,
-    capability_rows: list[dict[str, Any]],
-    result_rows: list[dict[str, Any]],
-    diagnostics: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    results_by_collector = {str(row.get("name")): row for row in result_rows}
-    diagnostics_by_collector: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for item in diagnostics:
-        collector = str(item.get("collector") or "")
-        if collector:
-            diagnostics_by_collector[collector].append(item)
-
-    def _has_permission_block(collector: str) -> bool:
-        classes = {str(item.get("error_class") or "") for item in diagnostics_by_collector.get(collector, [])}
-        return any(value in {"insufficient_permissions", "unauthenticated", "blocked_by_scope"} for value in classes)
-
-    ledger: list[dict[str, Any]] = []
-    for capability in capability_rows:
-        collector = str(capability.get("collector") or "")
-        result = results_by_collector.get(collector, {})
-        actual_status = result.get("status")
-        expected_status = capability.get("status")
-        if not result:
-            coverage_status = "not_run"
-            coverage_reason = "collector_not_executed"
-        elif _has_permission_block(collector):
-            coverage_status = "blocked_permission"
-            coverage_reason = "permission_or_auth_blocker"
-        elif actual_status == "ok":
-            if expected_status == "supported_effective_role":
-                coverage_status = "complete_effective_role"
-                coverage_reason = "runtime_success_with_effective_role"
-            elif expected_status == "supported_equivalent_scope":
-                coverage_status = "complete_equivalent_scope"
-                coverage_reason = "runtime_success_with_equivalent_permission"
-            elif expected_status == "offline_sample":
-                coverage_status = "complete_offline_sample"
-                coverage_reason = "offline_sample_materialized"
-            else:
-                coverage_status = "complete_exact_scope"
-                coverage_reason = "runtime_success_with_expected_scope"
-        elif actual_status == "partial":
-            coverage_status = "partial_success"
-            coverage_reason = "collector_returned_partial"
-        elif actual_status == "skipped":
-            coverage_status = "not_applicable" if expected_status not in {"blocked_by_scope", "blocked_by_role"} else "blocked_permission"
-            coverage_reason = "collector_skipped"
-        else:
-            coverage_status = "failed_runtime"
-            coverage_reason = "collector_failed_runtime"
-        ledger.append(
-            {
-                "collector": collector,
-                "expected_status": expected_status,
-                "expected_reason": capability.get("reason"),
-                "actual_status": actual_status,
-                "coverage_status": coverage_status,
-                "coverage_reason": coverage_reason,
-                "item_count": result.get("item_count", 0),
-                "message": result.get("message"),
-                "diagnostic_count": len(diagnostics_by_collector.get(collector, [])),
-                "diagnostics": diagnostics_by_collector.get(collector, []),
-            }
-        )
-    return ledger
-
 def run_offline(
     sample_path: Path,
     out: Path,
@@ -459,6 +125,7 @@ def run_offline(
     since: str | None = None,
     until: str | None = None,
 ) -> int:
+    sample_path = resolve_resource_path(sample_path)
     if not sample_path.exists():
         LOG.error("Sample file not found: %s", sample_path)
         return 2
@@ -488,7 +155,7 @@ def run_offline(
         json.dumps(sample, indent=2),
         encoding="utf-8",
     )
-    writer._record_artifact(writer.raw_dir / "sample_input.json")
+    writer.record_artifact(writer.raw_dir / "sample_input.json")
     for key, value in sample.items():
         if isinstance(value, dict):
             collector_payloads[str(key)] = value
@@ -520,7 +187,7 @@ def run_offline(
         }
         for row in result_rows
     ]
-    coverage_ledger = _build_coverage_ledger(
+    coverage_ledger = run_core.build_coverage_ledger(
         capability_rows=capability_rows,
         result_rows=result_rows,
         diagnostics=diagnostics,
@@ -602,273 +269,6 @@ def run_offline(
     LOG.info("Offline sample written to %s", writer.run_dir)
     return 0
 
-def _load_permission_hints(path: Path) -> dict[str, dict[str, Any]]:
-    if not path.exists():
-        LOG.warning("Permission hints file not found: %s", path)
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        LOG.warning("Failed to load permission hints file %s: %s", path, exc)
-        return {}
-    raw = payload.get("collector_permissions") or {}
-    if not isinstance(raw, dict):
-        return {}
-    return {str(name): dict(value) if isinstance(value, dict) else {} for name, value in raw.items()}
-
-
-def _build_diagnostics(
-    result_rows: list[dict[str, Any]],
-    coverage_rows: list[dict[str, Any]],
-    permission_hints: dict[str, dict[str, Any]],
-    auditor_profile: str,
-) -> list[dict[str, Any]]:
-    failures: list[dict[str, Any]] = []
-    by_collector = defaultdict(list)
-    profile = get_profile(auditor_profile)
-    for row in coverage_rows:
-        collector_name = row.get("collector")
-        if isinstance(collector_name, str):
-            by_collector[collector_name].append(row)
-
-    for row in result_rows:
-        collector_name = row["name"]
-        if row["status"] in {"ok", "skipped"}:
-            continue
-        hints = permission_hints.get(collector_name, {})
-        recommended_scopes = hints.get("graph_scopes", [])
-        minimum_roles = hints.get("minimum_role_hints", [])
-        command_tools = hints.get("command_tools", [])
-        optional_commands = hints.get("optional_commands", [])
-        notes = hints.get("notes")
-        notes_detail = notes if isinstance(notes, str) else None
-        issue_rows = by_collector.get(collector_name, [])
-        if not issue_rows:
-            failures.append(
-                {
-                    "collector": collector_name,
-                    "status": row["status"],
-                    "error": row.get("error"),
-                    "error_class": "unknown",
-                    "evidence": {
-                        "message": row.get("message"),
-                    },
-                    "recommendations": {
-                        "required_graph_scopes": sorted(set(recommended_scopes)),
-                        "recommended_roles": sorted(set(minimum_roles)),
-                        "command_tools": sorted(set(command_tools)),
-                        "optional_commands": sorted(set(optional_commands)),
-                        "notes": notes_detail,
-                        "auditor_profile": auditor_profile,
-                        "profile_role_hints": list(profile.delegated_role_hints),
-                        "optional_app_escalation_permissions": list(profile.app_escalation_permissions),
-                    },
-                }
-            )
-            continue
-
-        for item in issue_rows:
-            status = item.get("status")
-            if status == "ok":
-                continue
-            failure: dict[str, Any] = {
-                "collector": collector_name,
-                "item": item.get("name"),
-                "status": status,
-                "endpoint": item.get("endpoint"),
-                "error_class": item.get("error_class"),
-                "error": item.get("error"),
-                "top": item.get("top"),
-                "command_type": item.get("type"),
-                "evidence_refs": [
-                    {
-                        "artifact_path": f"raw/{collector_name}.json",
-                        "artifact_kind": "raw_json",
-                        "collector": collector_name,
-                        "record_key": f"{collector_name}:{item.get('name') or collector_name}",
-                        "source_name": item.get("name"),
-                        "json_pointer": f"/{item.get('name')}" if item.get("name") else None,
-                        "endpoint": item.get("endpoint"),
-                        "response_status": status,
-                        "query_params": {
-                            key: item.get(key)
-                            for key in ("top", "page", "result_limit")
-                            if item.get(key) is not None
-                        }
-                        or None,
-                    }
-                ],
-            }
-            if item.get("type") == "command":
-                failure["commands_required"] = optional_commands or [str(item.get("command"))] if item.get("command") else []
-                failure["recommendations"] = {
-                    "required_tools": sorted(set(command_tools)),
-                    "notes": notes_detail,
-                    "auditor_profile": auditor_profile,
-                    "profile_role_hints": list(profile.delegated_role_hints),
-                }
-            elif item.get("type") == "graph":
-                failure["recommendations"] = {
-                    "required_graph_scopes": sorted(set(recommended_scopes)),
-                    "recommended_roles": sorted(set(minimum_roles)),
-                    "notes": notes_detail,
-                    "auditor_profile": auditor_profile,
-                    "profile_role_hints": list(profile.delegated_role_hints),
-                    "optional_app_escalation_permissions": list(profile.app_escalation_permissions),
-                }
-            else:
-                failure["recommendations"] = {
-                    "notes": notes_detail,
-                    "auditor_profile": auditor_profile,
-                }
-            failures.append(failure)
-
-    return failures
-
-
-def _collector_pause_seconds(throttle_mode: str) -> float:
-    if throttle_mode == "ultra-safe":
-        return 1.5
-    if throttle_mode == "safe":
-        return 0.5
-    return 0.0
-
-
-def _run_preflight_probe(
-    *,
-    selected_collectors: list[str],
-    completed_collectors: set[str],
-    client: GraphClient,
-    run_cfg: RunConfig,
-    writer: AuditWriter,
-    include_blocked: bool,
-) -> tuple[list[str], list[dict[str, Any]], str]:
-    rows: list[dict[str, Any]] = []
-    runnable: list[str] = []
-    preflight_top = max(1, min(5, run_cfg.top_items))
-    preflight_page_size = max(1, min(5, run_cfg.page_size))
-    writer.log_event(
-        "preflight.started",
-        "Collector preflight started",
-        {
-            "collector_count": len(selected_collectors),
-            "top": preflight_top,
-            "page_size": preflight_page_size,
-            "include_blocked": include_blocked,
-        },
-    )
-    for name in selected_collectors:
-        if name in completed_collectors:
-            runnable.append(name)
-            rows.append(
-                {
-                    "collector": name,
-                    "decision": "run",
-                    "reason": "already_completed",
-                    "status": "ok",
-                    "item_count": 0,
-                }
-            )
-            continue
-        collector = REGISTRY.get(name)
-        if collector is None:
-            rows.append(
-                {
-                    "collector": name,
-                    "decision": "skip",
-                    "reason": "unknown_collector",
-                    "status": "failed",
-                    "item_count": 0,
-                    "error": "unknown collector",
-                }
-            )
-            continue
-
-        writer.log_event("preflight.collector.started", "Preflight collector started", {"collector": name})
-        try:
-            result = collector.run(
-                {
-                    "client": client,
-                    "top": preflight_top,
-                    "page_size": preflight_page_size,
-                    "plane": "inventory",
-                    "since": run_cfg.since,
-                    "until": run_cfg.until,
-                    "collector_checkpoint_state": {},
-                    "operation_checkpoint_state": {},
-                    "chunk_writer": None,
-                    "audit_logger": writer.log_event,
-                }
-            )
-            coverage = result.coverage or []
-            has_ok = any(item.get("status") == "ok" for item in coverage)
-            decision = "run" if include_blocked or result.item_count > 0 or has_ok else "skip"
-            reason = "supported" if decision == "run" else "known_blocked"
-            rows.append(
-                {
-                    "collector": name,
-                    "decision": decision,
-                    "reason": reason,
-                    "status": result.status,
-                    "item_count": result.item_count,
-                    "coverage_rows": len(coverage),
-                    "message": result.message,
-                }
-            )
-            if decision == "run":
-                runnable.append(name)
-            writer.log_event(
-                "preflight.collector.finished",
-                "Preflight collector finished",
-                {
-                    "collector": name,
-                    "decision": decision,
-                    "status": result.status,
-                    "item_count": result.item_count,
-                },
-            )
-        except Exception as exc:  # noqa: BLE001
-            rows.append(
-                {
-                    "collector": name,
-                    "decision": "skip" if not include_blocked else "run",
-                    "reason": "preflight_exception",
-                    "status": "failed",
-                    "item_count": 0,
-                    "error": str(exc),
-                }
-            )
-            if include_blocked:
-                runnable.append(name)
-            writer.log_event(
-                "preflight.collector.finished",
-                "Preflight collector failed",
-                {
-                    "collector": name,
-                    "decision": "run" if include_blocked else "skip",
-                    "status": "failed",
-                    "error": str(exc),
-                },
-            )
-
-    artifact = writer.write_json_artifact(
-        "preflight-plan.json",
-        {
-            "collectors": rows,
-            "runnable_collectors": runnable,
-            "skipped_collectors": [row["collector"] for row in rows if row.get("decision") == "skip"],
-        },
-    )
-    writer.log_event(
-        "preflight.completed",
-        "Collector preflight completed",
-        {
-            "run_count": len(runnable),
-            "skip_count": len([row for row in rows if row.get("decision") == "skip"]),
-        },
-    )
-    return runnable, rows, str(artifact.relative_to(writer.run_dir))
-
 
 def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]], None] | None = None) -> int:
     out = Path(args.out).expanduser().resolve()
@@ -880,58 +280,24 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
         args.access_token = args.access_token or saved_auth_context.get("token")
         args.tenant_id = args.tenant_id or saved_auth_context.get("tenant_id")
 
-    config = CollectorConfig.from_path(Path(args.config))
-    permission_hints = _load_permission_hints(Path(args.permission_hints))
-    profile = get_profile(args.auditor_profile)
-    selected_collector_names = parse_csv_list(args.collectors)
-    exclude_collector_names = parse_csv_list(args.exclude)
-    if args.include_exchange:
-        merged_collectors = list(selected_collector_names or profile.default_collectors)
-        if "exchange" not in merged_collectors:
-            merged_collectors.append("exchange")
-        selected_collector_names = merged_collectors
-
-    run_cfg = RunConfig(
-        tenant_name=args.tenant_name,
-        output_dir=out,
-        collectors=selected_collector_names,
-        excluded_collectors=exclude_collector_names,
-        include_exchange=args.include_exchange,
-        offline=args.offline,
-        sample_path=Path(args.sample),
-        run_name=args.run_name,
-        top_items=args.top,
-        page_size=args.page_size,
-        auditor_profile=args.auditor_profile,
-        default_collectors=profile.default_collectors,
-        plane=args.plane,
-        since=args.since,
-        until=args.until,
-    )
-
-    available = [name for name in config.default_order if name in config.collectors]
     try:
-        selected = resolve_collector_selection(
-            available=available,
-            profile_default_collectors=profile.default_collectors,
-            preset_name=args.collector_preset,
-            presets=load_collector_presets(),
-            explicit_collectors=selected_collector_names,
-            excluded_collectors=exclude_collector_names,
+        config = CollectorConfig.from_path(Path(args.config))
+        permission_hints = _load_permission_hints(Path(args.permission_hints))
+        plan = run_core.build_live_run_plan(
+            args,
+            output_dir=out,
+            collector_config=config,
+            permission_hints=permission_hints,
+            profile=get_profile(args.auditor_profile),
+            collector_presets=load_collector_presets(),
         )
     except ValueError as exc:
         LOG.error("%s", exc)
         return 2
-    if run_cfg.plane not in profile.supported_planes:
-        LOG.error("Audit profile '%s' does not support plane '%s'.", run_cfg.auditor_profile, run_cfg.plane)
-        return 2
-    execution_plane = "export" if run_cfg.plane in {"full", "export"} else "inventory"
-
-    auth_scopes = parse_csv_list(args.scopes)
-    if args.interactive and not auth_scopes:
-        auth_scopes = sorted({perm for name in selected for perm in config.collectors[name].required_permissions})
-    if args.interactive and not auth_scopes:
-        auth_scopes = ["User.Read"]
+    run_cfg = plan.run_config
+    selected = plan.selected_collectors
+    execution_plane = plan.execution_plane
+    auth_scopes = plan.auth_scopes
 
     resume_from = Path(args.resume_from).expanduser().resolve() if args.resume_from else None
     writer = AuditWriter(
@@ -1040,7 +406,7 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
         session_context=session_context,
         saved_context=saved_auth_context,
     )
-    capability_rows = _build_capability_matrix_rows(
+    capability_rows = run_core.build_capability_matrix_rows(
         auth_context=auth_context_payload,
         selected_collectors=selected,
         auditor_profile=run_cfg.auditor_profile,
@@ -1051,13 +417,14 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
     preflight_rows: list[dict[str, Any]] = []
     preflight_path: str | None = None
     if args.probe_first:
-        selected, preflight_rows, preflight_path = _run_preflight_probe(
+        selected, preflight_rows, preflight_path = run_core.run_preflight_probe(
             selected_collectors=selected_before_preflight,
             completed_collectors=completed_collectors,
             client=client,
             run_cfg=run_cfg,
             writer=writer,
             include_blocked=args.include_blocked,
+            registry=REGISTRY,
         )
         if not selected:
             writer.log_event(
@@ -1117,7 +484,9 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
         for row in preflight_rows
         if row.get("decision") == "skip" and row.get("collector")
     }
-    collector_pause_seconds = _collector_pause_seconds(args.throttle_mode)
+    collector_pause_seconds = run_core.collector_pause_seconds(args.throttle_mode)
+    writer_adapter = AuditWriterCollectorAdapter(writer)
+    collector_runner = CollectorRunner(writer_adapter)
 
     for name, skip in preflight_skipped.items():
         skip_row: dict[str, object] = {
@@ -1172,93 +541,29 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
             )
             continue
 
-        try:
-            writer.log_event("collector.started", "Collector started", {"collector": name})
-            result: CollectorResult = collector.run(
-                {
-                    "client": client,
-                    "top": run_cfg.top_items,
-                    "page_size": run_cfg.page_size,
-                    "plane": execution_plane,
-                    "since": run_cfg.since,
-                    "until": run_cfg.until,
-                    "collector_checkpoint_state": collector_checkpoint_state.get(name, {}),
-                    "operation_checkpoint_state": operation_checkpoint_state.get(name, {}),
-                    "write_export_checkpoint": writer.write_export_checkpoint,
-                    "write_export_records": lambda collector_name, operation_name, page_number, records, metadata=None: str(
-                        writer.write_export_records(
-                            collector_name,
-                            operation_name,
-                            page_number,
-                            records,
-                            metadata,
-                        ).relative_to(writer.run_dir)
-                    ),
-                    "write_export_summary": lambda collector_name, operation_name, payload: str(
-                        writer.write_export_summary(collector_name, operation_name, payload).relative_to(writer.run_dir)
-                    ),
-                    "chunk_writer": lambda collector_name, endpoint_name, page_number, records, metadata=None: str(
-                        writer.write_chunk_records(collector_name, endpoint_name, page_number, records, metadata).relative_to(
-                            writer.run_dir
-                        )
-                    ),
-                    "audit_logger": writer.log_event,
-                }
-            )
-            collector_coverage = result.coverage or []
-            if collector_coverage:
-                writer.write_index_records(collector_coverage)
-                coverage_rows.extend(collector_coverage)
-            writer.log_event(
-                "collector.finished",
-                "Collector finished",
-                {
-                    "collector": name,
-                    "status": result.status,
-                    "item_count": result.item_count,
-                    "coverage_rows": len(collector_coverage),
-                    "error": result.error,
-                },
-            )
-            writer.write_raw(name, result.payload)
-            status = result.status
-            if result.status != "ok":
-                failures += 1
-            if result.error:
-                LOG.warning("%s collector error: %s", name, result.error)
-            collector_payloads[name] = result.payload
-            result_rows.append(
-                {
-                    "name": result.name,
-                    "status": status,
-                    "item_count": result.item_count,
-                    "message": result.message or ("ok" if status == "ok" else "partial"),
-                    "error": result.error,
-                    "coverage_rows": len(collector_coverage),
-                }
-            )
-            summary_rows.append(result_rows[-1])
-            writer.write_checkpoint(name, result_rows[-1])
-        except Exception as exc:  # noqa: BLE001
+        output = collector_runner.run(
+            collector,
+            CollectorRunContext(
+                client=client,
+                top=run_cfg.top_items,
+                page_size=run_cfg.page_size,
+                plane=execution_plane,
+                since=run_cfg.since,
+                until=run_cfg.until,
+                collector_checkpoint_state=collector_checkpoint_state.get(name, {}),
+                operation_checkpoint_state=operation_checkpoint_state.get(name, {}),
+                hooks=writer_adapter.hooks(),
+            ),
+            name=name,
+        )
+        coverage_rows.extend(output.coverage_rows)
+        if output.result.status != "ok":
             failures += 1
-            LOG.exception("Collector failed: %s", name)
-            writer.log_event(
-                "collector.failed",
-                "Collector crashed",
-                {"collector": name, "error": str(exc)},
-            )
-            result_rows.append(
-                {
-                    "name": name,
-                    "status": "failed",
-                    "item_count": 0,
-                    "message": "collector crashed",
-                    "error": str(exc),
-                    "coverage_rows": 0,
-                }
-            )
-            summary_rows.append(result_rows[-1])
-            writer.write_checkpoint(name, result_rows[-1])
+        if output.result.error:
+            LOG.warning("%s collector error: %s", name, output.result.error)
+        collector_payloads[name] = output.result.payload
+        result_rows.append(dict(output.result_row))
+        summary_rows.append(result_rows[-1])
 
         if collector_pause_seconds > 0:
             writer.log_event(
@@ -1285,12 +590,12 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
             "Failure diagnostics generated",
             {"count": len(diagnostics)},
         )
-    coverage_ledger = _build_coverage_ledger(
+    coverage_ledger = run_core.build_coverage_ledger(
         capability_rows=capability_rows,
         result_rows=result_rows,
         diagnostics=diagnostics,
     )
-    capability_rows = _reconcile_capability_matrix_rows(capability_rows, result_rows)
+    capability_rows = run_core.reconcile_capability_matrix_rows(capability_rows, result_rows)
     normalized_snapshot = build_normalized_snapshot(
         tenant_name=run_cfg.tenant_name,
         run_id=writer.run_id,
@@ -1384,6 +689,13 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
 
 
 def main(argv: list[str] | None = None, event_listener: Callable[[dict[str, Any]], None] | None = None) -> int:
+    try:
+        from auditex.sentry_runtime import init_sentry
+
+        init_sentry()
+    except Exception:
+        pass
+
     parser = build_parser()
     parsed_argv = list(argv if argv is not None else sys.argv[1:])
     args = parser.parse_args(parsed_argv)

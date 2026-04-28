@@ -219,6 +219,12 @@ class AuditWriter:
         if relative not in self._manifest["artifacts"]:
             self._manifest["artifacts"].append(relative)
 
+    def record_artifact(self, target: Path) -> None:
+        self._record_artifact(target)
+
+    def artifact_paths(self) -> list[str]:
+        return list(self._manifest.get("artifacts", []))
+
     def _load_checkpoint_state(self) -> dict[str, dict[str, Any]]:
         if not self.checkpoint_state_path.exists():
             return {"collectors": {}, "operations": {}}

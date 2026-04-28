@@ -15,6 +15,7 @@ from azure_tenant_audit.probe import ProbeConfig, probe_mode_choices, run_live_p
 from azure_tenant_audit.response import ResponseConfig, response_actions, run_response
 
 from .mcp_server import list_blockers, summarize_run
+from .sentry_runtime import init_sentry
 
 
 def _build_root_parser() -> argparse.ArgumentParser:
@@ -251,6 +252,8 @@ def _build_notify_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    init_sentry()
+
     argv = list(argv if argv is not None else sys.argv[1:])
     if not argv:
         _build_root_parser().print_help()

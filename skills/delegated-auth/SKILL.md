@@ -13,7 +13,8 @@ Start with delegated `Global Reader` or equivalent before asking for app consent
 
 ```bash
 az login --tenant <tenant>
-auditex --tenant-name <label> --tenant-id <tenant> --use-azure-cli-token --auditor-profile global-reader --out outputs/live
+auditex guided-run --flow gr-audit --include-exchange
+auditex run --tenant-name <label> --tenant-id <tenant> --use-azure-cli-token --auditor-profile global-reader --out outputs/live
 ```
 
 ## What to record

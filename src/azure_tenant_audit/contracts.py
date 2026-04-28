@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from .resources import list_resource_files, resolve_resource_path
+
 CONTRACT_VERSION = "2026-04-21"
 
 ROOT_REQUIRED_ARTIFACTS = (
@@ -244,8 +246,6 @@ def build_validation_report(
 
 
 def contract_schema_manifest(schema_dir: str | Path = "schemas") -> dict[str, Any]:
-    root = Path(schema_dir)
-    schemas = []
-    if root.exists():
-        schemas = sorted(str(path.relative_to(root)) for path in root.glob("*.schema.json"))
+    root = resolve_resource_path(schema_dir)
+    schemas = [path.name for path in list_resource_files(schema_dir, "*.schema.json")]
     return {"contract_version": CONTRACT_VERSION, "schema_dir": str(root), "schemas": schemas}

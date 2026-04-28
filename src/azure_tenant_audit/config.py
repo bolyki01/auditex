@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
+from .resources import resolve_resource_path
+from .selection import select_collectors
+
 
 @dataclass
 class AuthConfig:
@@ -39,20 +42,13 @@ class RunConfig:
     until: Optional[str] = None
 
     def selected_collectors(self, available: Iterable[str]) -> list[str]:
-        requested = set(self.collectors or [])
-        excluded = set(self.excluded_collectors or [])
-        explicit_request = self.collectors is not None
-        if not explicit_request:
-            requested = set(self.default_collectors)
-
-        ordered = []
-        for name in available:
-            if name in excluded:
-                continue
-            if requested and name not in requested:
-                continue
-            ordered.append(name)
-        return ordered
+        return select_collectors(
+            available=available,
+            profile_default_collectors=self.default_collectors,
+            explicit_collectors=self.collectors,
+            excluded_collectors=self.excluded_collectors,
+            include_exchange=self.include_exchange,
+        )
 
 
 @dataclass
@@ -71,8 +67,9 @@ class CollectorConfig:
     default_order: list[str]
 
     @classmethod
-    def from_path(cls, path: Path) -> "CollectorConfig":
-        payload = json.loads(path.read_text(encoding="utf-8"))
+    def from_path(cls, path: str | Path) -> "CollectorConfig":
+        target = resolve_resource_path(path)
+        payload = json.loads(target.read_text(encoding="utf-8"))
         collectors = {
             key: CollectorDefinition(
                 collector_id=key,

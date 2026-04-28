@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -14,6 +13,9 @@ from azure_tenant_audit.adapters import ADAPTERS, list_adapters as _list_adapter
 from azure_tenant_audit.response import response_actions
 from azure_tenant_audit.contracts import contract_schema_manifest
 from .rules import list_rule_inventory
+from .command_runner import run_cli_command
+from .mcp_registry import iter_tool_specs, register_fastmcp_tools
+from .run_bundle import RunBundle
 SUPPORTED_PLANES = ("inventory", "full", "export")
 SUPPORTED_PROBE_MODES = ("delegated", "app", "response")
 
@@ -63,128 +65,7 @@ def list_response_actions() -> dict[str, Any]:
 
 
 def tool_specs() -> list[dict[str, Any]]:
-    return [
-        {
-            "name": "auditex_list_collectors",
-            "description": "List collector IDs, required permissions, and query plans from the active definitions file.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_list_adapters",
-            "description": "List configured adapters and their dependency requirements.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_list_response_actions",
-            "description": "List guarded response actions exposed by the response plane.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_list_profiles",
-            "description": "List built-in delegated and app-readonly audit profiles.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_auth_status",
-            "description": "Show local Auditex auth state, including Azure CLI and saved m365 connections.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_auth_list",
-            "description": "List saved m365 connections for the local Auditex operator environment.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_auth_use",
-            "description": "Switch the active saved m365 connection.",
-            "readOnlyHint": False,
-        },
-        {
-            "name": "auditex_auth_import_token",
-            "description": "Store a customer-provided Graph bearer token as a local auth context.",
-            "readOnlyHint": False,
-        },
-        {
-            "name": "auditex_auth_inspect_token",
-            "description": "Decode a Graph bearer token locally and return its claims summary.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_auth_capability",
-            "description": "Map a saved auth context to collector capability and missing read permissions.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_contract_schema_manifest",
-            "description": "List versioned output contract schemas shipped with this Auditex build.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_run_offline_validation",
-            "description": "Run the offline sample audit to validate local packaging without tenant access.",
-            "readOnlyHint": False,
-        },
-        {
-            "name": "auditex_run_delegated_audit",
-            "description": "Run the Azure CLI token or supplied-token audit path against a tenant and return the run manifest path.",
-            "readOnlyHint": False,
-        },
-        {
-            "name": "auditex_summarize_run",
-            "description": "Read a completed run directory and return summary, manifest, and diagnostics paths.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_diff_runs",
-            "description": "Compare normalized snapshots between two completed run directories.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_compare_runs",
-            "description": "Compare multiple completed runs with same-tenant gating and timeline output.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_probe_live",
-            "description": "Run a live capability probe against a tenant and emit capability/toolchain/blocker artifacts.",
-            "readOnlyHint": False,
-        },
-        {
-            "name": "auditex_probe_summarize",
-            "description": "Read a completed probe run and return capability, toolchain, and blocker artifact paths.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_list_blockers",
-            "description": "Read blocker artifacts from a completed audit or probe run.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_report_preview",
-            "description": "Build an in-memory report preview for a completed run without writing files.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_export_list",
-            "description": "List available report exporters.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_notify_preview",
-            "description": "Build the dry-run notification payload for a completed run.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_rules_inventory",
-            "description": "List built-in rule inventory rows with optional routing filters.",
-            "readOnlyHint": True,
-        },
-        {
-            "name": "auditex_run_response_action",
-            "description": "Run a guarded response action in a separate response bundle.",
-            "readOnlyHint": False,
-        },
-    ]
+    return list(iter_tool_specs())
 
 
 def build_cli_command(
@@ -332,94 +213,8 @@ def build_response_command(
     return command
 
 
-def run_cli_command(command: list[str], cwd: str | None = None) -> dict[str, Any]:
-    completed = subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False)
-    return {
-        "command": command,
-        "returncode": completed.returncode,
-        "stdout": completed.stdout,
-        "stderr": completed.stderr,
-    }
-
-
 def summarize_run(run_dir: str) -> dict[str, Any]:
-    path = Path(run_dir)
-    manifest_path = path / "run-manifest.json"
-    summary_path = path / "summary.json"
-    summary_md_path = path / "summary.md"
-    diagnostics_path = path / "diagnostics.json"
-    result: dict[str, Any] = {
-        "run_dir": str(path),
-        "manifest_path": str(manifest_path),
-        "summary_path": str(summary_path),
-        "summary_md_path": str(summary_md_path),
-        "diagnostics_path": str(diagnostics_path),
-    }
-    if manifest_path.exists():
-        result["manifest"] = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if summary_path.exists():
-        result["summary"] = json.loads(summary_path.read_text(encoding="utf-8"))
-    if summary_md_path.exists():
-        result["summary_md"] = summary_md_path.read_text(encoding="utf-8")
-    if diagnostics_path.exists():
-        result["diagnostics"] = json.loads(diagnostics_path.read_text(encoding="utf-8"))
-    capability_matrix_path = path / "capability-matrix.json"
-    toolchain_readiness_path = path / "toolchain-readiness.json"
-    probe_auth_context_path = path / "auth-context.json"
-    normalized_capability_path = path / "normalized" / "capability_matrix.json"
-    normalized_auth_context_path = path / "normalized" / "auth_context.json"
-    normalized_coverage_ledger_path = path / "normalized" / "coverage_ledger.json"
-    ai_context_path = path / "ai_context.json"
-    validation_path = path / "validation.json"
-    blockers_path = path / "blockers" / "blockers.json"
-    findings_path = path / "findings" / "findings.json"
-    report_pack_path = path / "reports" / "report-pack.json"
-    action_plan_path = path / "reports" / "action-plan.json"
-    evidence_db_path = path / "index" / "evidence.sqlite"
-    if capability_matrix_path.exists():
-        result["capability_matrix_path"] = str(capability_matrix_path)
-        result["capability_matrix"] = json.loads(capability_matrix_path.read_text(encoding="utf-8"))
-    elif normalized_capability_path.exists():
-        result["capability_matrix_path"] = str(normalized_capability_path)
-        result["capability_matrix"] = json.loads(normalized_capability_path.read_text(encoding="utf-8"))
-    if toolchain_readiness_path.exists():
-        result["toolchain_readiness_path"] = str(toolchain_readiness_path)
-        result["toolchain_readiness"] = json.loads(toolchain_readiness_path.read_text(encoding="utf-8"))
-    if probe_auth_context_path.exists():
-        result["auth_context_path"] = str(probe_auth_context_path)
-        result["auth_context"] = json.loads(probe_auth_context_path.read_text(encoding="utf-8"))
-    elif normalized_auth_context_path.exists():
-        result["auth_context_path"] = str(normalized_auth_context_path)
-        result["auth_context"] = json.loads(normalized_auth_context_path.read_text(encoding="utf-8"))
-    if normalized_coverage_ledger_path.exists():
-        result["coverage_ledger_path"] = str(normalized_coverage_ledger_path)
-        result["coverage_ledger"] = json.loads(normalized_coverage_ledger_path.read_text(encoding="utf-8"))
-    if ai_context_path.exists():
-        result["ai_context_path"] = str(ai_context_path)
-        result["ai_context"] = json.loads(ai_context_path.read_text(encoding="utf-8"))
-    if validation_path.exists():
-        result["validation_path"] = str(validation_path)
-        result["validation"] = json.loads(validation_path.read_text(encoding="utf-8"))
-        result["contract_validation"] = {
-            "valid": result["validation"].get("valid"),
-            "issue_count": result["validation"].get("issue_count", 0),
-            "contract_version": result["validation"].get("contract_version"),
-        }
-    if evidence_db_path.exists():
-        result["evidence_db_path"] = str(evidence_db_path)
-    if blockers_path.exists():
-        result["blockers_path"] = str(blockers_path)
-        result["blockers"] = json.loads(blockers_path.read_text(encoding="utf-8"))
-    if findings_path.exists():
-        result["findings_path"] = str(findings_path)
-        result["findings"] = json.loads(findings_path.read_text(encoding="utf-8"))
-    if report_pack_path.exists():
-        result["report_pack_path"] = str(report_pack_path)
-        result["report_pack"] = json.loads(report_pack_path.read_text(encoding="utf-8"))
-    if action_plan_path.exists():
-        result["action_plan_path"] = str(action_plan_path)
-        result["action_plan"] = json.loads(action_plan_path.read_text(encoding="utf-8"))
-    return result
+    return RunBundle(run_dir).read()
 
 
 def diff_runs(run_a: str, run_b: str) -> dict[str, Any]:
@@ -427,10 +222,11 @@ def diff_runs(run_a: str, run_b: str) -> dict[str, Any]:
 
 
 def list_blockers(run_dir: str) -> dict[str, Any]:
-    path = Path(run_dir) / "blockers" / "blockers.json"
-    result = {"run_dir": run_dir, "blockers_path": str(path)}
-    if path.exists():
-        result["blockers"] = json.loads(path.read_text(encoding="utf-8"))
+    bundle = RunBundle(run_dir)
+    path, blockers = bundle.blockers()
+    result = {"run_dir": run_dir, "blockers_path": str(path or bundle.path("blockers/blockers.json"))}
+    if path is not None:
+        result["blockers"] = blockers
     return result
 
 
@@ -496,43 +292,33 @@ def main() -> int:
 
     server = FastMCP("auditex")
 
-    @server.tool()
     def auditex_list_profiles() -> dict[str, Any]:
         return {"profiles": [profile.__dict__ for profile in PROFILES.values()]}
 
-    @server.tool()
     def auditex_list_collectors(config_path: str = "configs/collector-definitions.json") -> dict[str, Any]:
         return list_collectors(config_path=config_path)
 
-    @server.tool()
     def auditex_list_adapters() -> dict[str, Any]:
         return list_adapters()
 
-    @server.tool()
     def auditex_list_response_actions() -> dict[str, Any]:
         return list_response_actions()
 
-    @server.tool()
     def auditex_auth_status() -> dict[str, Any]:
         return auditex_auth.get_auth_status()
 
-    @server.tool()
     def auditex_auth_list() -> dict[str, Any]:
         return auditex_auth.list_connections()
 
-    @server.tool()
     def auditex_auth_use(connection_name: str) -> dict[str, Any]:
         return auditex_auth.use_connection(connection_name)
 
-    @server.tool()
     def auditex_auth_import_token(name: str, token: str, tenant_id: str = "") -> dict[str, Any]:
         return auditex_auth.import_token_context(name=name, token=token, tenant_id=tenant_id or None)
 
-    @server.tool()
     def auditex_auth_inspect_token(token: str) -> dict[str, Any]:
         return auditex_auth.inspect_token_claims(token)
 
-    @server.tool()
     def auditex_auth_capability(name: str = "", collectors: str = "", auditor_profile: str = "auto") -> dict[str, Any]:
         selected_collectors = [item.strip() for item in collectors.split(",") if item.strip()]
         return auditex_auth.capability_for_context(
@@ -541,11 +327,9 @@ def main() -> int:
             auditor_profile=auditor_profile,
         )
 
-    @server.tool()
     def auditex_contract_schema_manifest(schema_dir: str = "schemas") -> dict[str, Any]:
         return contract_schema_manifest(schema_dir=schema_dir)
 
-    @server.tool()
     def auditex_run_offline_validation(
         tenant_name: str,
         out_dir: str = "outputs/offline",
@@ -560,7 +344,6 @@ def main() -> int:
         )
         return run_cli_command(command)
 
-    @server.tool()
     def auditex_run_delegated_audit(
         tenant_name: str,
         tenant_id: str = "organizations",
@@ -586,19 +369,15 @@ def main() -> int:
         )
         return run_cli_command(command)
 
-    @server.tool()
     def auditex_summarize_run(run_dir: str) -> dict[str, Any]:
         return summarize_run(run_dir)
 
-    @server.tool()
     def auditex_diff_runs(run_a: str, run_b: str) -> dict[str, Any]:
         return diff_runs(run_a, run_b)
 
-    @server.tool()
     def auditex_compare_runs(run_dirs: list[str], allow_cross_tenant: bool = False) -> dict[str, Any]:
         return compare_many_runs(run_dirs, allow_cross_tenant=allow_cross_tenant)
 
-    @server.tool()
     def auditex_probe_live(
         tenant_name: str,
         tenant_id: str = "organizations",
@@ -629,15 +408,12 @@ def main() -> int:
         )
         return run_cli_command(command)
 
-    @server.tool()
     def auditex_probe_summarize(run_dir: str) -> dict[str, Any]:
         return summarize_run(run_dir)
 
-    @server.tool()
     def auditex_list_blockers(run_dir: str) -> dict[str, Any]:
         return list_blockers(run_dir)
 
-    @server.tool()
     def auditex_report_preview(
         run_dir: str,
         format_name: str = "json",
@@ -651,15 +427,12 @@ def main() -> int:
             exclude_sections=exclude_sections,
         )
 
-    @server.tool()
     def auditex_export_list() -> dict[str, Any]:
         return list_available_exporters()
 
-    @server.tool()
     def auditex_notify_preview(run_dir: str, sink: str = "teams") -> dict[str, Any]:
         return preview_notification(run_dir=run_dir, sink=sink)
 
-    @server.tool()
     def auditex_rules_inventory(
         tag: str = "",
         path_prefix: str = "",
@@ -675,7 +448,6 @@ def main() -> int:
             audit_level=audit_level,
         )
 
-    @server.tool()
     def auditex_run_response_action(
         tenant_name: str,
         action: str,
@@ -714,6 +486,8 @@ def main() -> int:
         )
         return run_cli_command(command)
 
+    handlers = {name: value for name, value in locals().items() if name.startswith("auditex_") and callable(value)}
+    register_fastmcp_tools(server, handlers)
     server.run()
     return 0
 

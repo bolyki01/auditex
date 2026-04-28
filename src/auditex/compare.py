@@ -1,23 +1,12 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 from azure_tenant_audit.diffing import diff_run_directories
 
-from .evidence_db import load_run_index_summary
-
-
-def _load_json(path: Path, default: Any) -> Any:
-    if not path.exists():
-        return default
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError):
-        return default
-    return payload if payload is not None else default
+from .run_bundle import RunBundle
 
 
 def _parse_utc(value: Any) -> datetime | None:
@@ -37,58 +26,9 @@ def _parse_utc(value: Any) -> datetime | None:
 
 
 def _run_metadata(run_dir: Path) -> dict[str, Any]:
-    indexed = load_run_index_summary(run_dir)
-    manifest = _load_json(run_dir / "run-manifest.json", default={})
-    if not isinstance(manifest, dict):
-        manifest = {}
-    summary = _load_json(run_dir / "summary.json", default={})
-    if not isinstance(summary, dict):
-        summary = {}
-    if indexed:
-        metadata = {
-            "path": str(run_dir),
-            "run_id": indexed.get("run_id") or manifest.get("run_id"),
-            "tenant_name": indexed.get("tenant_name") or manifest.get("tenant_name"),
-            "tenant_id": indexed.get("tenant_id") or manifest.get("tenant_id"),
-            "created_utc": indexed.get("created_utc") or manifest.get("created_utc"),
-            "overall_status": indexed.get("overall_status") or manifest.get("overall_status"),
-            "auditor_profile": indexed.get("auditor_profile") or manifest.get("auditor_profile"),
-            "section_stats": indexed.get("section_stats") or [],
-            "item_count": indexed.get("item_count") or 0,
-        }
-        metadata["_created_at"] = _parse_utc(metadata.get("created_utc"))
-        return metadata
-    collector_rows = summary.get("collectors", [])
-    if not isinstance(collector_rows, list):
-        collector_rows = []
-    section_stats: list[dict[str, Any]] = []
-    total_items = 0
-    for row in collector_rows:
-        if not isinstance(row, dict):
-            continue
-        item_count = int(row.get("item_count") or 0)
-        total_items += item_count
-        section_stats.append(
-            {
-                "name": str(row.get("name") or ""),
-                "status": row.get("status"),
-                "item_count": item_count,
-                "message": row.get("message"),
-            }
-        )
-
-    return {
-        "path": str(run_dir),
-        "run_id": manifest.get("run_id"),
-        "tenant_name": manifest.get("tenant_name"),
-        "tenant_id": manifest.get("tenant_id"),
-        "created_utc": manifest.get("created_utc"),
-        "_created_at": _parse_utc(manifest.get("created_utc")),
-        "overall_status": manifest.get("overall_status"),
-        "auditor_profile": manifest.get("auditor_profile"),
-        "section_stats": section_stats,
-        "item_count": total_items,
-    }
+    metadata = RunBundle(run_dir).metadata()
+    metadata["_created_at"] = _parse_utc(metadata.get("created_utc"))
+    return metadata
 
 
 def _tenant_gate(runs: list[dict[str, Any]]) -> dict[str, Any]:

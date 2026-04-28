@@ -10,23 +10,22 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .adapters import get_adapter
-from .cli import (
-    _acquire_azure_cli_access_token,
-    _build_auth_context_payload,
-    _build_diagnostics,
-    _capture_signed_in_context,
-    _load_permission_hints,
-    _scrub_command_line,
+from .auth_runtime import (
+    acquire_azure_cli_access_token as _acquire_azure_cli_access_token,
+    build_auth_context_payload as _build_auth_context_payload,
+    capture_signed_in_context as _capture_signed_in_context,
+    scrub_command_line as _scrub_command_line,
 )
+from . import run as run_core
+from .collector_runner import AuditWriterCollectorAdapter, CollectorRunContext, CollectorRunOptions, CollectorRunner
 from .collectors import REGISTRY
-from .collectors.base import CollectorResult, _classify_graph_error, run_graph_endpoints
+from .collectors.base import run_graph_endpoints
 from .config import AuthConfig
-from .findings import build_findings, build_report_pack
+from .diagnostics import build_diagnostics as _build_diagnostics, load_permission_hints as _load_permission_hints
+from .findings import build_findings
 from .graph import GraphClient
 from .output import AuditWriter
 from .profiles import get_profile
-from .ai_context import build_privacy_block
-from .finalize import finalize_bundle_contract
 
 SUPPORTED_PROBE_MODES = ("delegated", "app", "response")
 DEFAULT_COLLECTOR_SURFACES = ("identity", "security", "auth_methods", "intune", "sharepoint", "teams", "exchange")
@@ -471,23 +470,6 @@ def _build_probe_snapshot(
     }
 
 
-def _build_probe_ai_safe_summary(
-    normalized_snapshot: dict[str, dict[str, Any]],
-    *,
-    findings: list[dict[str, Any]],
-) -> dict[str, Any]:
-    snapshot = normalized_snapshot.get("snapshot", {})
-    return {
-        "tenant_name": snapshot.get("tenant_name"),
-        "run_id": snapshot.get("run_id"),
-        "capability_count": snapshot.get("capability_count", 0),
-        "toolchain_count": snapshot.get("toolchain_count", 0),
-        "blocker_count": snapshot.get("blocker_count", 0),
-        "status_counts": snapshot.get("status_counts", {}),
-        "findings_count": len(findings),
-    }
-
-
 def run_live_probe(cfg: ProbeConfig) -> int:
     writer = AuditWriter(cfg.output_dir.expanduser().resolve(), tenant_name=cfg.tenant_name, run_name=cfg.run_name)
     permission_hints = _load_permission_hints(cfg.permission_hints_path)
@@ -508,6 +490,8 @@ def run_live_probe(cfg: ProbeConfig) -> int:
     auth_context_path: Path | None = None
 
     toolchain_rows = _probe_toolchain_statuses(include_response=(cfg.mode == "response"), log_event=writer.log_event)
+    writer_adapter = AuditWriterCollectorAdapter(writer)
+    collector_runner = CollectorRunner(writer_adapter)
     auth_mode = "none"
     session_context: dict[str, Any] = {}
     client: GraphClient | None = None
@@ -715,38 +699,28 @@ def run_live_probe(cfg: ProbeConfig) -> int:
                     )
                     continue
 
-                context = {
-                    "client": client,
-                    "top": cfg.top,
-                    "page_size": cfg.page_size,
-                    "plane": "inventory",
-                    "since": cfg.since,
-                    "until": cfg.until,
-                    "chunk_writer": lambda collector_name, endpoint_name, page_number, records, metadata=None: str(
-                        writer.write_chunk_records(collector_name, endpoint_name, page_number, records, metadata).relative_to(
-                            writer.run_dir
-                        )
+                output = collector_runner.run(
+                    collector,
+                    CollectorRunContext(
+                        client=client,
+                        top=cfg.top,
+                        page_size=cfg.page_size,
+                        plane="inventory",
+                        since=cfg.since,
+                        until=cfg.until,
+                        hooks=writer_adapter.hooks(),
                     ),
-                    "audit_logger": writer.log_event,
-                }
-                result: CollectorResult = collector.run(context)
-                writer.write_raw(surface, result.payload)
-                collector_payloads[surface] = result.payload
-                row = {
-                    "name": result.name,
-                    "status": result.status,
-                    "item_count": result.item_count,
-                    "message": result.message or ("ok" if result.status == "ok" else "partial"),
-                    "error": result.error,
-                    "coverage_rows": len(result.coverage or []),
-                }
+                    name=surface,
+                    options=CollectorRunOptions(write_checkpoint=False),
+                )
+                collector_payloads[surface] = output.result.payload
+                row = dict(output.result_row)
                 result_rows.append(row)
                 writer.write_summary(row)
-                if result.coverage:
-                    writer.write_index_records(result.coverage)
-                    coverage_rows.extend(result.coverage)
+                if output.coverage_rows:
+                    coverage_rows.extend(output.coverage_rows)
                     capability_matrix.extend(
-                        [_capability_row_from_coverage(surface, cfg.mode, coverage) for coverage in result.coverage]
+                        [_capability_row_from_coverage(surface, cfg.mode, coverage) for coverage in output.coverage_rows]
                     )
 
         diagnostics = _build_diagnostics(
@@ -789,83 +763,21 @@ def run_live_probe(cfg: ProbeConfig) -> int:
         blockers=blockers,
         session_context=session_context,
     )
-    for name, payload in normalized_snapshot.items():
-        writer.write_normalized(name, payload)
-    writer.write_ai_safe("probe_summary", _build_probe_ai_safe_summary(normalized_snapshot, findings=findings))
-
-    evidence_paths = [
-        "run-manifest.json",
-        "summary.json",
-        "capability-matrix.json",
-        "toolchain-readiness.json",
-    ]
-    if auth_context_path is not None:
-        evidence_paths.append("auth-context.json")
-    if blockers:
-        evidence_paths.append("blockers/blockers.json")
-    if findings:
-        evidence_paths.append("findings/findings.json")
-    evidence_paths.extend(f"normalized/{name}.json" for name in normalized_snapshot)
-    evidence_paths.extend(["ai_context.json", "validation.json"])
-    overall_status = "partial" if blockers else "ok"
-    privacy = build_privacy_block(safe_for_external_llm=False)
-    writer.write_report_pack(
-        build_report_pack(
-            tenant_name=cfg.tenant_name,
-            overall_status=overall_status,
-            findings=findings,
-            evidence_paths=evidence_paths,
-            blocker_count=len(blockers),
-            privacy=privacy,
-        )
-    )
-    evidence_index = {"artifacts": sorted(set(writer._manifest["artifacts"] + ["run-manifest.json", "summary.json", "summary.md"]))}
-    evidence_index_path = writer.write_json_artifact("evidence-index.json", evidence_index)
-    finalize_bundle_contract(
+    return run_core.finalize_probe_run(
         writer=writer,
-        bundle_metadata={
-            "executed_by": "auditex_probe",
-            "collectors": requested_surfaces,
-            "overall_status": overall_status,
-            "duration_seconds": 0,
-            "mode": auth_mode,
-            "auditor_profile": cfg.auditor_profile,
-            "plane": "inventory",
-            "since": cfg.since,
-            "until": cfg.until,
-            "session_context": session_context,
-            "command_line": command_line,
-            "probe_mode": cfg.mode,
-            "probe_surface": cfg.surface,
-            "capability_matrix_path": str(capability_path.relative_to(writer.run_dir)),
-            "toolchain_readiness_path": str(toolchain_path.relative_to(writer.run_dir)),
-            "evidence_index_path": str(evidence_index_path.relative_to(writer.run_dir)),
-            "auth_path": auth_path,
-            "auth_context_path": str(auth_context_path.relative_to(writer.run_dir)) if auth_context_path else None,
-            "data_handling_events": [],
-            "lab_guard_state": lab_guard_state,
-            "privacy": privacy,
-        },
-        run_metadata={
-            "tenant_name": cfg.tenant_name,
-            "tenant_id": cfg.tenant_id,
-            "run_id": writer.run_id,
-            "overall_status": overall_status,
-            "auditor_profile": cfg.auditor_profile,
-            "mode": auth_mode,
-            "plane": "inventory",
-            "selected_collectors": requested_surfaces,
-            "duration_seconds": 0,
-        },
-        normalized_snapshot=normalized_snapshot,
-        capability_rows=capability_matrix,
-        coverage_ledger=[],
+        cfg=cfg,
+        requested_surfaces=requested_surfaces,
+        capability_matrix=capability_matrix,
+        toolchain_rows=toolchain_rows,
         blockers=blockers,
         findings=findings,
+        normalized_snapshot=normalized_snapshot,
+        capability_path=capability_path,
+        toolchain_path=toolchain_path,
+        auth_context_path=auth_context_path,
+        command_line=command_line,
+        auth_mode=auth_mode,
+        auth_path=auth_path,
+        session_context=session_context,
+        lab_guard_state=lab_guard_state,
     )
-    writer.log_event(
-        "probe.completed",
-        "Live capability probe completed",
-        {"probe_mode": cfg.mode, "surface": cfg.surface, "blockers": len(blockers)},
-    )
-    return 1 if blockers else 0

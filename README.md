@@ -10,9 +10,10 @@ Auditex is a Python-first CLI and MCP toolkit for Microsoft 365 tenant audits. I
 
 - `src/azure_tenant_audit/` - core collectors, auth, diffing, findings, and report generation.
 - `src/auditex/` - product wrapper CLI plus MCP entrypoint.
-- `configs/` - collector definitions, permission maps, report sections, and rule packs.
+- `configs/` - shipped collector definitions, permission maps, report sections, and rule packs.
 - `profiles/` - shipped operator profile notes for delegated and app-based runs.
-- `schemas/` - output contracts.
+- `schemas/` - shipped output contracts.
+- `agent/` and `skills/` - shipped operator/runtime content.
 - `scripts/` - login helpers and guided-run wrappers.
 - `tenant-bootstrap/` - portable tenant seeding kit for audit rehearsal and lab work.
 - `tests/` - pytest coverage.
@@ -83,7 +84,7 @@ make login TENANT=<tenant-id-or-domain>
 ## Data handling
 
 - Keep `.venv/`, `.secrets/`, and tenant exports local.
-- Treat `profiles/`, `schemas/`, and `skills/` as shipped operator/runtime content.
+- Treat `configs/`, `profiles/`, `schemas/`, `agent/`, and `skills/` as shipped operator/runtime content.
 - Treat generated audit outputs as artifacts, not hand-edited source.
 
 Saved auth contexts from `auditex auth import-token` can be reused for `auditex probe live --auth-context <name>` and `auditex response run --auth-context <name>`.
@@ -113,6 +114,7 @@ Built-in profiles:
 - `auto`
 - `global-reader`
 - `security-reader`
+- `reports-reader`
 - `exchange-reader`
 - `intune-reader`
 - `app-readonly-full`
@@ -212,4 +214,4 @@ By default the response command writes a dry-run bundle. Execution requires `--e
 
 ## GitHub
 
-Target repository: `bolyki01/auditex`
+Target repository: `magrathean-uk/auditex`

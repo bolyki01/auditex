@@ -4,12 +4,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .resources import resolve_resource_path
 
-DEFAULT_PRESETS_PATH = Path(__file__).resolve().parents[2] / "configs" / "collector-presets.json"
+DEFAULT_PRESETS_PATH = Path("configs/collector-presets.json")
 
 
 def load_collector_presets(path: Path | None = None) -> dict[str, dict[str, Any]]:
-    target = path or DEFAULT_PRESETS_PATH
+    target = resolve_resource_path(path or DEFAULT_PRESETS_PATH)
     payload = json.loads(target.read_text(encoding="utf-8"))
     presets = payload.get("presets", {})
     if not isinstance(presets, dict):

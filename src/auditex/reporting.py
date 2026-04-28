@@ -8,9 +8,11 @@ from io import StringIO
 from pathlib import Path
 from typing import Any
 
+from azure_tenant_audit.resources import resolve_resource_path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SECTION_REGISTRY_PATH = REPO_ROOT / "configs" / "report-sections.json"
+from .run_bundle import RunBundle
+
+DEFAULT_SECTION_REGISTRY_PATH = Path("configs/report-sections.json")
 FORMAT_EXTENSIONS = {"json": ".json", "md": ".md", "csv": ".csv", "html": ".html"}
 
 _SECTION_ORDER = ("summary", "findings", "action_plan", "normalized", "blockers", "manifest")
@@ -52,7 +54,7 @@ def _relative_source(path: Path, run_path: Path) -> str:
 
 
 def load_section_registry(path: Path | None = None) -> list[dict[str, Any]]:
-    payload = _mapping(_read_json(path or DEFAULT_SECTION_REGISTRY_PATH, {}))
+    payload = _mapping(_read_json(resolve_resource_path(path or DEFAULT_SECTION_REGISTRY_PATH), {}))
     rows = payload.get("sections")
     if not isinstance(rows, list):
         return []
@@ -91,28 +93,16 @@ def _load_normalized_sections(run_path: Path) -> dict[str, Any]:
 
 def load_report_bundle(run_dir: str | Path) -> dict[str, Any]:
     run_path = Path(run_dir)
-    report_pack = _mapping(_read_json(run_path / "reports" / "report-pack.json", {}))
-    manifest = _mapping(_read_json(run_path / "run-manifest.json", {}))
-
-    fallback_summary = _mapping(_read_json(run_path / "summary.json", {}))
-    summary = _mapping(report_pack.get("summary")) or fallback_summary
-
-    findings = _dict_rows(report_pack.get("findings"))
-    if not findings:
-        findings = _dict_rows(_read_json(run_path / "findings" / "findings.json", []))
-
-    action_plan = _dict_rows(report_pack.get("action_plan"))
-    if not action_plan:
-        action_plan = _dict_rows(_read_json(run_path / "reports" / "action-plan.json", []))
-
-    blockers = _dict_rows(_read_json(run_path / "blockers" / "blockers.json", []))
+    bundle = RunBundle(run_path)
+    manifest = bundle.manifest()
+    fallback_summary = bundle.summary()
 
     sections = {
-        "summary": summary,
-        "findings": findings,
-        "action_plan": action_plan,
+        "summary": bundle.report_summary(),
+        "findings": bundle.finding_rows(),
+        "action_plan": bundle.action_plan_rows(),
         "normalized": _load_normalized_sections(run_path),
-        "blockers": blockers,
+        "blockers": bundle.blocker_rows(),
         "manifest": manifest,
     }
     return {"run_dir": str(run_path), "manifest": manifest, "summary_json": fallback_summary, "sections": sections}

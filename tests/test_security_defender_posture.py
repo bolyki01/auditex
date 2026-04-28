@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from azure_tenant_audit.cli import _build_diagnostics, _load_permission_hints
+from azure_tenant_audit.diagnostics import build_diagnostics, load_permission_hints
 
 
 def test_security_defender_posture_config_and_blocker_mapping() -> None:
@@ -21,7 +21,7 @@ def test_security_defender_posture_config_and_blocker_mapping() -> None:
     assert "SecurityIncident.Read.All" in defender_permissions["graph_scopes"]
     assert "SecurityIncident.Read.All" in permissions["global_app_recommendation"]
 
-    diagnostics = _build_diagnostics(
+    diagnostics = build_diagnostics(
         result_rows=[
             {
                 "name": "defender",
@@ -41,7 +41,7 @@ def test_security_defender_posture_config_and_blocker_mapping() -> None:
                 "top": "100",
             }
         ],
-        permission_hints=_load_permission_hints(Path("configs/collector-permissions.json")),
+        permission_hints=load_permission_hints(Path("configs/collector-permissions.json")),
         auditor_profile="security-reader",
     )
 

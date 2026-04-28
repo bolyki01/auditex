@@ -4,35 +4,11 @@ import json
 
 from auditex import bootstrap
 from auditex import cli as auditex_cli
+from support import FakeDoctorToolchain
 
 
 def test_build_doctor_report_includes_versions_and_readiness_split(monkeypatch) -> None:
-    monkeypatch.setattr(
-        bootstrap,
-        "_selected_python",
-        lambda: {"status": "supported", "path": "/usr/bin/python3.13", "version": "Python 3.13.2"},
-    )
-    monkeypatch.setattr(
-        bootstrap,
-        "_venv_status",
-        lambda: {"status": "supported", "path": "/tmp/.venv", "python_path": "/tmp/.venv/bin/python"},
-    )
-    monkeypatch.setattr(bootstrap, "detect_package_manager", lambda: "brew")
-
-    def _fake_tool_status(name: str, **_: object) -> dict[str, object]:
-        if name == "pwsh":
-            return {"name": name, "status": "blocked", "path": None, "version": None, "error": "command_not_found"}
-        return {"name": name, "status": "supported", "path": f"/usr/bin/{name}", "version": f"{name}-1.0", "error": None}
-
-    monkeypatch.setattr(bootstrap, "_tool_status", _fake_tool_status)
-    monkeypatch.setattr(
-        "auditex.auth.get_auth_status",
-        lambda **kwargs: {
-            "azure_cli": {"status": "supported", "user_name": "reader@contoso.test"},
-            "m365": {"status": "supported", "active_connection": "tenant-user"},
-            "exchange": {"status": "supported", "module_version": "3.7.0"},
-        },
-    )
+    FakeDoctorToolchain(blocked_tools={"pwsh"}).install(monkeypatch, bootstrap)
 
     report = bootstrap.build_doctor_report()
 
@@ -125,31 +101,7 @@ def test_auditex_guided_run_dispatches(monkeypatch) -> None:
 
 
 def test_build_doctor_report_uses_short_m365_version(monkeypatch) -> None:
-    monkeypatch.setattr(
-        bootstrap,
-        "_selected_python",
-        lambda: {"status": "supported", "path": "/usr/bin/python3.13", "version": "Python 3.13.2"},
-    )
-    monkeypatch.setattr(
-        bootstrap,
-        "_venv_status",
-        lambda: {"status": "supported", "path": "/tmp/.venv", "python_path": "/tmp/.venv/bin/python"},
-    )
-    monkeypatch.setattr(bootstrap, "detect_package_manager", lambda: "brew")
-
-    def _fake_tool_status(name: str, **_: object) -> dict[str, object]:
-        version = "CLI for Microsoft 365 v11.6.0" if name == "m365" else f"{name}-1.0"
-        return {"name": name, "status": "supported", "path": f"/usr/bin/{name}", "version": version, "error": None}
-
-    monkeypatch.setattr(bootstrap, "_tool_status", _fake_tool_status)
-    monkeypatch.setattr(
-        "auditex.auth.get_auth_status",
-        lambda **kwargs: {
-            "azure_cli": {"status": "supported", "user_name": "reader@contoso.test"},
-            "m365": {"status": "supported", "active_connection": "tenant-user"},
-            "exchange": {"status": "supported", "module_version": "3.7.0"},
-        },
-    )
+    FakeDoctorToolchain(versions={"m365": "CLI for Microsoft 365 v11.6.0"}).install(monkeypatch, bootstrap)
 
     report = bootstrap.build_doctor_report()
 
@@ -157,30 +109,8 @@ def test_build_doctor_report_uses_short_m365_version(monkeypatch) -> None:
 
 
 def test_build_doctor_report_marks_exchange_not_ready_without_module(monkeypatch) -> None:
-    monkeypatch.setattr(
-        bootstrap,
-        "_selected_python",
-        lambda: {"status": "supported", "path": "/usr/bin/python3.13", "version": "Python 3.13.2"},
-    )
-    monkeypatch.setattr(
-        bootstrap,
-        "_venv_status",
-        lambda: {"status": "supported", "path": "/tmp/.venv", "python_path": "/tmp/.venv/bin/python"},
-    )
-    monkeypatch.setattr(bootstrap, "detect_package_manager", lambda: "brew")
-    monkeypatch.setattr(
-        bootstrap,
-        "_tool_status",
-        lambda name, **_: {"name": name, "status": "supported", "path": f"/usr/bin/{name}", "version": f"{name}-1.0", "error": None},
-    )
-    monkeypatch.setattr(
-        "auditex.auth.get_auth_status",
-        lambda **kwargs: {
-            "azure_cli": {"status": "supported", "user_name": "reader@contoso.test"},
-            "m365": {"status": "supported", "active_connection": "tenant-user"},
-            "exchange": {"status": "blocked", "error": "module_not_found"},
-        },
-    )
+    toolchain = FakeDoctorToolchain(exchange_auth={"status": "blocked", "error": "module_not_found"})
+    toolchain.install(monkeypatch, bootstrap)
 
     report = bootstrap.build_doctor_report()
 
@@ -189,32 +119,12 @@ def test_build_doctor_report_marks_exchange_not_ready_without_module(monkeypatch
 
 
 def test_build_doctor_report_app_mode_does_not_require_az(monkeypatch) -> None:
-    monkeypatch.setattr(
-        bootstrap,
-        "_selected_python",
-        lambda: {"status": "supported", "path": "/usr/bin/python3.13", "version": "Python 3.13.2"},
-    )
-    monkeypatch.setattr(
-        bootstrap,
-        "_venv_status",
-        lambda: {"status": "supported", "path": "/tmp/.venv", "python_path": "/tmp/.venv/bin/python"},
-    )
-    monkeypatch.setattr(bootstrap, "detect_package_manager", lambda: "brew")
-
-    def _fake_tool_status(name: str, **_: object) -> dict[str, object]:
-        if name == "az":
-            return {"name": name, "status": "blocked", "path": None, "version": None, "error": "command_not_found"}
-        return {"name": name, "status": "supported", "path": f"/usr/bin/{name}", "version": f"{name}-1.0", "error": None}
-
-    monkeypatch.setattr(bootstrap, "_tool_status", _fake_tool_status)
-    monkeypatch.setattr(
-        "auditex.auth.get_auth_status",
-        lambda **kwargs: {
-            "azure_cli": {"status": "skipped"},
-            "m365": {"status": "skipped"},
-            "exchange": {"status": "skipped"},
-        },
-    )
+    FakeDoctorToolchain(
+        blocked_tools={"az"},
+        azure_auth={"status": "skipped"},
+        m365_auth={"status": "skipped"},
+        exchange_auth={"status": "skipped"},
+    ).install(monkeypatch, bootstrap)
 
     report = bootstrap.build_doctor_report(auth_mode="app", include_exchange=False, include_auth_checks=False)
 

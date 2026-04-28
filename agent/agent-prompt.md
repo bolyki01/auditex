@@ -5,7 +5,13 @@ Use this as a starting prompt when handing over a tenant for audit:
 ```
 Use the Auditex product surface in this folder.
 First run offline validation:
-`auditex --offline --tenant-name <label> --sample examples/sample_audit_bundle/sample_result.json`.
+`auditex run --offline --tenant-name <label> --sample examples/sample_audit_bundle/sample_result.json`.
+
+Preferred guided operator flows:
+`auditex guided-run`
+`auditex guided-run --flow gr-audit --include-exchange`
+`auditex guided-run --flow ga-setup-app`
+`auditex guided-run --flow app-audit`
 
 Codex-led flow:
 1. Authenticate the current Azure session.
@@ -14,14 +20,14 @@ Codex-led flow:
 4. Return the audit bundle and blocked items.
 
 Then run live collection with provided credentials:
-`auditex --tenant-name <tenant-name> --tenant-id <tenant-id> --client-id <app-id> --client-secret <secret> --top 400`.
+`auditex run --tenant-name <tenant-name> --tenant-id <tenant-id> --client-id <app-id> --client-secret <secret> --top 400`.
 
 If you prefer browser login with Global Reader/Admin:
-`auditex --tenant-name <tenant-name> --interactive --client-id <app-id> --browser-command firefox`.
+`auditex run --tenant-name <tenant-name> --interactive --client-id <app-id> --browser-command firefox`.
 
 If no app is available, use the Azure CLI flow:
 `az login --tenant <tenant-id>` then
-`auditex --tenant-name <tenant-name> --tenant-id <tenant-id> --use-azure-cli-token --auditor-profile global-reader`.
+`auditex run --tenant-name <label> --tenant-id <tenant> --use-azure-cli-token --auditor-profile global-reader`.
 
 Collectors to run by default: identity, security, intune, teams, exchange.
 After run, open `<output>/<tenant-name>-<run-id>/summary.md` then inspect any raw/<collector>.json files with anomalies.
