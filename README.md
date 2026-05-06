@@ -2,6 +2,8 @@
 
 Auditex is a Python-first CLI and MCP toolkit for Microsoft 365 tenant audits. It keeps raw evidence local, emits normalized report packs, and supports three main operator modes:
 
+Built by [Magrathean UK](https://magrathean.uk).
+
 - delegated read-only audits,
 - one-time Exchange app bootstrap,
 - saved app-based reruns.
@@ -214,4 +216,3 @@ By default the response command writes a dry-run bundle. Execution requires `--e
 
 Target repository: `magrathean-uk/auditex`
 
-Built by [Magrathean UK](https://magrathean.uk).
