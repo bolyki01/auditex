@@ -213,3 +213,5 @@ By default the response command writes a dry-run bundle. Execution requires `--e
 ## GitHub
 
 Target repository: `magrathean-uk/auditex`
+
+Built by [Magrathean UK](https://magrathean.uk).
