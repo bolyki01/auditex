@@ -26,6 +26,7 @@ from .findings import build_findings
 from .graph import GraphClient
 from .output import AuditWriter
 from .profiles import get_profile
+from .secret_hygiene import sanitize_token_claims
 
 SUPPORTED_PROBE_MODES = ("delegated", "app", "response")
 DEFAULT_COLLECTOR_SURFACES = ("identity", "security", "auth_methods", "intune", "sharepoint", "teams", "exchange")
@@ -571,7 +572,7 @@ def run_live_probe(cfg: ProbeConfig) -> int:
         if cfg.auth_context:
             auth_module = importlib.import_module("auditex.auth")
             saved_context = auth_module.resolve_auth_context(cfg.auth_context)
-            saved_claims = dict(saved_context.get("token_claims") or {})
+            saved_claims = sanitize_token_claims(saved_context.get("token_claims") or {})
             tenant_id = tenant_id or saved_context.get("tenant_id")
             access_token = access_token or saved_context.get("token")
             auth_context_payload = {

@@ -14,9 +14,7 @@ classifiers = [
 ]
 dependencies = [
     "requests>=2.31,<3",
-    "msal>=1.28,<2",
-    "sentry-sdk>=2.47,<3",
-]
+    "msal>=1.28,<2",]
 
 [project.optional-dependencies]
 mcp = [

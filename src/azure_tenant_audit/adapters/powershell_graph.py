@@ -7,6 +7,7 @@ import subprocess
 import time
 from typing import Any, Callable, Optional
 
+from ..secret_hygiene import redact_command_string, redact_text
 from .base import Adapter, AdapterMetadata
 
 
@@ -56,11 +57,12 @@ class PowerShellGraphAdapter(Adapter):
         command: str,
         log_event: Optional[Callable[[str, str, Optional[dict[str, Any]]], None]] = None,
     ) -> dict[str, Any]:
+        safe_command = redact_command_string(command)
         exe = shutil.which("pwsh")
         if exe is None:
             if log_event:
-                log_event("command.failed", "PowerShell executable not found", {"command": command})
-            return {"error": "command_not_found:pwsh", "error_class": "command_not_found", "command": command}
+                log_event("command.failed", "PowerShell executable not found", {"command": safe_command})
+            return {"error": "command_not_found:pwsh", "error_class": "command_not_found", "command": safe_command}
 
         script = command.strip()
         if script.startswith("pwsh"):
@@ -68,12 +70,12 @@ class PowerShellGraphAdapter(Adapter):
             script = " ".join(parts[1:]) if len(parts) > 1 else ""
 
         if not script:
-            return {"error": "command_empty", "error_class": "command_parse_error", "command": command}
+            return {"error": "command_empty", "error_class": "command_parse_error", "command": safe_command}
 
         prepared = f"{script} | ConvertTo-Json -Depth 20 -Compress"
         try:
             if log_event:
-                log_event("command.started", "PowerShell command started", {"command": command, "executable": exe})
+                log_event("command.started", "PowerShell command started", {"command": safe_command, "executable": exe})
 
             start = time.time()
             result = subprocess.run(
@@ -92,12 +94,12 @@ class PowerShellGraphAdapter(Adapter):
                     "command.completed",
                     "PowerShell command completed",
                     {
-                        "command": command,
+                        "command": safe_command,
                         "return_code": result.returncode,
                         "duration_ms": duration_ms,
                         "stdout_bytes": len(stdout),
                         "stderr_bytes": len(stderr),
-                        "stdout_sample": stdout[:500],
+                        "stdout_sample": redact_text(stdout[:500]),
                     },
                 )
 
@@ -111,19 +113,19 @@ class PowerShellGraphAdapter(Adapter):
                 return {
                     "error": f"command_failed:{result.returncode}",
                     "error_class": error_class,
-                    "command": command,
+                    "command": safe_command,
                     "return_code": result.returncode,
-                    "stdout": stdout,
-                    "stderr": stderr,
+                    "stdout": redact_text(stdout),
+                    "stderr": redact_text(stderr),
                 }
 
             if not stdout.strip():
                 return {
                     "error": "command_output_empty",
                     "error_class": "command_output_empty",
-                    "command": command,
-                    "stdout": stdout,
-                    "stderr": stderr,
+                    "command": safe_command,
+                    "stdout": redact_text(stdout),
+                    "stderr": redact_text(stderr),
                 }
 
             try:
@@ -132,23 +134,23 @@ class PowerShellGraphAdapter(Adapter):
                 return {
                     "error": "command_output_parse_error",
                     "error_class": "command_parse_error",
-                    "command": command,
-                    "stdout": stdout,
-                    "stderr": stderr,
+                    "command": safe_command,
+                    "stdout": redact_text(stdout),
+                    "stderr": redact_text(stderr),
                 }
 
             response = self._normalize_payload(parsed)
-            response["command"] = command
+            response["command"] = safe_command
             return response
         except subprocess.TimeoutExpired:
             if log_event:
-                log_event("command.failed", "PowerShell command timed out", {"command": command})
-            return {"error": "command_timeout", "error_class": "command_timeout", "command": command}
+                log_event("command.failed", "PowerShell command timed out", {"command": safe_command})
+            return {"error": "command_timeout", "error_class": "command_timeout", "command": safe_command}
         except subprocess.CalledProcessError as exc:  # noqa: BLE001
             if log_event:
-                log_event("command.failed", "PowerShell command failed", {"command": command, "error": str(exc)})
-            return {"error": f"command_failed:{exc.returncode}", "error_class": "command_error", "command": command}
+                log_event("command.failed", "PowerShell command failed", {"command": safe_command, "error": str(exc)})
+            return {"error": f"command_failed:{exc.returncode}", "error_class": "command_error", "command": safe_command}
         except Exception as exc:  # noqa: BLE001
             if log_event:
-                log_event("command.failed", "PowerShell command exception", {"command": command, "error": str(exc)})
-            return {"error": str(exc), "error_class": "command_exception", "command": command}
+                log_event("command.failed", "PowerShell command exception", {"command": safe_command, "error": str(exc)})
+            return {"error": redact_text(str(exc)), "error_class": "command_exception", "command": safe_command}

@@ -12,10 +12,12 @@ from .finalize import finalize_bundle_contract
 from .findings import build_report_pack
 from .output import AuditWriter
 from .profiles import get_profile
+from .secret_hygiene import redact_argv, sanitize_token_claims
 
 
 LAB_TENANT_ENV = "AUDITEX_LAB_TENANT_IDS"
 DEFAULT_LAB_TENANT_IDS: tuple[str, ...] = ()
+RESPONSE_SENSITIVE_ARGS = {"--command-override", "--adapter-override", "--access-token", "--client-secret", "--token"}
 
 
 @dataclass(frozen=True)
@@ -92,27 +94,7 @@ def _lab_tenant_ids() -> set[str]:
 
 
 def _scrub_command_line(command_line: list[str]) -> list[str]:
-    scrubbed: list[str] = []
-    skip_next = False
-    for item in command_line:
-        if skip_next:
-            scrubbed.append("***redacted***")
-            skip_next = False
-            continue
-        if item in {"--command-override", "--adapter-override"}:
-            scrubbed.append(item)
-            skip_next = True
-            continue
-        if item.startswith("--command-override="):
-            scrubbed.append("--command-override=***redacted***")
-            continue
-        if item.startswith("--adapter-override="):
-            scrubbed.append("--adapter-override=***redacted***")
-            continue
-        scrubbed.append(item)
-    if skip_next:
-        scrubbed.append("***redacted***")
-    return scrubbed
+    return redact_argv(command_line, sensitive_flags=RESPONSE_SENSITIVE_ARGS)
 
 
 def _build_context(config: ResponseConfig) -> dict[str, str]:
@@ -160,7 +142,7 @@ def run_response(config: ResponseConfig, command_line: list[str] | None = None) 
             "name": saved_auth_context.get("name") or config.auth_context,
             "auth_type": saved_auth_context.get("auth_type"),
             "tenant_id": saved_auth_context.get("tenant_id"),
-            "token_claims": saved_auth_context.get("token_claims") or {},
+            "token_claims": sanitize_token_claims(saved_auth_context.get("token_claims") or {}),
         }
     tenant_id = config.tenant_id or (saved_auth_context or {}).get("tenant_id") or "organizations"
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import subprocess
 from typing import Any
 
+from azure_tenant_audit.secret_hygiene import collect_sensitive_argv_values, redact_argv, redact_text
+
 
 SENSITIVE_ARGS = {
     "--access-token",
@@ -14,52 +16,15 @@ SENSITIVE_ARGS = {
 
 
 def _sensitive_values(command: list[str]) -> set[str]:
-    values: set[str] = set()
-    skip_next = False
-    for item in command:
-        if skip_next:
-            values.add(item)
-            skip_next = False
-            continue
-        if item in SENSITIVE_ARGS:
-            skip_next = True
-            continue
-        for flag in SENSITIVE_ARGS:
-            prefix = f"{flag}="
-            if item.startswith(prefix):
-                values.add(item[len(prefix) :])
-    return {value for value in values if value}
+    return collect_sensitive_argv_values(command, sensitive_flags=SENSITIVE_ARGS)
 
 
 def redact_command(command: list[str]) -> list[str]:
-    redacted: list[str] = []
-    skip_next = False
-    for item in command:
-        if skip_next:
-            redacted.append("***redacted***")
-            skip_next = False
-            continue
-        if item in SENSITIVE_ARGS:
-            redacted.append(item)
-            skip_next = True
-            continue
-        replaced = item
-        for flag in SENSITIVE_ARGS:
-            prefix = f"{flag}="
-            if item.startswith(prefix):
-                replaced = f"{flag}=***redacted***"
-                break
-        redacted.append(replaced)
-    if skip_next:
-        redacted.append("***redacted***")
-    return redacted
+    return redact_argv(command, sensitive_flags=SENSITIVE_ARGS)
 
 
 def _redact_text(value: str, sensitive_values: set[str]) -> str:
-    redacted = value
-    for sensitive in sorted(sensitive_values, key=len, reverse=True):
-        redacted = redacted.replace(sensitive, "***redacted***")
-    return redacted
+    return redact_text(value, sensitive_values)
 
 
 def run_cli_command(command: list[str], cwd: str | None = None, *, timeout_seconds: int = 900) -> dict[str, Any]:

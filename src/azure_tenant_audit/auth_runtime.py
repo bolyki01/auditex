@@ -7,33 +7,14 @@ import time
 from typing import Any, Callable, Optional
 
 from .graph import GraphClient
+from .secret_hygiene import redact_argv, sanitize_token_claims
 
 
 SENSITIVE_CLI_ARGS = {"--client-secret", "--access-token"}
 
 
 def scrub_command_line(command_line: list[str]) -> list[str]:
-    scrubbed: list[str] = []
-    skip_next = False
-    for item in command_line:
-        if skip_next:
-            scrubbed.append("***redacted***")
-            skip_next = False
-            continue
-        if item in SENSITIVE_CLI_ARGS:
-            scrubbed.append(item)
-            skip_next = True
-            continue
-        if item.startswith("--client-secret="):
-            scrubbed.append("--client-secret=***redacted***")
-            continue
-        if item.startswith("--access-token="):
-            scrubbed.append("--access-token=***redacted***")
-            continue
-        scrubbed.append(item)
-    if skip_next:
-        scrubbed.append("***redacted***")
-    return scrubbed
+    return redact_argv(command_line, sensitive_flags=SENSITIVE_CLI_ARGS)
 
 
 def acquire_azure_cli_access_token(
@@ -165,7 +146,7 @@ def build_auth_context_payload(
     payload: dict[str, Any] = {
         "auth_mode": auth_mode,
         "tenant_id": tenant_id,
-        "token_claims": token_claims or {},
+        "token_claims": sanitize_token_claims(token_claims),
         "session_context": session_context or {},
     }
     if saved_context:

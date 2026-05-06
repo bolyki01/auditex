@@ -4,9 +4,11 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
+from azure_tenant_audit.secret_hygiene import secure_write_json, secure_write_text
 from azure_tenant_audit.utils import load_env_file
 
 from . import auth_runtime
@@ -106,7 +108,7 @@ def save_local_auth_values(values: dict[str, str | None]) -> Path:
         output_lines.append(f"{key}={value}")
 
     rendered = "\n".join(output_lines).rstrip()
-    path.write_text(f"{rendered}\n" if rendered else "", encoding="utf-8")
+    secure_write_text(path, f"{rendered}\n" if rendered else "")
 
     for key, value in values.items():
         if value is None or value == "":
@@ -217,8 +219,7 @@ def _load_json(path: Path, *, default: Any) -> Any:
 
 
 def _save_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    secure_write_json(path, payload)
 
 
 def _auth_context_store() -> dict[str, Any]:
@@ -251,6 +252,28 @@ def _product_auth_runtime() -> auth_runtime.ProductAuthRuntime:
 
 def inspect_token_claims(token: str) -> dict[str, Any]:
     return auth_runtime.inspect_token_claims(token)
+
+
+def resolve_token_input(
+    *,
+    token: str | None = None,
+    token_env: str | None = None,
+    token_file: str | None = None,
+    token_stdin: bool = False,
+) -> tuple[str, str]:
+    supplied = [bool(token), bool(token_env), bool(token_file), bool(token_stdin)]
+    if sum(supplied) != 1:
+        raise ValueError("provide exactly one of --token, --token-env, --token-file, or --token-stdin")
+    if token:
+        return token.strip(), "argv"
+    if token_env:
+        value = os.environ.get(token_env)
+        if not value:
+            raise ValueError(f"environment variable '{token_env}' is empty or missing")
+        return value.strip(), f"env:{token_env}"
+    if token_file:
+        return Path(token_file).expanduser().read_text(encoding="utf-8").strip(), f"file:{token_file}"
+    return sys.stdin.read().strip(), "stdin"
 
 
 def _redacted_token_preview(token: str) -> str:

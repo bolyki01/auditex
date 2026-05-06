@@ -27,7 +27,6 @@ project's declared dependencies.
 |---------|---------|-------------|
 | `requests` | Apache-2.0 | `pyproject.toml`, `requirements.txt` |
 | `msal` | MIT | `pyproject.toml`, `requirements.txt` |
-| `sentry-sdk` | MIT | `pyproject.toml` |
 | `mcp` *(optional)* | MIT | `pyproject.toml` |
 
 ### Python build tooling — `pyproject.toml`
@@ -66,5 +65,5 @@ documentation text was copied. Recorded in `THIRD_PARTY_NOTICES.md` for provenan
 |---------|----------------|
 | Proprietary (this project) | No redistribution without written agreement — see `LICENSE` |
 | MIT (vendored microsoft-skills) | Licence text retained at `tenant-bootstrap/vendor/microsoft-skills/LICENSE` |
-| MIT (msal, sentry-sdk, mcp) | Retain copyright notice and licence text when redistributing bundled wheels |
+| MIT (msal, mcp) | Retain copyright notice and licence text when redistributing bundled wheels |
 | Apache-2.0 (requests) | Retain NOTICE file (if any) and licence text when redistributing bundled wheels |

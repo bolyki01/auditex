@@ -7,6 +7,7 @@ import subprocess
 import time
 from typing import Any, Callable, Optional
 
+from ..secret_hygiene import collect_sensitive_argv_values, redact_command_string, redact_text
 from .base import Adapter, AdapterMetadata
 
 
@@ -61,24 +62,26 @@ class M365CLIAdapter(Adapter):
         command: str,
         log_event: Optional[Callable[[str, str, Optional[dict[str, Any]]], None]] = None,
     ) -> dict[str, Any]:
+        safe_command = redact_command_string(command)
         cmd_parts = shlex.split(command)
+        sensitive_values = collect_sensitive_argv_values(cmd_parts)
         exe = shutil.which(cmd_parts[0]) if cmd_parts else None
         if exe is None:
             if log_event:
                 log_event(
                     "command.failed",
                     "Command executable not found",
-                    {"command": cmd_parts[0] if cmd_parts else command},
+                    {"command": cmd_parts[0] if cmd_parts else safe_command},
                 )
             return {
                 "error": f"command_not_found:{cmd_parts[0] if cmd_parts else command}",
                 "error_class": "command_not_found",
-                "command": command,
+                "command": safe_command,
             }
 
         try:
             if log_event:
-                log_event("command.started", "Exchange command started", {"command": command, "executable": exe})
+                log_event("command.started", "Exchange command started", {"command": safe_command, "executable": exe})
             start = time.time()
             result = subprocess.run(
                 cmd_parts,
@@ -96,13 +99,13 @@ class M365CLIAdapter(Adapter):
                     "command.completed",
                     "Exchange command completed",
                     {
-                        "command": command,
+                        "command": safe_command,
                         "return_code": result.returncode,
                         "duration_ms": duration_ms,
                         "status": status,
                         "stdout_bytes": len(stdout),
                         "stderr_bytes": len(stderr),
-                        "stdout_sample": stdout[:500],
+                        "stdout_sample": redact_text(stdout[:500], sensitive_values),
                     },
                 )
 
@@ -117,43 +120,43 @@ class M365CLIAdapter(Adapter):
                 return {
                     "error": f"command_failed:{result.returncode}",
                     "error_class": error_class,
-                    "command": command,
+                    "command": safe_command,
                     "return_code": result.returncode,
-                    "stdout": stdout,
-                    "stderr": stderr,
+                    "stdout": redact_text(stdout, sensitive_values),
+                    "stderr": redact_text(stderr, sensitive_values),
                 }
 
             if not stdout.strip():
                 return {
-                    "command": command,
+                    "command": safe_command,
                     "error": "command_output_empty",
                     "error_class": "command_output_empty",
-                    "stdout": stdout,
-                    "stderr": stderr,
+                    "stdout": redact_text(stdout, sensitive_values),
+                    "stderr": redact_text(stderr, sensitive_values),
                 }
 
             if self._looks_like_help_output(stdout):
                 return {
-                    "command": command,
+                    "command": safe_command,
                     "error": "command_output_invalid_help",
                     "error_class": "command_parse_error",
-                    "stdout": stdout,
-                    "stderr": stderr,
+                    "stdout": redact_text(stdout, sensitive_values),
+                    "stderr": redact_text(stderr, sensitive_values),
                 }
 
             try:
                 parsed = json.loads(stdout)
             except json.JSONDecodeError:
                 return {
-                    "command": command,
+                    "command": safe_command,
                     "error": "command_output_parse_error",
                     "error_class": "command_parse_error",
-                    "stdout": stdout,
-                    "stderr": stderr,
+                    "stdout": redact_text(stdout, sensitive_values),
+                    "stderr": redact_text(stderr, sensitive_values),
                 }
 
             response = self._normalize_payload(parsed)
-            response["command"] = command
+            response["command"] = safe_command
             return response
 
         except subprocess.CalledProcessError as exc:  # noqa: BLE001
@@ -161,19 +164,19 @@ class M365CLIAdapter(Adapter):
                 log_event(
                     "command.failed",
                     "Exchange command failed",
-                    {"command": command, "return_code": exc.returncode, "error": str(exc)},
+                    {"command": safe_command, "return_code": exc.returncode, "error": str(exc)},
                 )
             return {
                 "error": f"command_failed:{exc.returncode}",
                 "error_class": "command_error",
-                "command": command,
-                "output": str(exc.output),
+                "command": safe_command,
+                "output": redact_text(str(exc.output), sensitive_values),
             }
         except Exception as exc:  # noqa: BLE001
             if log_event:
                 log_event(
                     "command.failed",
                     "Exchange command exception",
-                    {"command": command, "error": str(exc)},
+                    {"command": safe_command, "error": str(exc)},
                 )
-            return {"error": str(exc), "error_class": "command_exception", "command": command}
+            return {"error": redact_text(str(exc), sensitive_values), "error_class": "command_exception", "command": safe_command}

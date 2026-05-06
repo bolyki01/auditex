@@ -6,6 +6,8 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
+from .perf_runtime import sqlite_bulk_pragmas
+
 
 _SCHEMA = (
     "DROP TABLE IF EXISTS run_meta",
@@ -29,6 +31,11 @@ _SCHEMA = (
         PRIMARY KEY (section_name, record_index)
     )
     """,
+)
+_INDEXES = (
+    "CREATE INDEX idx_normalized_records_key ON normalized_records(record_key)",
+    "CREATE INDEX idx_normalized_records_collector ON normalized_records(collector)",
+    "CREATE INDEX idx_normalized_records_section ON normalized_records(section_name)",
 )
 
 
@@ -84,6 +91,11 @@ def _create_schema(conn: sqlite3.Connection) -> None:
         conn.execute(statement)
 
 
+def _create_indexes(conn: sqlite3.Connection) -> None:
+    for statement in _INDEXES:
+        conn.execute(statement)
+
+
 def _insert_meta(conn: sqlite3.Connection, run_path: Path, manifest: Mapping[str, Any], summary: Mapping[str, Any]) -> None:
     rows = {"run_dir": str(run_path), "summary": _scalar(summary)}
     rows.update({str(key): _scalar(value) for key, value in manifest.items()})
@@ -105,28 +117,31 @@ def _insert_records(
         "INSERT INTO section_stats (section_name, item_count, source_path) VALUES (?, ?, ?)",
         (section_name, len(records), relative_source),
     )
-    for index, record in enumerate(records):
-        conn.execute(
-            """
-            INSERT INTO normalized_records (
-                run_id, tenant_name, section_name, record_index, record_key,
-                display_name, source_name, collector, severity, record_json, source_path
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                run_id,
-                tenant_name,
-                section_name,
-                index,
-                _record_key(record, section_name, index),
-                _scalar(record.get("display_name") or record.get("name")),
-                _scalar(record.get("source_name")),
-                _scalar(record.get("collector")),
-                _scalar(record.get("severity")),
-                json.dumps(record, sort_keys=True, ensure_ascii=False, default=str),
-                relative_source,
-            ),
+    insert_rows = [
+        (
+            run_id,
+            tenant_name,
+            section_name,
+            index,
+            _record_key(record, section_name, index),
+            _scalar(record.get("display_name") or record.get("name")),
+            _scalar(record.get("source_name")),
+            _scalar(record.get("collector")),
+            _scalar(record.get("severity")),
+            json.dumps(record, sort_keys=True, ensure_ascii=False, default=str),
+            relative_source,
         )
+        for index, record in enumerate(records)
+    ]
+    conn.executemany(
+        """
+        INSERT INTO normalized_records (
+            run_id, tenant_name, section_name, record_index, record_key,
+            display_name, source_name, collector, severity, record_json, source_path
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        insert_rows,
+    )
 
 
 def build_run_evidence_index(run_dir: str | Path, db_path: str | Path | None = None) -> Path:
@@ -140,13 +155,15 @@ def build_run_evidence_index(run_dir: str | Path, db_path: str | Path | None = N
     summary = summary if isinstance(summary, Mapping) else {}
 
     with sqlite3.connect(target) as conn:
-        conn.execute("PRAGMA journal_mode=WAL")
+        for pragma in sqlite_bulk_pragmas():
+            conn.execute(pragma)
         _create_schema(conn)
         _insert_meta(conn, run_path, manifest, summary)
         run_id = _scalar(manifest.get("run_id"))
         tenant_name = _scalar(manifest.get("tenant_name"))
         for section_name, path, records in _normalized_payloads(run_path):
             _insert_records(conn, run_path, section_name, path, records, run_id=run_id, tenant_name=tenant_name)
+        _create_indexes(conn)
         conn.commit()
 
     return target

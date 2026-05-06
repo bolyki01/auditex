@@ -156,8 +156,6 @@ Additional run artifacts include `summary.md`, `audit-log.jsonl`, `audit-debug.l
 
 Schemas live in `schemas/`; contract notes live in [docs/OUTPUT_CONTRACT.md](docs/OUTPUT_CONTRACT.md).
 
-Enterprise-scale priorities and implementation guardrails are tracked in [improvement.md](improvement.md).
-
 ## MCP
 
 Local MCP entrypoint:

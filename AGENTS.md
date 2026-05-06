@@ -39,3 +39,7 @@ make contract-smoke
 - Keep collector and adapter changes narrow by service or concern.
 - Add or update focused pytest coverage in `tests/` when behavior changes.
 - Keep raw tenant evidence, tokens, and secrets out of git.
+
+## Telemetry
+
+- Do not add Sentry or external crash telemetry. Keep diagnostics local unless a repo runbook says otherwise.

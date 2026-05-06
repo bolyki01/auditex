@@ -15,7 +15,6 @@ from azure_tenant_audit.probe import ProbeConfig, probe_mode_choices, run_live_p
 from azure_tenant_audit.response import ResponseConfig, response_actions, run_response
 
 from .mcp_server import list_blockers, summarize_run
-from .sentry_runtime import init_sentry
 
 
 def _build_root_parser() -> argparse.ArgumentParser:
@@ -153,11 +152,17 @@ def _build_auth_parser() -> argparse.ArgumentParser:
 
     import_token = subparsers.add_parser("import-token", help="Save a customer-provided Graph bearer token as a local auth context.")
     import_token.add_argument("--name", required=True, help="Saved auth context name.")
-    import_token.add_argument("--token", required=True, help="Bearer token or JWT access token.")
+    import_token.add_argument("--token", default=None, help="Bearer token or JWT access token. Prefer --token-stdin, --token-env, or --token-file.")
+    import_token.add_argument("--token-env", default=None, help="Read token from this environment variable.")
+    import_token.add_argument("--token-file", default=None, help="Read token from a local file.")
+    import_token.add_argument("--token-stdin", action="store_true", help="Read token from stdin.")
     import_token.add_argument("--tenant-id", default=None)
 
     inspect_token = subparsers.add_parser("inspect-token", help="Decode a Graph bearer token locally without sending it anywhere.")
-    inspect_token.add_argument("--token", required=True, help="Bearer token or JWT access token.")
+    inspect_token.add_argument("--token", default=None, help="Bearer token or JWT access token. Prefer --token-stdin, --token-env, or --token-file.")
+    inspect_token.add_argument("--token-env", default=None, help="Read token from this environment variable.")
+    inspect_token.add_argument("--token-file", default=None, help="Read token from a local file.")
+    inspect_token.add_argument("--token-stdin", action="store_true", help="Read token from stdin.")
 
     capability = subparsers.add_parser("capability", help="Show collector capability for a saved auth context.")
     capability.add_argument("--name", default=None, help="Saved auth context name. Defaults to active context.")
@@ -252,8 +257,6 @@ def _build_notify_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    init_sentry()
-
     argv = list(argv if argv is not None else sys.argv[1:])
     if not argv:
         _build_root_parser().print_help()
@@ -387,11 +390,22 @@ def main(argv: list[str] | None = None) -> int:
                 client_secret=args.client_secret,
             )
         if args.auth_command == "import-token":
+            token, source = auditex_auth.resolve_token_input(
+                token=args.token,
+                token_env=args.token_env,
+                token_file=args.token_file,
+                token_stdin=args.token_stdin,
+            )
+            if source == "argv":
+                print(
+                    "warning: --token exposes secrets through shell history/process listings; prefer --token-stdin or --token-env",
+                    file=sys.stderr,
+                )
             print(
                 json.dumps(
                     auditex_auth.import_token_context(
                         name=args.name,
-                        token=args.token,
+                        token=token,
                         tenant_id=args.tenant_id,
                     ),
                     indent=2,
@@ -399,7 +413,18 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.auth_command == "inspect-token":
-            print(json.dumps(auditex_auth.inspect_token_claims(args.token), indent=2))
+            token, source = auditex_auth.resolve_token_input(
+                token=args.token,
+                token_env=args.token_env,
+                token_file=args.token_file,
+                token_stdin=args.token_stdin,
+            )
+            if source == "argv":
+                print(
+                    "warning: --token exposes secrets through shell history/process listings; prefer --token-stdin or --token-env",
+                    file=sys.stderr,
+                )
+            print(json.dumps(auditex_auth.inspect_token_claims(token), indent=2))
             return 0
         if args.auth_command == "capability":
             print(

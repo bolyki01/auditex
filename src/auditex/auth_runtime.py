@@ -14,6 +14,12 @@ from typing import Any, Callable
 from azure_tenant_audit.config import CollectorConfig
 from azure_tenant_audit.profiles import get_profile
 from azure_tenant_audit.resources import resolve_resource_path
+from azure_tenant_audit.secret_hygiene import (
+    sanitize_token_claims,
+    secure_write_json,
+    token_freshness as safe_token_freshness,
+    validate_token_claims,
+)
 from azure_tenant_audit.utils import parse_csv_list
 
 
@@ -145,8 +151,7 @@ def _load_json(path: Path, *, default: Any) -> Any:
 
 
 def _save_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    secure_write_json(path, payload)
 
 
 @dataclass(frozen=True)
@@ -298,8 +303,11 @@ class ProductAuthRuntime:
         tenant_id: str | None = None,
         make_active: bool = True,
     ) -> dict[str, Any]:
-        inspected = inspect_token_claims(token)
+        inspected = sanitize_token_claims(inspect_token_claims(token))
         effective_tenant_id = tenant_id or inspected.get("tenant_id")
+        validation = validate_token_claims(inspected, tenant_id=effective_tenant_id)
+        if validation.get("blockers"):
+            raise ValueError(f"refusing to save unusable token context: {', '.join(validation['blockers'])}")
         store = self._auth_context_store()
         store["contexts"][name] = {
             "name": name,
@@ -308,6 +316,7 @@ class ProductAuthRuntime:
             "token": token,
             "token_preview": redacted_token_preview(token),
             "token_claims": inspected,
+            "validation": validation,
         }
         if make_active:
             store["active_context"] = name
@@ -355,6 +364,11 @@ class ProductAuthRuntime:
         context = store.get("contexts", {}).get(selected_name)
         if not isinstance(context, dict):
             raise RuntimeError(f"auth context '{selected_name}' not found")
+        validation = validate_token_claims(context.get("token_claims") or {}, tenant_id=context.get("tenant_id"))
+        if validation.get("blockers"):
+            raise RuntimeError(
+                f"auth context '{selected_name}' is not usable: {', '.join(validation['blockers'])}"
+            )
         return context
 
     def capability_for_context(
@@ -422,25 +436,10 @@ def parse_utc(value: Any) -> datetime | None:
 
 
 def token_freshness(token_claims: dict[str, Any]) -> dict[str, Any]:
-    expires_at = parse_utc(token_claims.get("expires_at_utc"))
-    if expires_at is None:
-        return {"status": "unknown", "expires_at_utc": token_claims.get("expires_at_utc"), "seconds_remaining": None}
-    now = datetime.now(timezone.utc)
-    seconds = int((expires_at - now).total_seconds())
-    if seconds <= 0:
-        status = "expired"
-    elif seconds <= 3600:
-        status = "stale"
-    else:
-        status = "fresh"
-    return {
-        "status": status,
-        "expires_at_utc": expires_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "seconds_remaining": seconds,
-    }
+    return safe_token_freshness(token_claims)
 
 
-def inspect_token_claims(token: str) -> dict[str, Any]:
+def inspect_token_claims(token: str, *, include_raw_claims: bool = False) -> dict[str, Any]:
     token = token.strip()
     if token.lower().startswith("bearer "):
         token = token.split(" ", 1)[1].strip()
@@ -450,7 +449,7 @@ def inspect_token_claims(token: str) -> dict[str, Any]:
     payload = b64url_json(parts[1])
     delegated_scopes = sorted(parse_csv_list(str(payload.get("scp", "")).replace(" ", ",")) or [])
     app_roles = sorted(str(item) for item in payload.get("roles", []) if isinstance(item, str))
-    return {
+    result = {
         "tenant_id": payload.get("tid"),
         "audience": payload.get("aud"),
         "app_id": payload.get("appid") or payload.get("azp"),
@@ -461,8 +460,10 @@ def inspect_token_claims(token: str) -> dict[str, Any]:
         "issued_at_utc": iso_from_epoch(payload.get("iat")),
         "not_before_utc": iso_from_epoch(payload.get("nbf")),
         "expires_at_utc": iso_from_epoch(payload.get("exp")),
-        "raw_claims": payload,
     }
+    if include_raw_claims:
+        result["raw_claims"] = payload
+    return sanitize_token_claims(result)
 
 
 def redacted_token_preview(token: str) -> str:

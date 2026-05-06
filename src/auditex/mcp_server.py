@@ -14,6 +14,14 @@ from azure_tenant_audit.response import response_actions
 from azure_tenant_audit.contracts import contract_schema_manifest
 from .rules import list_rule_inventory
 from .command_runner import run_cli_command
+from .command_builders import (
+    AuditRunCommandSpec,
+    ProbeCommandSpec,
+    ResponseCommandSpec,
+    build_audit_run_command,
+    build_probe_command as build_probe_tool_command,
+    build_response_command as build_response_tool_command,
+)
 from .mcp_registry import iter_tool_specs, register_fastmcp_tools
 from .run_bundle import RunBundle
 SUPPORTED_PLANES = ("inventory", "full", "export")
@@ -86,39 +94,26 @@ def build_cli_command(
     offline: bool = False,
     sample_path: str = "examples/sample_audit_bundle/sample_result.json",
 ) -> list[str]:
-    if plane not in SUPPORTED_PLANES:
-        raise ValueError(f"Unsupported plane '{plane}'. Supported planes: {', '.join(SUPPORTED_PLANES)}")
-    command = [sys.executable, "-m", "azure_tenant_audit", "--tenant-name", tenant_name, "--out", out_dir]
-    if tenant_id:
-        command.extend(["--tenant-id", tenant_id])
-    command.extend(["--auditor-profile", auditor_profile])
-    command.extend(["--plane", plane])
-    if include_exchange:
-        command.append("--include-exchange")
-    if collectors:
-        if isinstance(collectors, str):
-            selected_collectors = collectors
-        else:
-            selected_collectors = ",".join(collectors)
-        if selected_collectors:
-            command.extend(["--collectors", selected_collectors])
-    if since:
-        command.extend(["--since", since])
-    if until:
-        command.extend(["--until", until])
-    if offline:
-        command.extend(["--offline", "--sample", sample_path])
-        return command
-    if access_token:
-        command.extend(["--access-token", access_token])
-    elif use_azure_cli_token:
-        command.append("--use-azure-cli-token")
-    else:
-        if client_id:
-            command.extend(["--client-id", client_id])
-        if client_secret:
-            command.extend(["--client-secret", client_secret])
-    return command
+    return build_audit_run_command(
+        AuditRunCommandSpec(
+            tenant_name=tenant_name,
+            out_dir=out_dir,
+            tenant_id=tenant_id,
+            auditor_profile=auditor_profile,
+            plane=plane,
+            use_azure_cli_token=use_azure_cli_token,
+            access_token=access_token,
+            client_id=client_id,
+            client_secret=client_secret,
+            include_exchange=include_exchange,
+            collectors=collectors,
+            since=since,
+            until=until,
+            offline=offline,
+            sample_path=sample_path,
+            python_executable=sys.executable,
+        )
+    )
 
 
 def build_probe_command(
@@ -138,29 +133,25 @@ def build_probe_command(
     client_id: str | None = None,
     client_secret: str | None = None,
 ) -> list[str]:
-    if mode not in SUPPORTED_PROBE_MODES:
-        raise ValueError(f"Unsupported probe mode '{mode}'. Supported modes: {', '.join(SUPPORTED_PROBE_MODES)}")
-    command = [sys.executable, "-m", "auditex", "probe", "live", "--tenant-name", tenant_name, "--out", out_dir]
-    if tenant_id:
-        command.extend(["--tenant-id", tenant_id])
-    command.extend(["--auditor-profile", auditor_profile, "--mode", mode, "--surface", surface])
-    if since:
-        command.extend(["--since", since])
-    if until:
-        command.extend(["--until", until])
-    if allow_lab_response:
-        command.append("--allow-lab-response")
-    if access_token:
-        command.extend(["--access-token", access_token])
-    elif auth_context:
-        command.extend(["--auth-context", auth_context])
-    elif use_azure_cli_token and mode == "delegated":
-        command.append("--use-azure-cli-token")
-    if client_id:
-        command.extend(["--client-id", client_id])
-    if client_secret:
-        command.extend(["--client-secret", client_secret])
-    return command
+    return build_probe_tool_command(
+        ProbeCommandSpec(
+            tenant_name=tenant_name,
+            out_dir=out_dir,
+            tenant_id=tenant_id,
+            auditor_profile=auditor_profile,
+            mode=mode,
+            surface=surface,
+            since=since,
+            until=until,
+            allow_lab_response=allow_lab_response,
+            use_azure_cli_token=use_azure_cli_token,
+            access_token=access_token,
+            auth_context=auth_context,
+            client_id=client_id,
+            client_secret=client_secret,
+            python_executable=sys.executable,
+        )
+    )
 
 
 def build_response_command(
@@ -182,35 +173,28 @@ def build_response_command(
     adapter_override: str | None = None,
     command_override: str | None = None,
 ) -> list[str]:
-    supported_actions = response_actions()
-    if action not in supported_actions:
-        raise ValueError(f"Unsupported response action '{action}'. Supported actions: {', '.join(supported_actions)}")
-    command = [sys.executable, "-m", "auditex", "response", "run", "--tenant-name", tenant_name, "--out", out_dir, "--action", action, "--intent", intent]
-    if tenant_id:
-        command.extend(["--tenant-id", tenant_id])
-    if auditor_profile:
-        command.extend(["--auditor-profile", auditor_profile])
-    if target:
-        command.extend(["--target", target])
-    if since:
-        command.extend(["--since", since])
-    if until:
-        command.extend(["--until", until])
-    if run_name:
-        command.extend(["--run-name", run_name])
-    if execute:
-        command.append("--execute")
-    if allow_write:
-        command.append("--allow-write")
-    if allow_lab_response:
-        command.append("--allow-lab-response")
-    if auth_context:
-        command.extend(["--auth-context", auth_context])
-    if adapter_override:
-        command.extend(["--adapter-override", adapter_override])
-    if command_override:
-        command.extend(["--command-override", command_override])
-    return command
+    return build_response_tool_command(
+        ResponseCommandSpec(
+            tenant_name=tenant_name,
+            out_dir=out_dir,
+            action=action,
+            tenant_id=tenant_id,
+            auditor_profile=auditor_profile,
+            target=target,
+            intent=intent,
+            since=since,
+            until=until,
+            run_name=run_name,
+            execute=execute,
+            allow_write=allow_write,
+            allow_lab_response=allow_lab_response,
+            auth_context=auth_context,
+            adapter_override=adapter_override,
+            command_override=command_override,
+            python_executable=sys.executable,
+        ),
+        supported_actions=response_actions(),
+    )
 
 
 def summarize_run(run_dir: str) -> dict[str, Any]:

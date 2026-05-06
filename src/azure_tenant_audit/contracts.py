@@ -41,8 +41,17 @@ _REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
 }
 
 _EVIDENCE_REF_REQUIRED = ("artifact_path", "artifact_kind", "collector", "record_key")
-_AI_SAFE_SENSITIVE_KEYS = re.compile(r"(token|secret|password|credential|authorization|raw_claims)", re.IGNORECASE)
+_AI_SAFE_SENSITIVE_KEYS = re.compile(
+    r"(access[_-]?token|refresh[_-]?token|client[_-]?secret|secret|password|credential|authorization|raw_claims)",
+    re.IGNORECASE,
+)
 _AI_SAFE_SENSITIVE_VALUES = re.compile(r"(Bearer\s+[A-Za-z0-9._-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.)")
+_SENSITIVE_CONTRACT_ARTIFACTS = (
+    "run-manifest.json",
+    "ai_context.json",
+    "reports/report-pack.json",
+    "normalized/auth_context.json",
+)
 
 
 def _read_json(path: Path, fallback: Any = None) -> Any:
@@ -184,6 +193,18 @@ def _validate_ai_safe(run_dir: Path, issues: list[dict[str, Any]]) -> None:
             issues.append(_issue("unsafe_ai_safe_artifact", path=str(path.relative_to(run_dir)), details=hits[:25]))
 
 
+def _validate_sensitive_contract_artifacts(run_dir: Path, issues: list[dict[str, Any]]) -> None:
+    for relative in _SENSITIVE_CONTRACT_ARTIFACTS:
+        path = run_dir / relative
+        if not path.exists():
+            continue
+        payload = _read_json(path, fallback={})
+        hits: list[dict[str, Any]] = []
+        _walk_sensitive_ai_safe(payload, "", hits)
+        if hits:
+            issues.append(_issue("unsafe_contract_artifact", path=relative, details=hits[:25]))
+
+
 def _validate_evidence_db(run_dir: Path, issues: list[dict[str, Any]]) -> None:
     db_path = run_dir / "index" / "evidence.sqlite"
     if not db_path.exists():
@@ -222,6 +243,7 @@ def build_validation_report(
     _validate_evidence_refs(run_path, loaded_findings, issues)
     _validate_normalized_records(run_path, issues)
     _validate_ai_safe(run_path, issues)
+    _validate_sensitive_contract_artifacts(run_path, issues)
     _validate_evidence_db(run_path, issues)
 
     context = ai_context if isinstance(ai_context, Mapping) else _read_json(run_path / "ai_context.json", fallback={})

@@ -689,13 +689,6 @@ def run_live(args: argparse.Namespace, event_listener: Callable[[dict[str, Any]]
 
 
 def main(argv: list[str] | None = None, event_listener: Callable[[dict[str, Any]], None] | None = None) -> int:
-    try:
-        from auditex.sentry_runtime import init_sentry
-
-        init_sentry()
-    except Exception:
-        pass
-
     parser = build_parser()
     parsed_argv = list(argv if argv is not None else sys.argv[1:])
     args = parser.parse_args(parsed_argv)

@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
+from ..perf_runtime import EndpointAccumulator, PageWindow
 from ..graph import GraphClient, GraphError
 
 if TYPE_CHECKING:
@@ -104,16 +105,15 @@ def run_graph_endpoints(
         try:
             if page:
                 if chunk_writer is not None and hasattr(client, "iter_pages"):
-                    sample: list[dict[str, Any]] = []
-                    chunk_files: list[str] = []
-                    remaining = max(top, 0)
+                    accumulator = EndpointAccumulator(sample_limit=20)
+                    window = PageWindow.from_limit(top)
                     for page_number, page_payload in enumerate(client.iter_pages(endpoint, params=query), start=1):
                         values = page_payload.get("value", [])
                         if not isinstance(values, list):
                             raise GraphError(f"Non-list response from {endpoint}", request=endpoint)
-                        if remaining <= 0:
+                        if window.exhausted:
                             break
-                        limited_values = values[:remaining]
+                        limited_values, window = window.take([item for item in values if isinstance(item, dict)])
                         if limited_values:
                             chunk_path = chunk_writer(
                                 collector,
@@ -122,21 +122,13 @@ def run_graph_endpoints(
                                 limited_values,
                                 {"endpoint": endpoint, "page_number": page_number},
                             )
-                            if chunk_path:
-                                chunk_files.append(chunk_path)
-                        item_count += len(limited_values)
-                        remaining -= len(limited_values)
-                        if len(sample) < 20:
-                            sample.extend(limited_values[: 20 - len(sample)])
-                        if remaining <= 0:
+                            accumulator.add_page(limited_values, chunk_file=chunk_path)
+                        else:
+                            accumulator.add_page(limited_values)
+                        if window.exhausted:
                             break
-                    payload[key] = {
-                        "value": sample,
-                        "item_count": item_count,
-                        "sample_truncated": item_count > len(sample),
-                    }
-                    if chunk_files:
-                        payload[key]["chunk_files"] = chunk_files
+                    item_count = accumulator.item_count
+                    payload[key] = accumulator.payload()
                 else:
                     if hasattr(client, "iter_items"):
                         rows = list(client.iter_items(endpoint, params=query, result_limit=top))
@@ -183,12 +175,15 @@ def run_graph_endpoints(
                 "type": "graph",
                 "name": key,
                 "endpoint": endpoint,
-                    "status": status,
-                    "top": query.get("$top"),
-                    "result_limit": top if page else None,
-                    "page": page,
-                    "item_count": item_count,
-                    "duration_ms": duration_ms,
+                "status": status,
+                "top": query.get("$top"),
+                "result_limit": top if page else None,
+                "page": page,
+                "item_count": item_count,
+                "page_count": payload.get(key, {}).get("page_count") if isinstance(payload.get(key), dict) else None,
+                "chunk_count": payload.get(key, {}).get("chunk_count") if isinstance(payload.get(key), dict) else None,
+                "sample_truncated": payload.get(key, {}).get("sample_truncated") if isinstance(payload.get(key), dict) else None,
+                "duration_ms": duration_ms,
                 "error_class": error_class,
                 "error": error,
             }
