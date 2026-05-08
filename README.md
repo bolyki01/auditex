@@ -216,3 +216,26 @@ By default the response command writes a dry-run bundle. Execution requires `--e
 
 Target repository: `magrathean-uk/auditex`
 
+## Legal
+
+Copyright © 2026 Magrathean UK Ltd. All rights reserved.
+
+Auditex is proprietary software. See [`LICENSE`](./LICENSE) for the full licence text. Third-party components and their licences are listed in [`LICENSE.md`](./LICENSE.md) and [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) where present. Public availability of this repository does not grant any right to copy, modify, redistribute, or use the software outside the licence terms.
+
+### Lawful use only — tenant audits
+
+Auditex performs reads and limited operational actions against Microsoft 365 tenants. **You may use Auditex only against tenants that you own, or for which you have explicit written authorisation from the tenant owner.** Unauthorised access to a Microsoft 365 tenant or to any computer system is a criminal offence under the **Computer Misuse Act 1990** in the United Kingdom and equivalent laws elsewhere. You are solely responsible for: (a) obtaining proper authorisation before any audit; (b) compliance with Microsoft's terms of service and the tenant's own data-protection commitments; (c) compliance with the **UK GDPR** and the **Data Protection Act 2018** in respect of any personal data observed; (d) handling, retaining, and protecting evidence packs and reports produced by Auditex; and (e) any regulatory, civil, or criminal liability arising from your use of Auditex.
+
+### Trademarks and disclaimers
+
+Microsoft, Microsoft 365, Entra ID, Intune, Defender, Exchange, SharePoint, Azure, the Microsoft Graph, and PowerShell are trademarks of Microsoft Corporation. The trademarks of any other vendor referenced in this repository remain the property of their respective owners.
+
+Auditex is **not affiliated with, endorsed by, sponsored by, or in any way officially connected to** Microsoft Corporation or any other vendor. References to these names exist solely for descriptive interoperability.
+
+### Reporting
+
+For security issues, see [`SECURITY.md`](./SECURITY.md). For licensing or commercial enquiries, email <contact@magrathean.uk>.
+
+---
+
+Magrathean UK Ltd. is a company registered in England and Wales (Company No. 16955343) with registered office at 16 Caledonian Court West Street, Watford, England, WD17 1RY.
