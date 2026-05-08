@@ -147,6 +147,17 @@
       ],
       "notes": "Consent policy inventory covers admin consent workflow and permission grant policies."
     },
+    "cross_tenant_access": {
+      "graph_scopes": [
+        "Policy.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader",
+        "Security Reader",
+        "Identity Governance Administrator"
+      ],
+      "notes": "Cross-tenant access settings are read via /policies/crossTenantAccessPolicy and surface default and partner-scoped trust posture."
+    },
     "domains_hybrid": {
       "graph_scopes": [
         "Directory.Read.All"
@@ -155,6 +166,15 @@
         "Global Reader"
       ],
       "notes": "Hybrid posture is inferred from domains and sampled on-premises sync markers on users."
+    },
+    "dns_posture": {
+      "graph_scopes": [
+        "Directory.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader"
+      ],
+      "notes": "Resolves email-auth DNS records over DoH for verified tenant domains; works with any read-only tenant role since the data is queried from public DNS, not Microsoft Graph."
     },
     "intune": {
       "graph_scopes": [
@@ -198,6 +218,48 @@
       ],
       "notes": "OneDrive posture uses SharePoint read APIs and site URL heuristics; admin-center-only OneDrive details may still be unavailable to Global Reader."
     },
+    "power_platform": {
+      "graph_scopes": [],
+      "minimum_role_hints": [
+        "Power Platform Administrator",
+        "Global Administrator"
+      ],
+      "notes": "Power Platform admin posture relies on the Business App Platform (BAP) admin API. The collector is capability-gated: pass a Power Platform admin bearer token via context to enable live collection, otherwise the collector emits a structured 'service_not_available' diagnostic."
+    },
+    "sentinel_xdr": {
+      "graph_scopes": [
+        "SecurityIncident.Read.All",
+        "SecurityEvents.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Security Reader",
+        "Global Reader"
+      ],
+      "notes": "Capability-gated. Reads /security/incidents and /security/alerts_v2 from Microsoft Graph; tenants without unified XDR / Sentinel ingestion will yield empty results, surfaced as 'service_not_available' diagnostics."
+    },
+    "defender_cloud_apps": {
+      "graph_scopes": [
+        "CloudApp-Discovery.Read.All",
+        "Application.Read.All",
+        "SecurityEvents.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Security Reader",
+        "Cloud App Security Administrator"
+      ],
+      "notes": "Capability-gated. Defender for Cloud Apps (CASB) posture requires E5/Defender licensing and tenant onboarding; failure modes map to 'insufficient_permissions' or 'service_not_available'."
+    },
+    "copilot_governance": {
+      "graph_scopes": [
+        "Reports.Read.All",
+        "AiEnterpriseInteraction.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Reports Reader",
+        "Global Reader"
+      ],
+      "notes": "Capability-gated. Copilot admin settings and usage reports require Microsoft 365 Copilot licensing; failure modes map to 'service_not_available'."
+    },
     "teams": {
       "graph_scopes": [
         "Team.ReadBasic.All",
@@ -240,6 +302,18 @@
         "Security Reader"
       ],
       "notes": "Enterprise application consent depth depends on delegated grant and app role assignment visibility."
+    },
+    "app_credentials": {
+      "graph_scopes": [
+        "Application.Read.All",
+        "Directory.Read.All"
+      ],
+      "minimum_role_hints": [
+        "Global Reader",
+        "Cloud Application Administrator",
+        "Application Administrator"
+      ],
+      "notes": "Application credential hygiene reads passwordCredentials, keyCredentials, redirect URIs, federatedIdentityCredentials, and owner counts via Microsoft Graph."
     },
     "licensing": {
       "graph_scopes": [
@@ -299,6 +373,19 @@
         "m365 outlook report mailactivitycounts --period D30 --output json",
         "m365 outlook roomlist list --output json"
       ]
+    },
+    "mailbox_forwarding": {
+      "graph_scopes": [
+        "User.Read.All",
+        "MailboxSettings.Read.All",
+        "Mail.Read"
+      ],
+      "minimum_role_hints": [
+        "Global Reader",
+        "Exchange Administrator",
+        "Security Reader"
+      ],
+      "notes": "Inbox-rule and mailbox-setting reads require MailboxSettings.Read.All for app-only flows or per-user delegated Mail.Read; tenants on Exchange-only licensing can rely on delegated tokens for the audited mailboxes."
     },
     "exchange_policy": {
       "graph_scopes": [],

@@ -97,6 +97,145 @@ def _send_smtp(payload: dict[str, Any]) -> dict[str, Any]:
     return {"status": "sent", "sink": "smtp", "payload": payload}
 
 
+def _ticket_summary_text(payload: dict[str, Any]) -> str:
+    finding_count = payload.get("finding_count", 0)
+    open_count = payload.get("open_count", 0)
+    return (
+        f"Auditex audit for **{payload.get('tenant_name') or 'tenant'}** finished with "
+        f"status `{payload.get('overall_status') or 'unknown'}`. "
+        f"Findings: {finding_count} (open: {open_count}). "
+        f"Top action: {(payload.get('action_plan') or [{}])[0].get('title') or 'n/a'}."
+    )
+
+
+def _send_jira(payload: dict[str, Any]) -> dict[str, Any]:
+    base_url = os.environ.get("AUDITEX_JIRA_BASE_URL")
+    project_key = os.environ.get("AUDITEX_JIRA_PROJECT_KEY")
+    email = os.environ.get("AUDITEX_JIRA_EMAIL")
+    token = os.environ.get("AUDITEX_JIRA_API_TOKEN")
+    issue_type = os.environ.get("AUDITEX_JIRA_ISSUE_TYPE", "Task")
+    missing = [
+        var
+        for var, value in (
+            ("AUDITEX_JIRA_BASE_URL", base_url),
+            ("AUDITEX_JIRA_PROJECT_KEY", project_key),
+            ("AUDITEX_JIRA_EMAIL", email),
+            ("AUDITEX_JIRA_API_TOKEN", token),
+        )
+        if not value
+    ]
+    if missing:
+        return {
+            "status": "blocked",
+            "sink": "jira",
+            "reason": f"missing env: {', '.join(missing)}",
+            "payload": payload,
+        }
+    summary = f"[Auditex] {payload.get('tenant_name') or 'tenant'} run – {payload.get('finding_count', 0)} findings"
+    body = {
+        "fields": {
+            "project": {"key": project_key},
+            "summary": summary[:250],
+            "issuetype": {"name": issue_type},
+            "description": {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": _ticket_summary_text(payload)}],
+                    },
+                    {
+                        "type": "codeBlock",
+                        "attrs": {"language": "json"},
+                        "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
+                    },
+                ],
+            },
+        }
+    }
+    url = f"{base_url.rstrip('/')}/rest/api/3/issue"
+    response = requests.post(
+        url,
+        json=body,
+        headers={"accept": "application/json", "content-type": "application/json"},
+        auth=(email, token),
+        timeout=15,
+    )
+    issue_key: str | None = None
+    if response.status_code < 400:
+        try:
+            issue_key = response.json().get("key")
+        except (ValueError, AttributeError):
+            issue_key = None
+    return {
+        "status": "sent" if response.status_code < 400 else "failed",
+        "sink": "jira",
+        "payload": payload,
+        "http_status": response.status_code,
+        "response_text": response.text,
+        "issue_key": issue_key,
+    }
+
+
+def _send_github(payload: dict[str, Any]) -> dict[str, Any]:
+    token = os.environ.get("AUDITEX_GITHUB_TOKEN")
+    repo = os.environ.get("AUDITEX_GITHUB_REPO")
+    api_root = os.environ.get("AUDITEX_GITHUB_API_ROOT", "https://api.github.com")
+    labels_env = os.environ.get("AUDITEX_GITHUB_LABELS", "auditex")
+    missing = [
+        var
+        for var, value in (
+            ("AUDITEX_GITHUB_TOKEN", token),
+            ("AUDITEX_GITHUB_REPO", repo),
+        )
+        if not value
+    ]
+    if missing:
+        return {
+            "status": "blocked",
+            "sink": "github",
+            "reason": f"missing env: {', '.join(missing)}",
+            "payload": payload,
+        }
+    title = f"[Auditex] {payload.get('tenant_name') or 'tenant'} run – {payload.get('finding_count', 0)} findings"
+    body_lines = [_ticket_summary_text(payload), "", "```json", json.dumps(payload, indent=2), "```"]
+    body = {
+        "title": title[:250],
+        "body": "\n".join(body_lines),
+        "labels": [label.strip() for label in labels_env.split(",") if label.strip()],
+    }
+    url = f"{api_root.rstrip('/')}/repos/{repo}/issues"
+    response = requests.post(
+        url,
+        json=body,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        timeout=15,
+    )
+    issue_number: int | None = None
+    issue_url: str | None = None
+    if response.status_code < 400:
+        try:
+            data = response.json()
+            issue_number = data.get("number")
+            issue_url = data.get("html_url")
+        except (ValueError, AttributeError):
+            issue_number = None
+    return {
+        "status": "sent" if response.status_code < 400 else "failed",
+        "sink": "github",
+        "payload": payload,
+        "http_status": response.status_code,
+        "response_text": response.text,
+        "issue_number": issue_number,
+        "issue_url": issue_url,
+    }
+
+
 def send_notification(*, run_dir: str, sink: str, dry_run: bool = True) -> dict[str, Any]:
     payload = _build_payload(run_dir)
     if dry_run:
@@ -107,6 +246,14 @@ def send_notification(*, run_dir: str, sink: str, dry_run: bool = True) -> dict[
         return result
     if sink == "smtp":
         result = _send_smtp(payload)
+        result["dry_run"] = False
+        return result
+    if sink == "jira":
+        result = _send_jira(payload)
+        result["dry_run"] = False
+        return result
+    if sink == "github":
+        result = _send_github(payload)
         result["dry_run"] = False
         return result
     return {"status": "blocked", "sink": sink, "dry_run": False, "reason": "unsupported sink", "payload": payload}

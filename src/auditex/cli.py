@@ -36,6 +36,8 @@ def _build_root_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("notify", help="Build or send post-run notifications.")
     subparsers.add_parser("rules", help="Inspect built-in rule packs.")
     subparsers.add_parser("auth", help="Inspect and manage local auth state.")
+    subparsers.add_parser("gate", help="Severity-threshold gate for CI integration.")
+    subparsers.add_parser("gate-drift", help="Drift gate: fail when new findings appear above a severity threshold.")
     return parser
 
 
@@ -246,12 +248,145 @@ def _build_export_parser() -> argparse.ArgumentParser:
     return parser
 
 
+_SEVERITY_RANKS = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+
+
+def gate_findings(*, run_dir: str, fail_on: str) -> dict[str, object]:
+    threshold = fail_on.strip().lower()
+    if threshold not in _SEVERITY_RANKS:
+        raise ValueError(f"unsupported --fail-on severity: {fail_on}")
+
+    from .run_bundle import RunBundle
+
+    bundle = RunBundle(run_dir)
+    rows = bundle.finding_rows()
+    threshold_rank = _SEVERITY_RANKS[threshold]
+
+    counts_by_severity = {key: 0 for key in _SEVERITY_RANKS}
+    triggered: list[dict[str, object]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("status") or "open").lower()
+        if status in {"waived", "accepted", "resolved", "closed"}:
+            continue
+        severity = str(row.get("severity") or "medium").lower()
+        if severity in counts_by_severity:
+            counts_by_severity[severity] += 1
+        if _SEVERITY_RANKS.get(severity, 0) >= threshold_rank:
+            triggered.append(
+                {
+                    "id": row.get("id"),
+                    "rule_id": row.get("rule_id"),
+                    "severity": severity,
+                    "title": row.get("title"),
+                    "collector": row.get("collector"),
+                }
+            )
+
+    triggered_count = len(triggered)
+    return {
+        "pass": triggered_count == 0,
+        "fail_on": threshold,
+        "counts_by_severity": counts_by_severity,
+        "counts_at_or_above_threshold": triggered_count,
+        "threshold_findings": triggered,
+    }
+
+
+def _build_gate_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="auditex gate", description="Severity-threshold gate for CI / GitHub Action integration.")
+    parser.add_argument("run_dir", help="Completed run directory.")
+    parser.add_argument(
+        "--fail-on",
+        required=True,
+        choices=("low", "medium", "high", "critical"),
+        help="Minimum severity that triggers a non-zero exit code.",
+    )
+    return parser
+
+
+def gate_drift(*, baseline_run_dir: str, current_run_dir: str, fail_on: str) -> dict[str, object]:
+    threshold = fail_on.strip().lower()
+    if threshold not in _SEVERITY_RANKS:
+        raise ValueError(f"unsupported --fail-on severity: {fail_on}")
+
+    from .run_bundle import RunBundle
+
+    baseline_rows = RunBundle(baseline_run_dir).finding_rows()
+    current_rows = RunBundle(current_run_dir).finding_rows()
+
+    def _index(rows: list[dict]) -> dict[str, dict]:
+        index: dict[str, dict] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            key = str(row.get("id") or row.get("rule_id") or "")
+            if key:
+                index[key] = row
+        return index
+
+    baseline_index = _index(baseline_rows)
+    current_index = _index(current_rows)
+
+    new_keys = [key for key in current_index if key not in baseline_index]
+    resolved_keys = [key for key in baseline_index if key not in current_index]
+    persisting_keys = [key for key in current_index if key in baseline_index]
+
+    threshold_rank = _SEVERITY_RANKS[threshold]
+    new_above_threshold: list[dict[str, object]] = []
+    for key in new_keys:
+        row = current_index[key]
+        severity = str(row.get("severity") or "medium").lower()
+        if _SEVERITY_RANKS.get(severity, 0) >= threshold_rank:
+            new_above_threshold.append(
+                {
+                    "id": row.get("id"),
+                    "rule_id": row.get("rule_id"),
+                    "severity": severity,
+                    "title": row.get("title"),
+                    "collector": row.get("collector"),
+                }
+            )
+
+    return {
+        "pass": len(new_above_threshold) == 0,
+        "fail_on": threshold,
+        "baseline_run_dir": str(baseline_run_dir),
+        "current_run_dir": str(current_run_dir),
+        "new": [{"id": key, **{k: v for k, v in current_index[key].items() if k in {"severity", "title", "rule_id", "collector"}}} for key in new_keys],
+        "resolved": [{"id": key, **{k: v for k, v in baseline_index[key].items() if k in {"severity", "title", "rule_id", "collector"}}} for key in resolved_keys],
+        "persisting": [{"id": key} for key in persisting_keys],
+        "new_count": len(new_keys),
+        "resolved_count": len(resolved_keys),
+        "persisting_count": len(persisting_keys),
+        "new_count_at_or_above_threshold": len(new_above_threshold),
+        "new_at_or_above_threshold": new_above_threshold,
+    }
+
+
+def _build_gate_drift_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="auditex gate-drift",
+        description="Compare two completed run directories and fail when new findings appear above a severity threshold.",
+    )
+    parser.add_argument("--baseline", required=True, help="Baseline run directory.")
+    parser.add_argument("--current", required=True, help="Current run directory.")
+    parser.add_argument(
+        "--fail-on",
+        required=True,
+        choices=("low", "medium", "high", "critical"),
+        help="Minimum severity for a NEW finding that triggers a non-zero exit code.",
+    )
+    return parser
+
+
 def _build_notify_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="auditex notify", description="Create or send post-run notifications.")
     subparsers = parser.add_subparsers(dest="notify_command", required=True)
     send = subparsers.add_parser("send", help="Build or send a notification from a run bundle.")
     send.add_argument("run_dir")
-    send.add_argument("--sink", required=True, choices=("teams", "slack", "smtp"))
+    send.add_argument("--sink", required=True, choices=("teams", "slack", "smtp", "jira", "github"))
     send.add_argument("--execute", action="store_true", help="Send instead of dry-run.")
     return parser
 
@@ -439,6 +574,22 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         return 2
+    if argv[0] == "gate":
+        parser = _build_gate_parser()
+        args = parser.parse_args(argv[1:])
+        result = gate_findings(run_dir=args.run_dir, fail_on=args.fail_on)
+        print(json.dumps(result, indent=2))
+        return 0 if result["pass"] else 2
+    if argv[0] == "gate-drift":
+        parser = _build_gate_drift_parser()
+        args = parser.parse_args(argv[1:])
+        result = gate_drift(
+            baseline_run_dir=args.baseline,
+            current_run_dir=args.current,
+            fail_on=args.fail_on,
+        )
+        print(json.dumps(result, indent=2))
+        return 0 if result["pass"] else 2
     if argv[0] == "run":
         return tenant_audit_main(argv[1:])
     if argv[0] == "summarize":

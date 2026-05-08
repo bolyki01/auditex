@@ -13,7 +13,25 @@ from azure_tenant_audit.resources import resolve_resource_path
 from .run_bundle import RunBundle
 
 DEFAULT_SECTION_REGISTRY_PATH = Path("configs/report-sections.json")
-FORMAT_EXTENSIONS = {"json": ".json", "md": ".md", "csv": ".csv", "html": ".html"}
+FORMAT_EXTENSIONS = {
+    "json": ".json",
+    "md": ".md",
+    "csv": ".csv",
+    "html": ".html",
+    "sarif": ".sarif.json",
+    "oscal": ".oscal.json",
+}
+
+_SARIF_LEVELS = {
+    "critical": "error",
+    "high": "error",
+    "medium": "warning",
+    "low": "note",
+    "info": "none",
+    "informational": "none",
+}
+AUDITEX_SARIF_TOOL_URI = "https://github.com/magrathean-uk/auditex"
+AUDITEX_OSCAL_NS = "https://magrathean.uk/auditex/oscal"
 
 _SECTION_ORDER = ("summary", "findings", "action_plan", "normalized", "blockers", "manifest")
 _CSV_COLUMNS = ("id", "title", "severity", "status")
@@ -263,6 +281,227 @@ def _render_html(selected_sections: dict[str, Any]) -> str:
     return "".join(sections)
 
 
+def render_sarif(
+    *,
+    findings: list[dict[str, Any]] | None,
+    summary: Mapping[str, Any] | None,
+    manifest: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    findings_rows = [dict(item) for item in (findings or []) if isinstance(item, Mapping)]
+    summary_dict = _mapping(summary)
+    manifest_dict = _mapping(manifest)
+
+    rule_index: dict[str, int] = {}
+    rules: list[dict[str, Any]] = []
+    for finding in findings_rows:
+        rule_id = _text(finding.get("rule_id") or finding.get("id"))
+        if not rule_id or rule_id in rule_index:
+            continue
+        rule_index[rule_id] = len(rules)
+        framework_mappings = finding.get("framework_mappings") if isinstance(finding.get("framework_mappings"), Mapping) else {}
+        tags: list[str] = []
+        for framework, controls in framework_mappings.items():
+            if not isinstance(controls, list):
+                continue
+            for control in controls:
+                control_text = _text(control).strip()
+                if control_text:
+                    tags.append(f"{framework}:{control_text}")
+        category = _text(finding.get("category"))
+        if category:
+            tags.append(f"category:{category}")
+        rules.append(
+            {
+                "id": rule_id,
+                "name": rule_id.replace(".", "_"),
+                "shortDescription": {"text": _text(finding.get("title")) or rule_id},
+                "fullDescription": {"text": _text(finding.get("description")) or _text(finding.get("title")) or rule_id},
+                "help": {
+                    "text": _text(finding.get("remediation")) or _text(finding.get("description")) or "See Auditex finding for remediation guidance.",
+                },
+                "defaultConfiguration": {"level": _SARIF_LEVELS.get(_text(finding.get("severity")).lower(), "warning")},
+                "properties": {"tags": sorted(set(tags))} if tags else {"tags": []},
+            }
+        )
+
+    results: list[dict[str, Any]] = []
+    for finding in findings_rows:
+        rule_id = _text(finding.get("rule_id") or finding.get("id"))
+        if not rule_id:
+            continue
+        affected = finding.get("affected_objects")
+        if isinstance(affected, list) and affected:
+            partial_fingerprints = {"affected": ",".join(_text(item) for item in affected)}
+        else:
+            partial_fingerprints = {}
+        result_entry = {
+            "ruleId": rule_id,
+            "ruleIndex": rule_index.get(rule_id, 0),
+            "level": _SARIF_LEVELS.get(_text(finding.get("severity")).lower(), "warning"),
+            "message": {
+                "text": _text(finding.get("title")) or _text(finding.get("description")) or rule_id,
+            },
+            "locations": [
+                {
+                    "logicalLocations": [
+                        {
+                            "name": _text(target),
+                            "kind": _text(finding.get("category"), "cloud-resource"),
+                        }
+                        for target in (affected if isinstance(affected, list) else [])
+                    ]
+                    or [
+                        {
+                            "name": _text(finding.get("collector"), "auditex"),
+                            "kind": _text(finding.get("category"), "cloud-resource"),
+                        }
+                    ],
+                }
+            ],
+            "properties": {
+                "auditex.finding_id": _text(finding.get("id")),
+                "auditex.severity": _text(finding.get("severity")),
+                "auditex.collector": _text(finding.get("collector")),
+                "auditex.category": _text(finding.get("category")),
+            },
+        }
+        if partial_fingerprints:
+            result_entry["partialFingerprints"] = partial_fingerprints
+        results.append(result_entry)
+
+    return {
+        "version": "2.1.0",
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "auditex",
+                        "informationUri": AUDITEX_SARIF_TOOL_URI,
+                        "version": _text(manifest_dict.get("schema_contract_version") or summary_dict.get("schema_version")),
+                        "rules": rules,
+                    }
+                },
+                "automationDetails": {
+                    "id": _text(manifest_dict.get("run_id") or summary_dict.get("run_id") or "auditex-run"),
+                    "description": {
+                        "text": f"Auditex Microsoft 365 audit run for tenant {_text(summary_dict.get('tenant_name'), 'unknown')}",
+                    },
+                },
+                "results": results,
+            }
+        ],
+    }
+
+
+def render_oscal(
+    *,
+    findings: list[dict[str, Any]] | None,
+    summary: Mapping[str, Any] | None,
+    manifest: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    import uuid as _uuid
+    from datetime import datetime, timezone
+
+    findings_rows = [dict(item) for item in (findings or []) if isinstance(item, Mapping)]
+    summary_dict = _mapping(summary)
+    manifest_dict = _mapping(manifest)
+
+    now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    assessment_uuid = _text(manifest_dict.get("run_id") or summary_dict.get("run_id"))
+    if not assessment_uuid:
+        assessment_uuid = str(_uuid.uuid4())
+
+    observations: list[dict[str, Any]] = []
+    findings_oscal: list[dict[str, Any]] = []
+    for finding in findings_rows:
+        observation_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_URL, f"{AUDITEX_OSCAL_NS}/observation/{_text(finding.get('id'))}"))
+        finding_uuid = str(_uuid.uuid5(_uuid.NAMESPACE_URL, f"{AUDITEX_OSCAL_NS}/finding/{_text(finding.get('id'))}"))
+        framework_mappings = finding.get("framework_mappings") if isinstance(finding.get("framework_mappings"), Mapping) else {}
+        target_ids: list[str] = []
+        for framework in ("nist_800_53", "iso_27001", "soc2", "cis_m365_v3", "nis2", "dora", "mitre_attack"):
+            controls = framework_mappings.get(framework)
+            if not isinstance(controls, list):
+                continue
+            for control in controls:
+                control_text = _text(control).strip()
+                if not control_text:
+                    continue
+                target_ids.append(control_text)
+                target_ids.append(f"{framework}:{control_text}")
+        observations.append(
+            {
+                "uuid": observation_uuid,
+                "title": _text(finding.get("title")) or _text(finding.get("rule_id")) or _text(finding.get("id")),
+                "description": _text(finding.get("description")) or _text(finding.get("title")) or "",
+                "methods": ["EXAMINE"],
+                "collected": now,
+                "subjects": [
+                    {"uuid-ref": str(_uuid.uuid5(_uuid.NAMESPACE_URL, f"{AUDITEX_OSCAL_NS}/subject/{_text(item)}")), "title": _text(item)}
+                    for item in (finding.get("affected_objects") or [])
+                ],
+                "props": [
+                    {"name": "auditex.finding_id", "value": _text(finding.get("id"))},
+                    {"name": "auditex.severity", "value": _text(finding.get("severity"))},
+                    {"name": "auditex.collector", "value": _text(finding.get("collector"))},
+                ],
+            }
+        )
+        findings_oscal.append(
+            {
+                "uuid": finding_uuid,
+                "title": _text(finding.get("title")) or _text(finding.get("rule_id")) or _text(finding.get("id")),
+                "description": _text(finding.get("description")) or _text(finding.get("title")) or "",
+                "target-ids": sorted(set(target_ids)),
+                "remediation": _text(finding.get("remediation")) or "",
+                "related-observations": [{"observation-uuid": observation_uuid}],
+                "props": [
+                    {"name": "auditex.finding_id", "value": _text(finding.get("id"))},
+                    {"name": "auditex.severity", "value": _text(finding.get("severity"))},
+                    {"name": "auditex.rule_id", "value": _text(finding.get("rule_id"))},
+                ],
+            }
+        )
+
+    return {
+        "assessment-results": {
+            "uuid": str(_uuid.uuid5(_uuid.NAMESPACE_URL, f"{AUDITEX_OSCAL_NS}/assessment/{assessment_uuid}")),
+            "metadata": {
+                "title": f"Auditex Assessment Results for {_text(summary_dict.get('tenant_name'), 'unknown tenant')}",
+                "version": _text(manifest_dict.get("schema_contract_version") or summary_dict.get("schema_version") or "0"),
+                "oscal-version": "1.1.2",
+                "last-modified": now,
+            },
+            "import-ap": {"href": "#auditex-assessment-plan"},
+            "results": [
+                {
+                    "uuid": str(_uuid.uuid5(_uuid.NAMESPACE_URL, f"{AUDITEX_OSCAL_NS}/result/{assessment_uuid}")),
+                    "title": "Auditex audit findings",
+                    "description": "Findings produced by Auditex collectors and rules.",
+                    "start": now,
+                    "end": now,
+                    "observations": observations,
+                    "findings": findings_oscal,
+                }
+            ],
+        }
+    }
+
+
+def _render_sarif(selected_sections: dict[str, Any]) -> str:
+    findings = _dict_rows(selected_sections.get("findings"))
+    summary = _mapping(selected_sections.get("summary"))
+    manifest = _mapping(selected_sections.get("manifest"))
+    return _json(render_sarif(findings=findings, summary=summary, manifest=manifest))
+
+
+def _render_oscal(selected_sections: dict[str, Any]) -> str:
+    findings = _dict_rows(selected_sections.get("findings"))
+    summary = _mapping(selected_sections.get("summary"))
+    manifest = _mapping(selected_sections.get("manifest"))
+    return _json(render_oscal(findings=findings, summary=summary, manifest=manifest))
+
+
 def preview_report(
     *,
     run_dir: str,
@@ -280,6 +519,8 @@ def preview_report(
         "md": _render_markdown,
         "csv": _render_csv,
         "html": _render_html,
+        "sarif": _render_sarif,
+        "oscal": _render_oscal,
     }
     return {"format": format_name, "content": renderers[format_name](selected), "sections": list(selected.keys())}
 

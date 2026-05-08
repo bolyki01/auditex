@@ -12,6 +12,8 @@ BUILTIN_EXPORTERS: dict[str, dict[str, Any]] = {
     "html": {"name": "html", "description": "Write a standalone HTML audit report", "formats": ["html"], "builtin": True},
     "json": {"name": "json", "description": "Write the selected report sections as JSON", "formats": ["json"], "builtin": True},
     "md": {"name": "md", "description": "Write a Markdown report summary", "formats": ["md"], "builtin": True},
+    "sarif": {"name": "sarif", "description": "Write findings in SARIF 2.1.0 (GitHub Code Scanning compatible)", "formats": ["sarif"], "builtin": True},
+    "oscal": {"name": "oscal", "description": "Write findings as an OSCAL Assessment Results document", "formats": ["oscal"], "builtin": True},
 }
 
 

@@ -137,9 +137,12 @@ def test_build_findings_uses_registry_metadata_for_templates_and_framework_mappi
     assert finding["impact"] == "The report has a confirmed evidence gap for this area, so the related control cannot be asserted from this run."
     assert finding["remediation"] == "Rerun with the minimum read permission required for the blocked surface, or exclude that surface from the agreed scope."
     assert finding["control_ids"] == ["AUDITEX-COLLECTOR-PERMISSION"]
-    assert finding["framework_mappings"]["cis"] == ["6.3"]
-    assert finding["framework_mappings"]["nist"] == ["PR.AC-4", "PR.AC-6"]
-    assert finding["framework_mappings"]["attack"] == ["T1078"]
+    assert finding["framework_mappings"]["cis_m365_v3"] == ["1.1.1"]
+    assert finding["framework_mappings"]["nist_800_53"] == ["AC-3", "AC-6", "AU-2"]
+    assert finding["framework_mappings"]["mitre_attack"] == ["T1078"]
+    assert finding["framework_mappings"]["iso_27001"] == ["A.5.15", "A.8.2"]
+    assert finding["framework_mappings"]["nis2"] == ["Article 21(2)(d)"]
+    assert finding["framework_mappings"]["dora"] == ["Article 9(2)"]
 
 
 def test_build_findings_keeps_python_fallback_when_registry_missing(monkeypatch: pytest.MonkeyPatch) -> None:

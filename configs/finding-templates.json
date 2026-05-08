@@ -43,5 +43,140 @@
     "references": ["Application consent governance review"],
     "control_ids": ["AUDITEX-APP-CONSENT-HIGH-PRIVILEGE"],
     "expected_value": "Sensitive app grants are approved, current, and owned."
+  },
+  "app_credentials.secret_expired": {
+    "risk_rating": "critical",
+    "description": "An application credential (secret or certificate) has already expired.",
+    "impact": "An expired credential indicates either an unmaintained app or a credential that should be rotated and removed; leaving expired material attached invites stale state and reuse risk.",
+    "remediation": "Remove the expired credential, rotate to a fresh secret or certificate, and confirm the application is still required.",
+    "references": ["Microsoft Entra application credential rotation guidance"],
+    "control_ids": ["AUDITEX-APP-CRED-EXPIRED"],
+    "expected_value": "All attached credentials are within their validity window."
+  },
+  "app_credentials.secret_expiring": {
+    "risk_rating": "high",
+    "description": "An application credential will expire within 30 days.",
+    "impact": "Imminent credential expiry can break automation if not rotated proactively.",
+    "remediation": "Rotate the secret or certificate, deploy the new value, and remove the soon-to-expire credential.",
+    "references": ["Microsoft Entra application credential rotation guidance"],
+    "control_ids": ["AUDITEX-APP-CRED-EXPIRING"],
+    "expected_value": "Credentials are rotated before they expire."
+  },
+  "app_credentials.redirect_insecure": {
+    "risk_rating": "high",
+    "description": "Application has an HTTP redirect URI pointing at a non-localhost host.",
+    "impact": "HTTP redirect URIs can leak authorization codes and tokens to the network and bypass replay protection.",
+    "remediation": "Replace HTTP redirect URIs with HTTPS equivalents and remove unused redirects.",
+    "references": ["OAuth 2.0 Security BCP", "Microsoft Entra redirect URI guidance"],
+    "control_ids": ["AUDITEX-APP-REDIRECT-HTTP"],
+    "expected_value": "All non-localhost redirect URIs use HTTPS."
+  },
+  "app_credentials.no_owner": {
+    "risk_rating": "medium",
+    "description": "Application registration has no listed owners.",
+    "impact": "Apps without owners drift out of governance and become hard to retire or rotate.",
+    "remediation": "Assign at least one accountable owner; remove the app if it is no longer required.",
+    "references": ["Microsoft Entra application ownership review"],
+    "control_ids": ["AUDITEX-APP-NO-OWNER"],
+    "expected_value": "Each tenant-owned application has a documented owner."
+  },
+  "app_credentials.multi_tenant_audience": {
+    "risk_rating": "medium",
+    "description": "Application sign-in audience permits multi-tenant or personal Microsoft accounts.",
+    "impact": "Multi-tenant or personal-account audiences broaden the population that can interact with the app and can be misused if redirect URIs or scopes are weak.",
+    "remediation": "Restrict the audience to single-tenant unless multi-tenant is explicitly required and reviewed.",
+    "references": ["Microsoft Entra application audience review"],
+    "control_ids": ["AUDITEX-APP-AUDIENCE-WIDE"],
+    "expected_value": "Sign-in audience is 'AzureADMyOrg' for tenant-owned apps unless multi-tenant is justified."
+  },
+  "cross_tenant_access.default_b2b_direct_connect_inbound_open": {
+    "risk_rating": "high",
+    "description": "Default cross-tenant access policy allows inbound B2B Direct Connect from any tenant.",
+    "impact": "Inbound B2B Direct Connect grants external identities elevated collaboration capabilities (shared channels, native Teams identity). Enabling it tenant-wide bypasses partner-specific scoping.",
+    "remediation": "Set the default B2B Direct Connect inbound access to 'blocked' and enable it explicitly per partner with inbound trust requirements (MFA, compliant device).",
+    "references": ["Microsoft Entra cross-tenant access settings"],
+    "control_ids": ["AUDITEX-XTA-DEFAULT-B2B-DIRECT-CONNECT-INBOUND"],
+    "expected_value": "Default inbound B2B Direct Connect is blocked; partner-specific allow-lists are used."
+  },
+  "cross_tenant_access.default_b2b_collaboration_outbound_open": {
+    "risk_rating": "medium",
+    "description": "Default cross-tenant access policy permits outbound B2B Collaboration to any tenant.",
+    "impact": "Tenant users can be invited into any external tenant by default, increasing the surface for guest-account misuse and conditional access bypass.",
+    "remediation": "Restrict default outbound B2B Collaboration and approve outbound trust per partner.",
+    "references": ["Microsoft Entra cross-tenant access settings"],
+    "control_ids": ["AUDITEX-XTA-DEFAULT-B2B-COLLAB-OUTBOUND"],
+    "expected_value": "Default outbound B2B Collaboration is blocked except for approved partners."
+  },
+  "cross_tenant_access.partner_inbound_no_mfa": {
+    "risk_rating": "high",
+    "description": "Partner-specific inbound B2B Direct Connect is allowed but inbound MFA trust is not accepted.",
+    "impact": "Without inbound MFA trust, partner identities can authenticate with weaker controls than tenant users, undermining MFA enforcement on shared resources.",
+    "remediation": "Enable inbound MFA trust acceptance for partners that allow B2B Direct Connect, or block direct connect for partners that cannot honour MFA trust.",
+    "references": ["Microsoft Entra cross-tenant access settings", "Microsoft Entra inbound trust"],
+    "control_ids": ["AUDITEX-XTA-PARTNER-NO-MFA"],
+    "expected_value": "Partners with inbound B2B Direct Connect honour inbound MFA trust."
+  },
+  "mailbox_forwarding.external_inbox_rule": {
+    "risk_rating": "critical",
+    "description": "An inbox rule forwards or redirects mail to a recipient outside the tenant's accepted domains.",
+    "impact": "External-forwarding inbox rules are the leading indicator of business email compromise (BEC) and active mailbox takeover.",
+    "remediation": "Disable the rule, investigate the affected mailbox for compromise, force a password reset, revoke sessions, and review sign-in logs for anomalies.",
+    "references": ["Microsoft 365 BEC investigation playbook", "MITRE ATT&CK T1114.003"],
+    "control_ids": ["AUDITEX-MBX-EXTERNAL-FWD"],
+    "expected_value": "No inbox rule forwards mail to external recipients."
+  },
+  "mailbox_forwarding.hide_from_user": {
+    "risk_rating": "high",
+    "description": "An inbox rule moves or deletes mail in a way that hides it from the user (RSS Feeds, Junk, Deleted Items, or delete action).",
+    "impact": "Hide-from-user inbox rules are a common BEC technique to suppress visibility of fraud, replies, or forensic alerts.",
+    "remediation": "Disable the rule, audit the mailbox for compromise, and review recent inbox-rule mutations in the unified audit log.",
+    "references": ["Microsoft 365 BEC investigation playbook", "MITRE ATT&CK T1564.008"],
+    "control_ids": ["AUDITEX-MBX-HIDE-FROM-USER"],
+    "expected_value": "Inbox rules do not silently hide messages from the user."
+  },
+  "dns_posture.spf_missing": {
+    "risk_rating": "high",
+    "description": "No SPF (Sender Policy Framework) TXT record was discovered for a verified tenant domain.",
+    "impact": "Without SPF, receivers cannot validate authorized senders for the domain, which raises the risk of spoofing and phishing of the tenant's brand.",
+    "remediation": "Publish an SPF record at the apex (for example, 'v=spf1 include:spf.protection.outlook.com -all') and verify external receivers honour it.",
+    "references": ["RFC 7208", "Microsoft 365 SPF guidance"],
+    "control_ids": ["AUDITEX-DNS-SPF-MISSING"],
+    "expected_value": "SPF record present with a hard-fail (-all) qualifier."
+  },
+  "dns_posture.spf_passthrough": {
+    "risk_rating": "high",
+    "description": "SPF record terminates with a permissive '+all' or '?all' qualifier.",
+    "impact": "Pass-through SPF accepts mail from any sender, defeating the purpose of SPF and enabling spoofing.",
+    "remediation": "Replace the trailing qualifier with '-all' (hard fail) or '~all' (soft fail) and revalidate.",
+    "references": ["RFC 7208"],
+    "control_ids": ["AUDITEX-DNS-SPF-PASSTHROUGH"],
+    "expected_value": "SPF record ends with '-all' or '~all'."
+  },
+  "dns_posture.dmarc_missing": {
+    "risk_rating": "high",
+    "description": "No DMARC record was discovered at the _dmarc subdomain of a verified tenant domain.",
+    "impact": "Without DMARC, receivers cannot enforce alignment between SPF/DKIM and the From header, leaving the domain spoofable.",
+    "remediation": "Publish a DMARC record (start with 'v=DMARC1; p=none; rua=mailto:dmarc@<domain>'), monitor reports, and progress to 'p=quarantine' or 'p=reject'.",
+    "references": ["RFC 7489", "Microsoft 365 DMARC guidance"],
+    "control_ids": ["AUDITEX-DNS-DMARC-MISSING"],
+    "expected_value": "DMARC record present with an enforced policy."
+  },
+  "dns_posture.dmarc_monitor_only": {
+    "risk_rating": "medium",
+    "description": "DMARC policy is set to 'p=none' (monitor-only) and is not enforcing alignment.",
+    "impact": "Monitor-only DMARC reports failures but does not prevent spoofed mail from being delivered.",
+    "remediation": "After validating SPF and DKIM via DMARC reports, raise the policy to 'p=quarantine' and then 'p=reject'.",
+    "references": ["RFC 7489"],
+    "control_ids": ["AUDITEX-DNS-DMARC-MONITOR-ONLY"],
+    "expected_value": "DMARC 'p=quarantine' or 'p=reject'."
+  },
+  "dns_posture.dkim_missing": {
+    "risk_rating": "medium",
+    "description": "No DKIM selectors were discovered for a verified tenant domain.",
+    "impact": "Without DKIM, mail receivers cannot cryptographically authenticate messages, weakening DMARC alignment.",
+    "remediation": "Enable DKIM signing for the domain in Microsoft 365 (selector1/selector2) and publish the corresponding CNAME records.",
+    "references": ["RFC 6376", "Microsoft 365 DKIM guidance"],
+    "control_ids": ["AUDITEX-DNS-DKIM-MISSING"],
+    "expected_value": "At least one DKIM selector resolves with a valid public key."
   }
 }

@@ -1367,6 +1367,141 @@ def build_normalized_snapshot(
         for item in _values(collector_payloads.get("purview", {}), "dlpPolicies")
         if item.get("id") or item.get("name")
     ]
+    cross_tenant_default_objects = [
+        _record(
+            "cross_tenant_default",
+            "cross_tenant_access.defaultPolicy",
+            "default",
+            is_service_default=item.get("is_service_default"),
+            b2b_collaboration_outbound_access=item.get("b2b_collaboration_outbound_access"),
+            b2b_collaboration_inbound_access=item.get("b2b_collaboration_inbound_access"),
+            b2b_direct_connect_outbound_access=item.get("b2b_direct_connect_outbound_access"),
+            b2b_direct_connect_inbound_access=item.get("b2b_direct_connect_inbound_access"),
+            inbound_trust_mfa_accepted=item.get("inbound_trust_mfa_accepted"),
+            inbound_trust_compliant_device_accepted=item.get("inbound_trust_compliant_device_accepted"),
+            inbound_trust_hybrid_aad_joined_accepted=item.get("inbound_trust_hybrid_aad_joined_accepted"),
+        )
+        for item in _values(collector_payloads.get("cross_tenant_access", {}), "defaultPolicy")
+    ]
+    cross_tenant_partner_objects = [
+        _record(
+            "cross_tenant_partner",
+            "cross_tenant_access.partnerConfigurations",
+            str(item.get("tenant_id") or item.get("id") or ""),
+            tenant_id=item.get("tenant_id"),
+            is_service_provider=bool(item.get("is_service_provider")),
+            b2b_collaboration_outbound_access=item.get("b2b_collaboration_outbound_access"),
+            b2b_collaboration_inbound_access=item.get("b2b_collaboration_inbound_access"),
+            b2b_direct_connect_outbound_access=item.get("b2b_direct_connect_outbound_access"),
+            b2b_direct_connect_inbound_access=item.get("b2b_direct_connect_inbound_access"),
+            inbound_trust_mfa_accepted=item.get("inbound_trust_mfa_accepted"),
+            inbound_trust_compliant_device_accepted=item.get("inbound_trust_compliant_device_accepted"),
+            inbound_trust_hybrid_aad_joined_accepted=item.get("inbound_trust_hybrid_aad_joined_accepted"),
+        )
+        for item in _values(collector_payloads.get("cross_tenant_access", {}), "partnerConfigurations")
+        if item.get("tenant_id") or item.get("id")
+    ]
+    inbox_rule_objects = [
+        _record(
+            "inbox_rule",
+            "mailbox_forwarding.messageRules",
+            f"{item.get('user_id')}:{item.get('rule_id')}",
+            user_id=item.get("user_id"),
+            rule_id=item.get("rule_id"),
+            user_principal_name=item.get("user_principal_name"),
+            user_mail=item.get("user_mail"),
+            display_name=item.get("display_name"),
+            is_enabled=item.get("is_enabled"),
+            sequence=item.get("sequence"),
+            forwards_externally=bool(item.get("forwards_externally")),
+            forwards_internally=bool(item.get("forwards_internally")),
+            external_recipients=item.get("external_recipients") or [],
+            internal_recipients=item.get("internal_recipients") or [],
+            move_to_folder=item.get("move_to_folder"),
+            delete_action=bool(item.get("delete_action")),
+            hide_from_user=bool(item.get("hide_from_user")),
+        )
+        for item in _values(collector_payloads.get("mailbox_forwarding", {}), "messageRules")
+        if item.get("user_id") and item.get("rule_id")
+    ]
+    mailbox_setting_objects = [
+        _record(
+            "mailbox_settings",
+            "mailbox_forwarding.mailboxSettings",
+            str(item.get("user_id")),
+            user_principal_name=item.get("user_principal_name"),
+            settings=item.get("settings") or {},
+        )
+        for item in _values(collector_payloads.get("mailbox_forwarding", {}), "mailboxSettings")
+        if item.get("user_id")
+    ]
+    application_credential_objects = [
+        _record(
+            "application_credentials",
+            "app_credentials.applicationCredentials",
+            str(item.get("id")),
+            display_name=item.get("display_name"),
+            app_id=item.get("app_id"),
+            sign_in_audience=item.get("sign_in_audience"),
+            publisher_domain=item.get("publisher_domain"),
+            password_credentials=item.get("password_credentials") or [],
+            key_credentials=item.get("key_credentials") or [],
+            redirect_uris=item.get("redirect_uris") or [],
+            owner_count=item.get("owner_count"),
+            federated_credentials=item.get("federated_credentials") or [],
+            required_resource_access=item.get("required_resource_access") or [],
+        )
+        for item in _values(collector_payloads.get("app_credentials", {}), "applicationCredentials")
+        if item.get("id")
+    ]
+    service_principal_credential_objects = [
+        _record(
+            "service_principal_credentials",
+            "app_credentials.servicePrincipalCredentials",
+            str(item.get("id")),
+            display_name=item.get("display_name"),
+            app_id=item.get("app_id"),
+            service_principal_type=item.get("service_principal_type"),
+            publisher_name=item.get("publisher_name"),
+            sign_in_audience=item.get("sign_in_audience"),
+            account_enabled=item.get("account_enabled"),
+            app_owner_organization_id=item.get("app_owner_organization_id"),
+            tags=item.get("tags") or [],
+            password_credentials=item.get("password_credentials") or [],
+            key_credentials=item.get("key_credentials") or [],
+            reply_urls=item.get("reply_urls") or [],
+            owner_count=item.get("owner_count"),
+        )
+        for item in _values(collector_payloads.get("app_credentials", {}), "servicePrincipalCredentials")
+        if item.get("id")
+    ]
+    dns_posture_objects = [
+        _record(
+            "dns_posture",
+            "dns_posture.domainPosture",
+            str(item.get("domain")),
+            domain=item.get("domain"),
+            managed_by_microsoft=bool(item.get("managed_by_microsoft")),
+            authentication_type=item.get("authentication_type") or item.get("authenticationType"),
+            is_default=item.get("isDefault"),
+            resolver_error=item.get("resolver_error"),
+            spf_present=bool((item.get("spf") or {}).get("present")),
+            spf_all_qualifier=(item.get("spf") or {}).get("all_qualifier"),
+            spf_mechanisms=(item.get("spf") or {}).get("mechanisms"),
+            dmarc_present=bool((item.get("dmarc") or {}).get("present")),
+            dmarc_policy=(item.get("dmarc") or {}).get("policy"),
+            dmarc_subdomain_policy=(item.get("dmarc") or {}).get("subdomain_policy"),
+            dmarc_pct=(item.get("dmarc") or {}).get("pct"),
+            dmarc_aggregate_addresses=(item.get("dmarc") or {}).get("aggregate_addresses"),
+            dkim_selectors_present=(item.get("dkim") or {}).get("selectors_present") or [],
+            dkim_selectors_missing=(item.get("dkim") or {}).get("selectors_missing") or [],
+            mta_sts_dns_present=bool((item.get("mta_sts") or {}).get("dns_present")),
+            mta_sts_id=(item.get("mta_sts") or {}).get("id"),
+            bimi_present=bool((item.get("bimi") or {}).get("present")),
+        )
+        for item in _values(collector_payloads.get("dns_posture", {}), "domainPosture")
+        if item.get("domain")
+    ]
     ediscovery_cases = [
         _record(
             "ediscovery_case",
@@ -1448,6 +1583,13 @@ def build_normalized_snapshot(
         "purview_retention_labels": purview_retention_labels,
         "purview_retention_policies": purview_retention_policies,
         "purview_dlp_policies": purview_dlp_policies,
+        "application_credential_objects": application_credential_objects,
+        "service_principal_credential_objects": service_principal_credential_objects,
+        "inbox_rule_objects": inbox_rule_objects,
+        "mailbox_setting_objects": mailbox_setting_objects,
+        "cross_tenant_default_objects": cross_tenant_default_objects,
+        "cross_tenant_partner_objects": cross_tenant_partner_objects,
+        "dns_posture_objects": dns_posture_objects,
         "ediscovery_cases": ediscovery_cases,
         "ediscovery_searches": ediscovery_searches,
         "ediscovery_export_jobs": ediscovery_export_jobs,

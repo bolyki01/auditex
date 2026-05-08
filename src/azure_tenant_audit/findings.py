@@ -247,6 +247,320 @@ def _rule_id_for(error_class: str | None) -> str:
     return "collector.issue.collector"
 
 
+_APP_CREDENTIAL_EXPIRY_WARNING_DAYS = 30
+_MULTI_TENANT_AUDIENCES = {
+    "AzureADMultipleOrgs",
+    "AzureADandPersonalMicrosoftAccount",
+    "PersonalMicrosoftAccount",
+}
+
+
+def _parse_iso_datetime(value: Any) -> "datetime | None":
+    from datetime import datetime
+
+    if not isinstance(value, str) or not value:
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _credential_expiry_state(end_date_time: Any) -> tuple[str | None, int | None]:
+    from datetime import datetime, timezone
+
+    parsed = _parse_iso_datetime(end_date_time)
+    if parsed is None:
+        return None, None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    delta = parsed - datetime.now(tz=timezone.utc)
+    days = int(delta.total_seconds() // 86400)
+    if delta.total_seconds() < 0:
+        return "expired", days
+    if days <= _APP_CREDENTIAL_EXPIRY_WARNING_DAYS:
+        return "expiring", days
+    return "ok", days
+
+
+def _build_app_credential_findings(item: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(item, dict):
+        return []
+    findings: list[dict[str, Any]] = []
+    object_id = str(item.get("id") or "").strip()
+    if not object_id:
+        return findings
+    affected = [item.get("display_name") or item.get("app_id") or object_id]
+    evidence_refs = _normalized_evidence_refs(
+        "application_credential_objects", item, "app_credentials"
+    )
+
+    earliest_expired: dict[str, Any] | None = None
+    earliest_expiring: dict[str, Any] | None = None
+    for credential in (item.get("password_credentials") or []) + (item.get("key_credentials") or []):
+        if not isinstance(credential, dict):
+            continue
+        state, days = _credential_expiry_state(credential.get("end_date_time"))
+        annotated = {
+            **credential,
+            "expiry_state": state,
+            "expiry_days_remaining": days,
+        }
+        if state == "expired":
+            if earliest_expired is None or (days is not None and days < (earliest_expired.get("expiry_days_remaining") or 0)):
+                earliest_expired = annotated
+        elif state == "expiring":
+            if earliest_expiring is None or (days is not None and days < (earliest_expiring.get("expiry_days_remaining") or 9999)):
+                earliest_expiring = annotated
+
+    if earliest_expired is not None:
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"app_credentials:{object_id}:secret_expired",
+                    "rule_id": "app_credentials.secret_expired",
+                    "severity": "critical",
+                    "category": "application",
+                    "title": "Application credential is expired",
+                    "status": "open",
+                    "collector": "app_credentials",
+                    "affected_objects": affected,
+                    "evidence": earliest_expired,
+                    "evidence_refs": evidence_refs,
+                    "returned_value": earliest_expired.get("expiry_days_remaining"),
+                    **_metadata_for("app_credentials.secret_expired"),
+                }
+            )
+        )
+    elif earliest_expiring is not None:
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"app_credentials:{object_id}:secret_expiring",
+                    "rule_id": "app_credentials.secret_expiring",
+                    "severity": "high",
+                    "category": "application",
+                    "title": "Application credential is expiring soon",
+                    "status": "open",
+                    "collector": "app_credentials",
+                    "affected_objects": affected,
+                    "evidence": earliest_expiring,
+                    "evidence_refs": evidence_refs,
+                    "returned_value": earliest_expiring.get("expiry_days_remaining"),
+                    **_metadata_for("app_credentials.secret_expiring"),
+                }
+            )
+        )
+
+    insecure_redirects = [
+        uri
+        for uri in (item.get("redirect_uris") or [])
+        if isinstance(uri, dict)
+        and uri.get("scheme") == "http"
+        and not uri.get("is_localhost")
+    ]
+    if insecure_redirects:
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"app_credentials:{object_id}:redirect_insecure",
+                    "rule_id": "app_credentials.redirect_insecure",
+                    "severity": "high",
+                    "category": "application",
+                    "title": "Application has insecure redirect URI",
+                    "status": "open",
+                    "collector": "app_credentials",
+                    "affected_objects": affected,
+                    "evidence": {"redirect_uris": insecure_redirects},
+                    "evidence_refs": evidence_refs,
+                    "returned_value": [uri.get("uri") for uri in insecure_redirects],
+                    **_metadata_for("app_credentials.redirect_insecure"),
+                }
+            )
+        )
+
+    owner_count = item.get("owner_count")
+    if owner_count is not None and owner_count == 0:
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"app_credentials:{object_id}:no_owner",
+                    "rule_id": "app_credentials.no_owner",
+                    "severity": "medium",
+                    "category": "application",
+                    "title": "Application has no owners",
+                    "status": "open",
+                    "collector": "app_credentials",
+                    "affected_objects": affected,
+                    "evidence": item,
+                    "evidence_refs": evidence_refs,
+                    **_metadata_for("app_credentials.no_owner"),
+                }
+            )
+        )
+
+    if str(item.get("sign_in_audience") or "") in _MULTI_TENANT_AUDIENCES:
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"app_credentials:{object_id}:multi_tenant_audience",
+                    "rule_id": "app_credentials.multi_tenant_audience",
+                    "severity": "medium",
+                    "category": "application",
+                    "title": "Application accepts multi-tenant or personal-account sign-ins",
+                    "status": "open",
+                    "collector": "app_credentials",
+                    "affected_objects": affected,
+                    "evidence": item,
+                    "evidence_refs": evidence_refs,
+                    "returned_value": item.get("sign_in_audience"),
+                    **_metadata_for("app_credentials.multi_tenant_audience"),
+                }
+            )
+        )
+
+    return findings
+
+
+def _build_cross_tenant_default_findings(item: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(item, dict):
+        return []
+    findings: list[dict[str, Any]] = []
+    evidence_refs = _normalized_evidence_refs("cross_tenant_default_objects", item, "cross_tenant_access")
+
+    if str(item.get("b2b_direct_connect_inbound_access") or "").lower() == "allowed":
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": "cross_tenant_access:default:b2b_direct_connect_inbound_open",
+                    "rule_id": "cross_tenant_access.default_b2b_direct_connect_inbound_open",
+                    "severity": "high",
+                    "category": "external_access",
+                    "title": "Default B2B Direct Connect inbound access is allowed",
+                    "status": "open",
+                    "collector": "cross_tenant_access",
+                    "affected_objects": ["default"],
+                    "evidence": item,
+                    "evidence_refs": evidence_refs,
+                    **_metadata_for("cross_tenant_access.default_b2b_direct_connect_inbound_open"),
+                }
+            )
+        )
+
+    if str(item.get("b2b_collaboration_outbound_access") or "").lower() == "allowed":
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": "cross_tenant_access:default:b2b_collaboration_outbound_open",
+                    "rule_id": "cross_tenant_access.default_b2b_collaboration_outbound_open",
+                    "severity": "medium",
+                    "category": "external_access",
+                    "title": "Default B2B Collaboration outbound access is allowed without partner-specific scoping",
+                    "status": "open",
+                    "collector": "cross_tenant_access",
+                    "affected_objects": ["default"],
+                    "evidence": item,
+                    "evidence_refs": evidence_refs,
+                    **_metadata_for("cross_tenant_access.default_b2b_collaboration_outbound_open"),
+                }
+            )
+        )
+
+    return findings
+
+
+def _build_cross_tenant_partner_findings(item: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(item, dict):
+        return []
+    if item.get("is_service_provider"):
+        return []
+    tenant_id = str(item.get("tenant_id") or item.get("id") or "")
+    if not tenant_id:
+        return []
+    findings: list[dict[str, Any]] = []
+    evidence_refs = _normalized_evidence_refs("cross_tenant_partner_objects", item, "cross_tenant_access")
+    direct_inbound_allowed = str(item.get("b2b_direct_connect_inbound_access") or "").lower() == "allowed"
+
+    if direct_inbound_allowed and not item.get("inbound_trust_mfa_accepted"):
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"cross_tenant_access:partner:{tenant_id}:b2b_direct_connect_no_mfa",
+                    "rule_id": "cross_tenant_access.partner_inbound_no_mfa",
+                    "severity": "high",
+                    "category": "external_access",
+                    "title": "Partner inbound B2B Direct Connect accepts users without MFA trust",
+                    "status": "open",
+                    "collector": "cross_tenant_access",
+                    "affected_objects": [tenant_id],
+                    "evidence": item,
+                    "evidence_refs": evidence_refs,
+                    **_metadata_for("cross_tenant_access.partner_inbound_no_mfa"),
+                }
+            )
+        )
+
+    return findings
+
+
+def _build_inbox_rule_findings(item: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(item, dict):
+        return []
+    if not item.get("is_enabled"):
+        return []
+    user_id = str(item.get("user_id") or "")
+    rule_id = str(item.get("rule_id") or "")
+    if not user_id or not rule_id:
+        return []
+    affected = [item.get("user_principal_name") or item.get("user_mail") or user_id]
+    evidence_refs = _normalized_evidence_refs("inbox_rule_objects", item, "mailbox_forwarding")
+    findings: list[dict[str, Any]] = []
+
+    if item.get("forwards_externally"):
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"mailbox_forwarding:{user_id}:{rule_id}:external_forward",
+                    "rule_id": "mailbox_forwarding.external_inbox_rule",
+                    "severity": "critical",
+                    "category": "mail_flow",
+                    "title": "Inbox rule forwards mail to external recipient",
+                    "status": "open",
+                    "collector": "mailbox_forwarding",
+                    "affected_objects": affected,
+                    "evidence": item,
+                    "evidence_refs": evidence_refs,
+                    "returned_value": item.get("external_recipients"),
+                    **_metadata_for("mailbox_forwarding.external_inbox_rule"),
+                }
+            )
+        )
+
+    if item.get("hide_from_user"):
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"mailbox_forwarding:{user_id}:{rule_id}:hide_from_user",
+                    "rule_id": "mailbox_forwarding.hide_from_user",
+                    "severity": "high",
+                    "category": "mail_flow",
+                    "title": "Inbox rule hides messages from the user",
+                    "status": "open",
+                    "collector": "mailbox_forwarding",
+                    "affected_objects": affected,
+                    "evidence": item,
+                    "evidence_refs": evidence_refs,
+                    **_metadata_for("mailbox_forwarding.hide_from_user"),
+                }
+            )
+        )
+
+    return findings
+
+
 def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
 
@@ -437,6 +751,133 @@ def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, 
             }
             )
         )
+
+    app_credential_records = (
+        (normalized_snapshot.get("application_credential_objects") or {}).get("records") or []
+    )
+    for item in app_credential_records:
+        findings.extend(_build_app_credential_findings(item))
+
+    inbox_rule_records = (
+        (normalized_snapshot.get("inbox_rule_objects") or {}).get("records") or []
+    )
+    for item in inbox_rule_records:
+        findings.extend(_build_inbox_rule_findings(item))
+
+    cross_tenant_default_records = (
+        (normalized_snapshot.get("cross_tenant_default_objects") or {}).get("records") or []
+    )
+    for item in cross_tenant_default_records:
+        findings.extend(_build_cross_tenant_default_findings(item))
+
+    cross_tenant_partner_records = (
+        (normalized_snapshot.get("cross_tenant_partner_objects") or {}).get("records") or []
+    )
+    for item in cross_tenant_partner_records:
+        findings.extend(_build_cross_tenant_partner_findings(item))
+
+    dns_posture_records = ((normalized_snapshot.get("dns_posture_objects") or {}).get("records") or [])
+    weak_spf_qualifiers = {"+", "?"}
+    for item in dns_posture_records:
+        if item.get("managed_by_microsoft"):
+            continue
+        domain = str(item.get("domain") or item.get("id") or "")
+        if not domain:
+            continue
+        evidence_refs = _normalized_evidence_refs("dns_posture_objects", item, "dns_posture")
+        if not item.get("spf_present"):
+            findings.append(
+                _finalize_finding(
+                    {
+                        "id": f"dns_posture:{domain}:spf_missing",
+                        "rule_id": "dns_posture.spf_missing",
+                        "severity": "high",
+                        "category": "mail_flow",
+                        "title": "SPF record is missing",
+                        "status": "open",
+                        "collector": "dns_posture",
+                        "affected_objects": [domain],
+                        "evidence": item,
+                        "evidence_refs": evidence_refs,
+                        **_metadata_for("dns_posture.spf_missing"),
+                    }
+                )
+            )
+        elif item.get("spf_all_qualifier") in weak_spf_qualifiers:
+            findings.append(
+                _finalize_finding(
+                    {
+                        "id": f"dns_posture:{domain}:spf_passthrough",
+                        "rule_id": "dns_posture.spf_passthrough",
+                        "severity": "high",
+                        "category": "mail_flow",
+                        "title": "SPF record allows pass-through",
+                        "status": "open",
+                        "collector": "dns_posture",
+                        "affected_objects": [domain],
+                        "evidence": item,
+                        "evidence_refs": evidence_refs,
+                        "returned_value": item.get("spf_all_qualifier"),
+                        **_metadata_for("dns_posture.spf_passthrough"),
+                    }
+                )
+            )
+        if not item.get("dmarc_present"):
+            findings.append(
+                _finalize_finding(
+                    {
+                        "id": f"dns_posture:{domain}:dmarc_missing",
+                        "rule_id": "dns_posture.dmarc_missing",
+                        "severity": "high",
+                        "category": "mail_flow",
+                        "title": "DMARC record is missing",
+                        "status": "open",
+                        "collector": "dns_posture",
+                        "affected_objects": [domain],
+                        "evidence": item,
+                        "evidence_refs": evidence_refs,
+                        **_metadata_for("dns_posture.dmarc_missing"),
+                    }
+                )
+            )
+        elif str(item.get("dmarc_policy") or "").lower() == "none":
+            findings.append(
+                _finalize_finding(
+                    {
+                        "id": f"dns_posture:{domain}:dmarc_monitor_only",
+                        "rule_id": "dns_posture.dmarc_monitor_only",
+                        "severity": "medium",
+                        "category": "mail_flow",
+                        "title": "DMARC policy is monitor-only",
+                        "status": "open",
+                        "collector": "dns_posture",
+                        "affected_objects": [domain],
+                        "evidence": item,
+                        "evidence_refs": evidence_refs,
+                        "returned_value": item.get("dmarc_policy"),
+                        **_metadata_for("dns_posture.dmarc_monitor_only"),
+                    }
+                )
+            )
+        if not item.get("dkim_selectors_present"):
+            findings.append(
+                _finalize_finding(
+                    {
+                        "id": f"dns_posture:{domain}:dkim_missing",
+                        "rule_id": "dns_posture.dkim_missing",
+                        "severity": "medium",
+                        "category": "mail_flow",
+                        "title": "No DKIM selectors discovered",
+                        "status": "open",
+                        "collector": "dns_posture",
+                        "affected_objects": [domain],
+                        "evidence": item,
+                        "evidence_refs": evidence_refs,
+                        "returned_value": item.get("dkim_selectors_missing"),
+                        **_metadata_for("dns_posture.dkim_missing"),
+                    }
+                )
+            )
 
     consent_policy_records = ((normalized_snapshot.get("consent_policy_objects") or {}).get("records") or [])
     for item in consent_policy_records:

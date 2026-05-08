@@ -124,6 +124,29 @@
         "authorizationPolicy"
       ]
     },
+    "dns_posture": {
+      "enabled": true,
+      "description": "Email-authentication DNS posture (SPF, DKIM, DMARC, MTA-STS, BIMI) for verified tenant domains.",
+      "required_permissions": [
+        "Directory.Read.All"
+      ],
+      "query_plan": [
+        "domains",
+        "domainPosture"
+      ]
+    },
+    "cross_tenant_access": {
+      "enabled": true,
+      "description": "Microsoft Entra cross-tenant access policy: default and partner-scoped B2B Collaboration / B2B Direct Connect access plus inbound trust acceptance.",
+      "required_permissions": [
+        "Policy.Read.All"
+      ],
+      "query_plan": [
+        "crossTenantAccessPolicy",
+        "defaultPolicy",
+        "partnerConfigurations"
+      ]
+    },
     "domains_hybrid": {
       "enabled": true,
       "description": "Domain posture and sampled hybrid sync signals.",
@@ -171,6 +194,52 @@
         "sharePointSettings",
         "sites",
         "sitePermissionsBySite"
+      ]
+    },
+    "power_platform": {
+      "enabled": false,
+      "description": "Microsoft Power Platform admin posture: environments, DLP policies, and tenant settings (capability-gated; requires admin token).",
+      "required_permissions": [],
+      "query_plan": [
+        "environments",
+        "dlpPolicies",
+        "tenantSettings"
+      ]
+    },
+    "sentinel_xdr": {
+      "enabled": false,
+      "description": "Microsoft Sentinel / unified XDR posture via Graph (capability-gated).",
+      "required_permissions": [
+        "SecurityIncident.Read.All",
+        "SecurityEvents.Read.All"
+      ],
+      "query_plan": [
+        "xdrIncidents",
+        "xdrAlerts"
+      ]
+    },
+    "defender_cloud_apps": {
+      "enabled": false,
+      "description": "Microsoft Defender for Cloud Apps (CASB) posture (capability-gated; E5/Defender required).",
+      "required_permissions": [
+        "CloudApp-Discovery.Read.All",
+        "Application.Read.All"
+      ],
+      "query_plan": [
+        "cloudAppSecurityProfiles",
+        "appConsentRequests"
+      ]
+    },
+    "copilot_governance": {
+      "enabled": false,
+      "description": "Microsoft 365 Copilot governance posture (capability-gated; Copilot license required).",
+      "required_permissions": [
+        "Reports.Read.All",
+        "AiEnterpriseInteraction.Read.All"
+      ],
+      "query_plan": [
+        "copilotAdminSettings",
+        "copilotUsageReports"
       ]
     },
     "onedrive_posture": {
@@ -248,6 +317,18 @@
             "Get-CsTeamsAppSetupPolicy | Select-Object Identity,AllowSideLoading"
           ]
         }
+      ]
+    },
+    "app_credentials": {
+      "enabled": true,
+      "description": "Application & service principal credential hygiene: secrets, certificates, redirect URIs, federated identity credentials, ownership, and audience drift.",
+      "required_permissions": [
+        "Application.Read.All",
+        "Directory.Read.All"
+      ],
+      "query_plan": [
+        "applicationCredentials",
+        "servicePrincipalCredentials"
       ]
     },
     "app_consent": {
@@ -511,6 +592,20 @@
         }
       ]
     },
+    "mailbox_forwarding": {
+      "enabled": true,
+      "description": "Mailbox forwarding settings and inbox rules per licensed user (BEC indicator: external forwarding, hide-from-user patterns).",
+      "required_permissions": [
+        "User.Read.All",
+        "MailboxSettings.Read.All"
+      ],
+      "query_plan": [
+        "users",
+        "domains",
+        "messageRules",
+        "mailboxSettings"
+      ]
+    },
     "exchange_policy": {
       "enabled": true,
       "description": "Exchange transport, connector, domain, and mailbox forwarding policy posture",
@@ -572,6 +667,7 @@
   "default_order": [
     "identity",
     "app_consent",
+    "app_credentials",
     "security",
     "conditional_access",
     "defender",
@@ -580,6 +676,8 @@
     "reports_usage",
     "external_identity",
     "consent_policy",
+    "cross_tenant_access",
+    "dns_posture",
     "domains_hybrid",
     "licensing",
     "identity_governance",
@@ -588,11 +686,16 @@
     "sharepoint",
     "sharepoint_access",
     "onedrive_posture",
+    "power_platform",
+    "sentinel_xdr",
+    "defender_cloud_apps",
+    "copilot_governance",
     "teams",
     "teams_policy",
     "purview",
     "ediscovery",
       "exchange",
-      "exchange_policy"
+      "exchange_policy",
+      "mailbox_forwarding"
     ]
 }
