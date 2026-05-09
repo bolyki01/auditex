@@ -59,6 +59,12 @@
     ],
     "soc2": [
       "CC7.2"
+    ],
+    "nis2": [
+      "Article 21(2)(c)"
+    ],
+    "dora": [
+      "Article 11(1)"
     ]
   },
   "sharepoint.broad_link": {
@@ -78,7 +84,8 @@
       "CC6.1"
     ],
     "nis2": [
-      "Article 21(2)(g)"
+      "Article 21(2)(g)",
+      "Article 21(2)(i)"
     ],
     "dora": [
       "Article 9(2)"
@@ -106,7 +113,8 @@
       "CC6.3"
     ],
     "nis2": [
-      "Article 21(2)(d)"
+      "Article 21(2)(d)",
+      "Article 21(2)(h)"
     ],
     "dora": [
       "Article 9(4)(a)"
@@ -373,6 +381,7 @@
     ],
     "nis2": [
       "Article 21(2)(b)",
+      "Article 21(2)(g)",
       "Article 23"
     ],
     "dora": [
@@ -403,7 +412,8 @@
       "CC7.2"
     ],
     "nis2": [
-      "Article 21(2)(b)"
+      "Article 21(2)(b)",
+      "Article 21(2)(g)"
     ],
     "dora": [
       "Article 17(1)"
@@ -430,7 +440,8 @@
       "CC6.1"
     ],
     "nis2": [
-      "Article 21(2)(d)"
+      "Article 21(2)(d)",
+      "Article 21(2)(h)"
     ],
     "dora": [
       "Article 9(4)(a)"
@@ -454,7 +465,8 @@
       "CC6.1"
     ],
     "nis2": [
-      "Article 21(2)(d)"
+      "Article 21(2)(d)",
+      "Article 21(2)(h)"
     ],
     "dora": [
       "Article 9(4)(a)"
@@ -482,7 +494,8 @@
       "CC6.7"
     ],
     "nis2": [
-      "Article 21(2)(g)"
+      "Article 21(2)(g)",
+      "Article 21(2)(h)"
     ],
     "dora": [
       "Article 9(2)"
@@ -508,7 +521,8 @@
       "CC1.5"
     ],
     "nis2": [
-      "Article 21(2)(d)"
+      "Article 21(2)(d)",
+      "Article 21(2)(h)"
     ],
     "dora": [
       "Article 9(4)(a)"
@@ -534,7 +548,8 @@
       "CC6.3"
     ],
     "nis2": [
-      "Article 21(2)(d)"
+      "Article 21(2)(d)",
+      "Article 21(2)(h)"
     ],
     "dora": [
       "Article 9(4)(a)"
@@ -564,7 +579,8 @@
       "CC6.7"
     ],
     "nis2": [
-      "Article 21(2)(d)"
+      "Article 21(2)(d)",
+      "Article 21(2)(h)"
     ],
     "dora": [
       "Article 9(4)(a)"
@@ -589,7 +605,8 @@
       "CC6.1"
     ],
     "nis2": [
-      "Article 21(2)(d)"
+      "Article 21(2)(d)",
+      "Article 21(2)(h)"
     ],
     "dora": [
       "Article 9(4)(a)"
@@ -614,7 +631,8 @@
       "CC6.1"
     ],
     "nis2": [
-      "Article 21(2)(d)"
+      "Article 21(2)(d)",
+      "Article 21(2)(h)"
     ],
     "dora": [
       "Article 9(4)(a)"
@@ -641,7 +659,8 @@
       "CC6.3"
     ],
     "nis2": [
-      "Article 21(2)(d)"
+      "Article 21(2)(d)",
+      "Article 21(2)(h)"
     ],
     "dora": [
       "Article 9(4)(a)"
@@ -670,6 +689,7 @@
     ],
     "nis2": [
       "Article 21(2)(d)",
+      "Article 21(2)(i)",
       "Article 21(2)(j)"
     ],
     "dora": [
@@ -700,6 +720,7 @@
       "CC6.6"
     ],
     "nis2": [
+      "Article 21(2)(i)",
       "Article 21(2)(j)"
     ],
     "dora": [
@@ -729,7 +750,8 @@
       "CC6.3"
     ],
     "nis2": [
-      "Article 21(2)(d)"
+      "Article 21(2)(d)",
+      "Article 21(2)(i)"
     ],
     "dora": [
       "Article 28"
@@ -754,6 +776,7 @@
       "CC6.1"
     ],
     "nis2": [
+      "Article 21(2)(i)",
       "Article 21(2)(j)"
     ],
     "dora": [
@@ -783,6 +806,7 @@
     ],
     "nis2": [
       "Article 21(2)(d)",
+      "Article 21(2)(i)",
       "Article 21(2)(j)"
     ],
     "dora": [
@@ -809,7 +833,8 @@
       "CC6.1"
     ],
     "nis2": [
-      "Article 21(2)(d)"
+      "Article 21(2)(d)",
+      "Article 21(2)(i)"
     ],
     "dora": [
       "Article 28"
@@ -839,7 +864,8 @@
       "CC6.3"
     ],
     "nis2": [
-      "Article 21(2)(d)"
+      "Article 21(2)(d)",
+      "Article 21(2)(i)"
     ],
     "dora": [
       "Article 9(4)(a)"
