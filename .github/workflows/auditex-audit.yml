@@ -30,11 +30,17 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      # F1 (2026-05-09): every ``uses:`` is pinned to a full commit SHA per
+      # OpenSSF Scorecard guidance. The trailing comment records the human-
+      # readable tag the SHA corresponds to so future reviewers can spot
+      # stale pins. To bump: re-run scripts/refresh-action-shas.sh (or
+      # ``gh api /repos/<action>/git/ref/tags/<tag>``) and replace both the
+      # SHA and the comment.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.13"
           cache: pip
@@ -66,13 +72,13 @@ jobs:
             --output outputs/audit/findings.oscal.json
 
       - name: Upload SARIF to GitHub code scanning
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@7fd177fa680c9881b53cdab4d346d32574c9f7f4  # v3.35.4
         with:
           sarif_file: outputs/audit/findings.sarif.json
           category: auditex
 
       - name: Archive audit bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: auditex-bundle
           path: |
