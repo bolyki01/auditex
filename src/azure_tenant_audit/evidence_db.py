@@ -149,6 +149,16 @@ def build_run_evidence_index(run_dir: str | Path, db_path: str | Path | None = N
     target = Path(db_path) if db_path is not None else run_path / "index" / "evidence.sqlite"
     target.parent.mkdir(parents=True, exist_ok=True)
 
+    # Hard-reset the file (and any WAL/SHM/journal sidecars) before rebuilding.
+    # The DROP TABLE IF EXISTS chain in _SCHEMA only knows about the canonical
+    # tables, so a renamed or added table from a newer/older auditex release
+    # — or a foreign DB planted by a third-party inspection tool — would leak
+    # into the rebuilt DB and break the contract that index/evidence.sqlite
+    # contains exactly the canonical tables and indexes.
+    for suffix in ("", "-wal", "-shm", "-journal"):
+        sidecar = target.with_name(target.name + suffix)
+        sidecar.unlink(missing_ok=True)
+
     manifest = _read_json(run_path / "run-manifest.json", {})
     summary = _read_json(run_path / "summary.json", {})
     manifest = manifest if isinstance(manifest, Mapping) else {}
