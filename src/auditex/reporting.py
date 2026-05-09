@@ -281,6 +281,61 @@ def _render_html(selected_sections: dict[str, Any]) -> str:
     return "".join(sections)
 
 
+def _sarif_rule_help_markdown(finding: Mapping[str, Any]) -> str:
+    """Build a Markdown help block for a SARIF rule.
+
+    GitHub Code Scanning surfaces ``help.markdown`` in the Security UI;
+    a structured block (description / impact / remediation / mapped controls /
+    references) makes findings actionable inline rather than forcing operators
+    to open the auditex bundle to figure out what a rule means.
+    """
+    parts: list[str] = []
+    title = _text(finding.get("title")) or _text(finding.get("rule_id")) or "Auditex finding"
+    parts.append(f"## {title}")
+    description = _text(finding.get("description"))
+    if description:
+        parts.append(f"**Description:** {description}")
+    impact = _text(finding.get("impact"))
+    if impact:
+        parts.append(f"**Impact:** {impact}")
+    remediation = _text(finding.get("remediation"))
+    if remediation:
+        parts.append(f"**Remediation:** {remediation}")
+    severity = _text(finding.get("severity"))
+    if severity:
+        parts.append(f"**Severity:** {severity}")
+    framework_mappings = (
+        finding.get("framework_mappings")
+        if isinstance(finding.get("framework_mappings"), Mapping)
+        else {}
+    )
+    if framework_mappings:
+        rows: list[str] = []
+        for framework, controls in sorted(framework_mappings.items()):
+            if isinstance(controls, list) and controls:
+                control_text = ", ".join(_text(c) for c in controls if _text(c))
+                if control_text:
+                    rows.append(f"- **{framework}**: {control_text}")
+        if rows:
+            parts.append("**Mapped controls:**\n\n" + "\n".join(rows))
+    references = finding.get("references")
+    if isinstance(references, list) and references:
+        ref_lines = "\n".join(f"- {_text(ref)}" for ref in references if _text(ref))
+        if ref_lines:
+            parts.append("**References:**\n\n" + ref_lines)
+    return "\n\n".join(parts)
+
+
+def _sarif_help_uri(rule_id: str) -> str:
+    """Per-rule help URI surfaced by GitHub Code Scanning.
+
+    Until per-rule docs pages exist on a stable site, point at the canonical
+    finding-templates.json — operators can navigate to the rule_id entry
+    there. URL is deterministic per rule_id so dedup is stable.
+    """
+    return f"{AUDITEX_SARIF_TOOL_URI}/blob/main/configs/finding-templates.json#{rule_id}"
+
+
 def render_sarif(
     *,
     findings: list[dict[str, Any]] | None,
@@ -310,6 +365,11 @@ def render_sarif(
         category = _text(finding.get("category"))
         if category:
             tags.append(f"category:{category}")
+        help_text = (
+            _text(finding.get("remediation"))
+            or _text(finding.get("description"))
+            or "See Auditex finding for remediation guidance."
+        )
         rules.append(
             {
                 "id": rule_id,
@@ -317,8 +377,10 @@ def render_sarif(
                 "shortDescription": {"text": _text(finding.get("title")) or rule_id},
                 "fullDescription": {"text": _text(finding.get("description")) or _text(finding.get("title")) or rule_id},
                 "help": {
-                    "text": _text(finding.get("remediation")) or _text(finding.get("description")) or "See Auditex finding for remediation guidance.",
+                    "text": help_text,
+                    "markdown": _sarif_rule_help_markdown(finding),
                 },
+                "helpUri": _sarif_help_uri(rule_id),
                 "defaultConfiguration": {"level": _SARIF_LEVELS.get(_text(finding.get("severity")).lower(), "warning")},
                 "properties": {"tags": sorted(set(tags))} if tags else {"tags": []},
             }

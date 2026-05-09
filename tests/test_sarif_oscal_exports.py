@@ -105,6 +105,105 @@ def test_sarif_includes_framework_mappings_in_properties() -> None:
     assert "mitre_attack:T1078" in rule_props["tags"]
 
 
+def test_sarif_rule_help_markdown_contains_template_sections() -> None:
+    """D1: every SARIF rule must carry help.text + help.markdown + helpUri so
+    GitHub Code Scanning's UI surfaces actionable rule docs inline."""
+    from auditex.reporting import render_sarif
+
+    findings = [
+        {
+            "id": "f1",
+            "rule_id": "rule.alpha",
+            "severity": "high",
+            "title": "Alpha finding",
+            "description": "Alpha desc",
+            "impact": "Alpha impact",
+            "remediation": "Alpha remediation",
+            "category": "test",
+            "framework_mappings": {
+                "cis_m365_v3": ["1.1.1"],
+                "mitre_attack": ["T1078"],
+            },
+            "references": ["RFC 1234", "Microsoft Learn page"],
+        }
+    ]
+    document = render_sarif(findings=findings, summary={}, manifest={})
+    rule = document["runs"][0]["tool"]["driver"]["rules"][0]
+
+    assert rule["help"]["text"] == "Alpha remediation"
+    md = rule["help"]["markdown"]
+    assert "## Alpha finding" in md
+    assert "**Description:** Alpha desc" in md
+    assert "**Impact:** Alpha impact" in md
+    assert "**Remediation:** Alpha remediation" in md
+    assert "**Severity:** high" in md
+    assert "cis_m365_v3" in md and "1.1.1" in md
+    assert "mitre_attack" in md and "T1078" in md
+    assert "RFC 1234" in md
+    assert rule["helpUri"].endswith("configs/finding-templates.json#rule.alpha")
+    assert rule["helpUri"].startswith("https://")
+
+
+def test_sarif_rule_help_markdown_minimal_when_template_missing() -> None:
+    """A finding with only a rule_id and severity must still produce a
+    valid help.markdown — no KeyError, no empty string."""
+    from auditex.reporting import render_sarif
+
+    findings = [
+        {"id": "f1", "rule_id": "rule.bare", "severity": "low"},
+    ]
+    document = render_sarif(findings=findings, summary={}, manifest={})
+    rule = document["runs"][0]["tool"]["driver"]["rules"][0]
+    assert rule["help"]["markdown"]  # not empty
+    assert rule["helpUri"].endswith("configs/finding-templates.json#rule.bare")
+
+
+def test_sarif_help_fields_populated_for_every_rule_under_diverse_input() -> None:
+    """Regression guard: every rule emitted by render_sarif must have the
+    three help fields populated regardless of how complete the source
+    finding is. Synthetic batch covers the realistic spread of finding
+    shapes (full template, partial, minimal)."""
+    from auditex.reporting import render_sarif
+
+    findings = [
+        {
+            "id": "f1",
+            "rule_id": "rule.full",
+            "severity": "high",
+            "title": "Full",
+            "description": "d",
+            "impact": "i",
+            "remediation": "r",
+            "category": "x",
+            "framework_mappings": {"cis_m365_v3": ["1.1"]},
+            "references": ["doc"],
+        },
+        {
+            "id": "f2",
+            "rule_id": "rule.no_template",
+            "severity": "medium",
+            "title": "No template",
+            "category": "x",
+        },
+        {
+            "id": "f3",
+            "rule_id": "rule.bare",
+            "severity": "low",
+        },
+    ]
+    document = render_sarif(findings=findings, summary={}, manifest={})
+    rules = document["runs"][0]["tool"]["driver"]["rules"]
+    assert len(rules) == 3
+    for rule in rules:
+        rule_id = rule["id"]
+        assert rule.get("help", {}).get("text"), f"rule={rule_id} missing help.text"
+        assert rule.get("help", {}).get("markdown"), f"rule={rule_id} missing help.markdown"
+        assert rule.get("helpUri"), f"rule={rule_id} missing helpUri"
+        assert rule_id in rule["helpUri"], (
+            f"rule={rule_id} helpUri does not deep-link to its template entry"
+        )
+
+
 def test_run_exporter_writes_sarif_to_disk(offline_run_dir: Path) -> None:
     result = run_exporter(name="sarif", run_dir=str(offline_run_dir))
     artifact = Path(result["artifacts"][0]["path"])
