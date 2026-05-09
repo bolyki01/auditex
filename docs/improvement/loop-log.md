@@ -17,3 +17,4 @@ Started: 2026-05-09
 | 03:05 | C1   | green  | finalize idempotent (2 real fixes); +3 | d0df9c3 |
 | 03:25 | C2   | green  | evidence DB hard-reset (real fix); +4 | d39221a |
 | 03:45 | C3   | green  | 3 new validators (dup-key/unknown-collector/framework); +9 | 70ad740 |
+| 04:00 | C4   | green  | contract-bump checklist (docs only)        | e8126c8 |

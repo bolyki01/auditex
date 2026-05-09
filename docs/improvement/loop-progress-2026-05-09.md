@@ -35,3 +35,23 @@
 
 **Next:** C-phase contract hardening (idempotent finalize, validation error coverage), D exporters polish, then E/F/G/H/I/J/K.
 
+---
+
+## Checkpoint 3 — Phase C done
+
+**Completed (4 functional commits):**
+- C1 idempotent finalize: TWO real bugs fixed — `_artifact_map` insertion-order leak and finalize-sequencing mismatch. Re-finalising a clean bundle is now byte-stable for the 4 deterministic JSON artifacts plus logically-stable for `evidence.sqlite`.
+- C2 evidence-DB migration: ONE real bug fixed — foreign tables/indexes from prior auditex releases survived rebuild because DROP TABLE only enumerated 3 canonical tables. Fix: hard-reset target file (incl. WAL/SHM/journal sidecars) before SQLite reopens.
+- C3 validation.json error coverage: 3 new failure-mode validators (`duplicate_record_key`, `unknown_finding_collector`, `unknown_framework_mapping_key` + `invalid_framework_mapping_value`). Caught one design-edge case along the way (the response plane uses `collector="response"` by intent) and added an explicit allow-list rather than a typo-prone regex.
+- C4 contract-bump checklist: documents every site that must change when CONTRACT_VERSION leaves "2026-04-21". Read once, copy-paste during the next bump.
+
+**Data-quality wins:**
+- Real bug count fixed in C-phase: 3 (`_artifact_map` ordering, finalize sequencing, evidence DB rebuild leak).
+- Test count: 563 → 588 (+25 over the C-phase).
+- 7 new validators total (3 in C3 + the 4 idempotency/migration tests).
+
+**Blockers:** none.
+
+**Next:** B3 (MITRE ATT&CK tag review), B4 (severity calibration spreadsheet), B5 (NIS2/DORA mapping completeness), then D exporters polish, then E-K.
+
+
