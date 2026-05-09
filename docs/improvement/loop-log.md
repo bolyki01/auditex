@@ -24,3 +24,5 @@ Started: 2026-05-09
 | 05:10 | D1   | green  | SARIF help.markdown + helpUri; tests +3 | 4d354f4 |
 | 05:25 | D2   | green  | SARIF stable fingerprints (auditex/v1); tests +3 | 13e05e2 |
 | 05:40 | D3   | green  | OSCAL reviewed-controls fix (real bug); tests +3 | f484008 |
+| 06:00 | D4   | green  | CSV deterministic sort (real fix); tests +7 | 5c20e4b |
+| 06:15 | D5   | green  | JSON trailing newline + stability; tests +7 | 5f21a7d |

@@ -54,4 +54,29 @@
 
 **Next:** B3 (MITRE ATT&CK tag review), B4 (severity calibration spreadsheet), B5 (NIS2/DORA mapping completeness), then D exporters polish, then E-K.
 
+---
+
+## Checkpoint 4 — Phases B (B3-B5) + D done
+
+**Completed since last checkpoint (8 functional commits):**
+- B3 ATT&CK calibration: 6 missing mappings filled; spec-driven swaps (T1566.001 → T1566.002 on 4 DNS rules); 3 spec-prescribed additions; rationale block.
+- B4 severity calibration audit: no obvious miscalibrations; 2 debatable cases queued.
+- B5 NIS2/DORA enrichment: coverage 100%; granularity 1 → 2-3 articles per rule.
+- D1 SARIF help.markdown + helpUri (GitHub Code Scanning UI).
+- D2 SARIF stable fingerprints (auditex/v1) — dedup across runs.
+- D3 OSCAL reviewed-controls fix (REAL bug — OSCAL 1.1.2 mandate).
+- D4 CSV deterministic sort (REAL fix — was input-order-dependent).
+- D5 JSON trailing newline + stability test.
+
+**Data-quality wins:**
+- Real bugs fixed in this stretch: 2 (OSCAL reviewed-controls missing, CSV sort drift).
+- Total real bugs fixed cumulatively: 5.
+- Test count: 579 → 602 (+23).
+- Total branch commits: 70+ (16+ functional, rest chores/logs).
+
+**Blockers:** none.
+
+**Next:** E-phase notify sink reliability (Jira/GitHub dedup, SMTP TLS strict, Teams/Slack redaction) → F-phase CI/Actions → G-phase tests/safety nets → H-phase perf → I-phase security → J-phase maintenance → K-phase research.
+
+
 
