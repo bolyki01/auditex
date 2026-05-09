@@ -14,3 +14,4 @@ Started: 2026-05-09
 | 02:05 | A6   | green  | gated shape parity tests (no code change); +12 | 019e19e |
 | 02:30 | A7   | green  | gated normalize sections + coverage lock; +8 | a2f5ae0 |
 | 02:50 | B1+B2| green  | template+mapping floor regression; +90 | eb00213 |
+| 03:05 | C1   | green  | finalize idempotent (2 real fixes); +3 | d0df9c3 |
