@@ -25,7 +25,7 @@ def build_privacy_block(*, safe_for_external_llm: bool) -> dict[str, Any]:
 
 
 def _artifact_map(run_dir: Path) -> dict[str, list[str]]:
-    artifact_map: dict[str, list[str]] = {}
+    raw: dict[str, list[str]] = {}
     for path in sorted(run_dir.rglob("*")):
         if path.is_dir():
             continue
@@ -33,8 +33,11 @@ def _artifact_map(run_dir: Path) -> dict[str, list[str]]:
             continue
         relative = path.relative_to(run_dir)
         section = relative.parts[0] if len(relative.parts) > 1 else "root"
-        artifact_map.setdefault(section, []).append(str(relative))
-    return artifact_map
+        raw.setdefault(section, []).append(str(relative))
+    # Stable section order: dict-insertion-order leaks rglob's traversal sequence
+    # which can differ between two finalize calls (audit-log grows, evidence DB
+    # rebuilds), so sort the section keys to keep ai_context.json byte-stable.
+    return {section: raw[section] for section in sorted(raw)}
 
 
 def _read_order() -> list[str]:
