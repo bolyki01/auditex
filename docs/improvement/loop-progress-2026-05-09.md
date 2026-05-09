@@ -78,5 +78,34 @@
 
 **Next:** E-phase notify sink reliability (Jira/GitHub dedup, SMTP TLS strict, Teams/Slack redaction) → F-phase CI/Actions → G-phase tests/safety nets → H-phase perf → I-phase security → J-phase maintenance → K-phase research.
 
+---
+
+## Checkpoint 5 — Phase E + live-audit cycle done
+
+**Completed since last checkpoint (10 functional commits):**
+- E1 Jira dedup via fingerprint label.
+- E2 GitHub Issues dedup via fingerprint title token.
+- Live tenant audit cycle exposed 6 real bugs:
+  - sensitive-key allowlist (authorization_policy false-positive)
+  - diagnostic aggregation (5 site-permission findings → 1 with affected_endpoints + aggregated_count)
+  - usage-report anonymization (87 rows → distinct keys)
+  - 3 silent finders missing rule_id + framework metadata
+  - **CRITICAL:** test session was overwriting real .secrets/m365-auth.env (conftest.py session-scoped autouse fixture redirects)
+  - empty mitre_attack tripping own validator
+- E3 SMTP STARTTLS strict + opt-in self-signed override + post-STARTTLS AUTH.
+- E4 Teams/Slack webhook redaction (token-shaped substrings + sensitive-key values).
+
+**Data-quality wins:**
+- Real bugs fixed in this stretch: 7 (5 from live audit + 2 secrets-handling).
+- Test count: 602 → 654 (+52).
+- Cumulative real bugs fixed: 11.
+- Live tenant audit verified clean: contract_status=valid, 0 issues, 24 findings, 0 duplicates, 0 missing rule_ids.
+- Total branch commits: 90+.
+
+**Blockers:** none.
+
+**Next:** F-phase GitHub Actions polish (SHA pinning, severity-gate annotations, SARIF upload, pip cache) → G-phase tests/safety nets → H-phase perf → I-phase security → J-phase maintenance → K-phase research.
+
+
 
 
