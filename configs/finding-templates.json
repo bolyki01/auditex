@@ -125,6 +125,42 @@
     "control_ids": ["AUDITEX-APP-DORMANT"],
     "expected_value": "Application has signed in within the last year, or has been retired."
   },
+  "cross_tenant_access.default_b2b_collaboration_inbound_open": {
+    "risk_rating": "high",
+    "description": "Default cross-tenant access policy allows inbound B2B Collaboration from any external tenant.",
+    "impact": "Open inbound B2B Collaboration lets users from any external tenant be invited to resources in your tenant without per-partner scoping or trust requirements; common phishing-driven account-takeover precursor.",
+    "remediation": "Set the default B2B Collaboration inbound access to 'blocked' and enable per-partner allow-lists with inbound trust requirements (MFA, compliant device).",
+    "references": ["Microsoft Entra cross-tenant access default policy guidance", "CIS Microsoft 365 Foundations 1.1.4"],
+    "control_ids": ["AUDITEX-CTA-COLLAB-IN-OPEN"],
+    "expected_value": "Default inbound B2B Collaboration is 'blocked' or scoped to specific partners."
+  },
+  "cross_tenant_access.default_b2b_direct_connect_outbound_open": {
+    "risk_rating": "medium",
+    "description": "Default cross-tenant access policy allows outbound B2B Direct Connect to any external tenant.",
+    "impact": "Open outbound Direct Connect lets your users participate in shared channels in any external tenant; sensitive content can flow out without partner-specific governance.",
+    "remediation": "Set default outbound Direct Connect to 'blocked' and enable per-partner where shared-channel collaboration is required.",
+    "references": ["Microsoft Entra cross-tenant access default policy guidance"],
+    "control_ids": ["AUDITEX-CTA-DC-OUT-OPEN"],
+    "expected_value": "Default outbound B2B Direct Connect is 'blocked' or scoped per partner."
+  },
+  "cross_tenant_access.auto_user_consent_inbound_enabled": {
+    "risk_rating": "medium",
+    "description": "Cross-tenant access policy enables automatic user consent for inbound external users.",
+    "impact": "Automatic user consent skips the per-app consent prompt for external users, removing a key data-sharing checkpoint and enabling silent over-permissioned flows.",
+    "remediation": "Disable automatic user consent inbound and require explicit user or admin consent for external app access.",
+    "references": ["Microsoft Entra automatic user consent settings"],
+    "control_ids": ["AUDITEX-CTA-AUTOCONSENT-IN"],
+    "expected_value": "automaticUserConsentSettings.inboundAllowed = false."
+  },
+  "cross_tenant_access.auto_user_consent_outbound_enabled": {
+    "risk_rating": "low",
+    "description": "Cross-tenant access policy enables automatic user consent for outbound interactions with external apps.",
+    "impact": "Outbound auto-consent lets your users grant access to data hosted in external tenants without an explicit consent prompt; weakens data-egress visibility.",
+    "remediation": "Disable automatic user consent outbound; require an explicit consent step or admin approval for external app access.",
+    "references": ["Microsoft Entra automatic user consent settings"],
+    "control_ids": ["AUDITEX-CTA-AUTOCONSENT-OUT"],
+    "expected_value": "automaticUserConsentSettings.outboundAllowed = false."
+  },
   "cross_tenant_access.default_b2b_direct_connect_inbound_open": {
     "risk_rating": "high",
     "description": "Default cross-tenant access policy allows inbound B2B Direct Connect from any tenant.",

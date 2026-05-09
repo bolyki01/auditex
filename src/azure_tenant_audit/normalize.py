@@ -1380,6 +1380,8 @@ def build_normalized_snapshot(
             inbound_trust_mfa_accepted=item.get("inbound_trust_mfa_accepted"),
             inbound_trust_compliant_device_accepted=item.get("inbound_trust_compliant_device_accepted"),
             inbound_trust_hybrid_aad_joined_accepted=item.get("inbound_trust_hybrid_aad_joined_accepted"),
+            automatic_user_consent_inbound_allowed=bool(item.get("automatic_user_consent_inbound_allowed")),
+            automatic_user_consent_outbound_allowed=bool(item.get("automatic_user_consent_outbound_allowed")),
         )
         for item in _values(collector_payloads.get("cross_tenant_access", {}), "defaultPolicy")
     ]

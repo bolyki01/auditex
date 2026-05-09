@@ -626,6 +626,84 @@ def _build_cross_tenant_default_findings(item: dict[str, Any]) -> list[dict[str,
             )
         )
 
+    # Previously-unflagged combinations (A5):
+
+    if str(item.get("b2b_collaboration_inbound_access") or "").lower() == "allowed":
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": "cross_tenant_access:default:b2b_collaboration_inbound_open",
+                    "rule_id": "cross_tenant_access.default_b2b_collaboration_inbound_open",
+                    "severity": "high",
+                    "category": "external_access",
+                    "title": "Default B2B Collaboration inbound access is allowed for any external tenant",
+                    "status": "open",
+                    "collector": "cross_tenant_access",
+                    "affected_objects": ["default"],
+                    "evidence": item,
+                    "evidence_refs": evidence_refs,
+                    **_metadata_for("cross_tenant_access.default_b2b_collaboration_inbound_open"),
+                }
+            )
+        )
+
+    if str(item.get("b2b_direct_connect_outbound_access") or "").lower() == "allowed":
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": "cross_tenant_access:default:b2b_direct_connect_outbound_open",
+                    "rule_id": "cross_tenant_access.default_b2b_direct_connect_outbound_open",
+                    "severity": "medium",
+                    "category": "external_access",
+                    "title": "Default B2B Direct Connect outbound access is allowed without partner scoping",
+                    "status": "open",
+                    "collector": "cross_tenant_access",
+                    "affected_objects": ["default"],
+                    "evidence": item,
+                    "evidence_refs": evidence_refs,
+                    **_metadata_for("cross_tenant_access.default_b2b_direct_connect_outbound_open"),
+                }
+            )
+        )
+
+    if item.get("automatic_user_consent_inbound_allowed"):
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": "cross_tenant_access:default:auto_user_consent_inbound_enabled",
+                    "rule_id": "cross_tenant_access.auto_user_consent_inbound_enabled",
+                    "severity": "medium",
+                    "category": "external_access",
+                    "title": "Automatic user consent is enabled for inbound external collaborations",
+                    "status": "open",
+                    "collector": "cross_tenant_access",
+                    "affected_objects": ["default"],
+                    "evidence": item,
+                    "evidence_refs": evidence_refs,
+                    **_metadata_for("cross_tenant_access.auto_user_consent_inbound_enabled"),
+                }
+            )
+        )
+
+    if item.get("automatic_user_consent_outbound_allowed"):
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": "cross_tenant_access:default:auto_user_consent_outbound_enabled",
+                    "rule_id": "cross_tenant_access.auto_user_consent_outbound_enabled",
+                    "severity": "low",
+                    "category": "external_access",
+                    "title": "Automatic user consent is enabled for outbound collaborations",
+                    "status": "open",
+                    "collector": "cross_tenant_access",
+                    "affected_objects": ["default"],
+                    "evidence": item,
+                    "evidence_refs": evidence_refs,
+                    **_metadata_for("cross_tenant_access.auto_user_consent_outbound_enabled"),
+                }
+            )
+        )
+
     return findings
 
 

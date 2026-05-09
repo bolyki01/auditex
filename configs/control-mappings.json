@@ -216,6 +216,42 @@
     "dora": ["Article 9(4)(a)"],
     "mitre_attack": ["T1078.004"]
   },
+  "cross_tenant_access.default_b2b_collaboration_inbound_open": {
+    "cis_m365_v3": ["1.1.4"],
+    "nist_800_53": ["AC-3", "AC-6", "AC-20"],
+    "iso_27001": ["A.5.19", "A.5.23", "A.8.3"],
+    "soc2": ["CC6.1", "CC6.3"],
+    "nis2": ["Article 21(2)(d)", "Article 21(2)(j)"],
+    "dora": ["Article 28", "Article 9(4)(a)"],
+    "mitre_attack": ["T1078.004", "T1199"]
+  },
+  "cross_tenant_access.default_b2b_direct_connect_outbound_open": {
+    "cis_m365_v3": ["1.1.4"],
+    "nist_800_53": ["AC-3", "AC-20", "SC-7"],
+    "iso_27001": ["A.5.19", "A.5.23", "A.8.20"],
+    "soc2": ["CC6.1", "CC6.6"],
+    "nis2": ["Article 21(2)(j)"],
+    "dora": ["Article 28"],
+    "mitre_attack": ["T1567"]
+  },
+  "cross_tenant_access.auto_user_consent_inbound_enabled": {
+    "cis_m365_v3": ["1.1.4", "1.1.5"],
+    "nist_800_53": ["AC-3", "AC-6", "AC-21"],
+    "iso_27001": ["A.5.10", "A.5.16", "A.5.19"],
+    "soc2": ["CC6.1", "CC6.3"],
+    "nis2": ["Article 21(2)(d)"],
+    "dora": ["Article 28"],
+    "mitre_attack": ["T1528"]
+  },
+  "cross_tenant_access.auto_user_consent_outbound_enabled": {
+    "cis_m365_v3": ["1.1.5"],
+    "nist_800_53": ["AC-3", "AC-21"],
+    "iso_27001": ["A.5.10", "A.5.19"],
+    "soc2": ["CC6.1"],
+    "nis2": ["Article 21(2)(j)"],
+    "dora": ["Article 28"],
+    "mitre_attack": ["T1528"]
+  },
   "cross_tenant_access.default_b2b_direct_connect_inbound_open": {
     "cis_m365_v3": ["1.1.4"],
     "nist_800_53": ["AC-3", "AC-6", "AC-20"],
