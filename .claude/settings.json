@@ -1,0 +1,32 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [{
+          "type": "command",
+          "command": "cd \"$CLAUDE_PROJECT_DIR\" && ruff format . 2>/dev/null || true"
+        }]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pip *)",
+      "Bash(pip3 *)",
+      "Bash(ruff *)",
+      "Bash(pytest *)",
+      "Bash(make *)",
+      "Bash(auditex *)",
+      "Bash(auditex-mcp *)",
+      "Bash(git *)",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep"
+    ]
+  }
+}

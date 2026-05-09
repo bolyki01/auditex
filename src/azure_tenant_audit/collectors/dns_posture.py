@@ -16,6 +16,10 @@ from .base import Collector, CollectorResult, _classify_graph_error
 
 
 DEFAULT_DKIM_SELECTORS = ("selector1", "selector2")
+# Probed only when DEFAULT_DKIM_SELECTORS all miss. Covers common non-M365 origins
+# (Google Workspace ``google``; SendGrid/Mailchimp/MailerLite ``s1``/``s2``;
+# manual rotations ``k1``; legacy ``default``/``mail``).
+FALLBACK_DKIM_SELECTORS = ("s1", "s2", "google", "default", "k1", "mail")
 
 
 class DnsPostureCollector(Collector):
@@ -32,6 +36,9 @@ class DnsPostureCollector(Collector):
             endpoint=context.get("doh_endpoint", DEFAULT_DOH_ENDPOINT)
         )
         dkim_selectors: Iterable[str] = context.get("dkim_selectors", DEFAULT_DKIM_SELECTORS)
+        dkim_fallback_selectors: Iterable[str] = context.get(
+            "dkim_fallback_selectors", FALLBACK_DKIM_SELECTORS
+        )
 
         coverage: list[dict[str, Any]] = []
         payload: dict[str, Any] = {}
@@ -89,18 +96,22 @@ class DnsPostureCollector(Collector):
                     domain_name,
                     resolver,
                     dkim_selectors=dkim_selectors,
+                    dkim_fallback_selectors=dkim_fallback_selectors,
                 )
                 status = "ok"
                 error_class: str | None = None
                 error: str | None = None
             except DohError as exc:
+                attempted_selectors = list(dkim_selectors) + [
+                    s for s in dkim_fallback_selectors if s not in dkim_selectors
+                ]
                 posture = {
                     "domain": domain_name,
                     "managed_by_microsoft": domain_name.lower().endswith(".onmicrosoft.com"),
                     "resolver_error": str(exc),
                     "spf": {"present": False},
                     "dmarc": {"present": False},
-                    "dkim": {"selectors_present": [], "selectors_missing": list(dkim_selectors)},
+                    "dkim": {"selectors_present": [], "selectors_missing": attempted_selectors},
                     "mta_sts": {"dns_present": False},
                     "bimi": {"present": False},
                 }

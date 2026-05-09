@@ -194,8 +194,20 @@ def collect_domain_posture(
     resolver: DnsResolver,
     *,
     dkim_selectors: Iterable[str] = ("selector1", "selector2"),
+    dkim_fallback_selectors: Iterable[str] = (),
 ) -> dict[str, Any]:
-    """Resolve and assess email-auth records for a single domain."""
+    """Resolve and assess email-auth records for a single domain.
+
+    The DKIM probe is tiered: primary ``dkim_selectors`` are queried first
+    (Microsoft 365 defaults ``selector1``/``selector2`` in the typical case),
+    and ``dkim_fallback_selectors`` are only queried when no primary selector
+    resolves. This avoids extra DoH traffic on tenants that are correctly
+    using the M365 defaults.
+    """
+    primary = tuple(dkim_selectors)
+    fallback = tuple(dkim_fallback_selectors)
+    all_probed = list(primary) + [s for s in fallback if s not in primary]
+
     posture: dict[str, Any] = {
         "domain": domain,
         "managed_by_microsoft": is_microsoft_managed_domain(domain),
@@ -207,14 +219,20 @@ def collect_domain_posture(
         mta_sts_records = resolver.query(f"_mta-sts.{domain}", "TXT")
         bimi_records = resolver.query(f"default._bimi.{domain}", "TXT")
         dkim_results: dict[str, dict[str, Any] | None] = {}
-        for selector in dkim_selectors:
-            dkim_records = resolver.query(f"{selector}._domainkey.{domain}", "TXT")
-            dkim_results[selector] = _summarize_dkim(dkim_records)
+        for selector in primary:
+            records = resolver.query(f"{selector}._domainkey.{domain}", "TXT")
+            dkim_results[selector] = _summarize_dkim(records)
+        if fallback and not any(dkim_results.values()):
+            for selector in fallback:
+                if selector in dkim_results:
+                    continue
+                records = resolver.query(f"{selector}._domainkey.{domain}", "TXT")
+                dkim_results[selector] = _summarize_dkim(records)
     except DohError as exc:
         posture["resolver_error"] = str(exc)
         posture["spf"] = _absent("spf")
         posture["dmarc"] = _absent("dmarc")
-        posture["dkim"] = {"selectors_present": [], "selectors_missing": list(dkim_selectors)}
+        posture["dkim"] = {"selectors_present": [], "selectors_missing": list(all_probed)}
         posture["mta_sts"] = {"dns_present": False}
         posture["bimi"] = _absent("bimi")
         return posture
