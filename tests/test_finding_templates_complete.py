@@ -87,10 +87,19 @@ def test_emitted_rule_id_meets_framework_floor(rule_id: str) -> None:
 # for that namespace are referenced from findings.py via the diagnostic
 # pipeline; exclude them from the orphan check.
 _DIAGNOSTIC_NAMESPACES = ("collector.issue.",)
+# Metadata keys (single-leading-underscore or $-prefixed) carry rationale /
+# policy text rather than per-rule mappings — see the ``_documentation``
+# block at the top of configs/control-mappings.json for the ATT&CK taxonomy
+# rationale. The runtime loader (_load_rule_registry in findings.py) skips
+# non-dict values, so these never reach the rule pipeline; the orphan check
+# needs the same exclusion.
+_METADATA_PREFIXES = ("_", "$")
 
 
 def _is_orphan(rule_id: str) -> bool:
     if any(rule_id.startswith(ns) for ns in _DIAGNOSTIC_NAMESPACES):
+        return False
+    if any(rule_id.startswith(prefix) for prefix in _METADATA_PREFIXES):
         return False
     return rule_id not in _EMITTED_RULE_IDS
 
