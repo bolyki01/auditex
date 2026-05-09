@@ -11,3 +11,5 @@ Started: 2026-05-09
 | 01:00 | A3   | green  | app_credentials rules 5→9; tests +9 | 6210f36 |
 | 01:25 | A4   | green  | mailbox forward casing/display-name; tests +7 | 00b7ff5 |
 | 01:50 | A5   | green  | cross_tenant rules 3→7; auto-consent; tests +5 | dfe77f1 |
+| 02:05 | A6   | green  | gated shape parity tests (no code change); +12 | 019e19e |
+| 02:30 | A7   | green  | gated normalize sections + coverage lock; +8 | a2f5ae0 |
