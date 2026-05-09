@@ -36,6 +36,16 @@ AUDITEX_OSCAL_NS = "https://magrathean.uk/auditex/oscal"
 
 _SECTION_ORDER = ("summary", "findings", "action_plan", "normalized", "blockers", "manifest")
 _CSV_COLUMNS = ("id", "title", "severity", "status")
+# Severity ordering used for deterministic CSV row sort (highest first).
+# Anything outside this set sorts after ``info`` to keep the order stable.
+_SEVERITY_RANK: Mapping[str, int] = {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+    "info": 4,
+    "informational": 4,
+}
 
 
 def _read_json(path: Path, fallback: Any) -> Any:
@@ -203,8 +213,30 @@ def _render_markdown(selected_sections: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _csv_sort_key(row: Mapping[str, Any]) -> tuple:
+    """Deterministic sort key for CSV rows.
+
+    Severity desc (critical → high → medium → low → info → unknown), then
+    rule_id, then record_key (from the first evidence_ref), then id. This
+    keeps the CSV byte-stable across runs of the same input — D4
+    contract.
+    """
+    severity = str(row.get("severity") or "").strip().lower()
+    severity_rank = _SEVERITY_RANK.get(severity, 99)
+    rule_id = str(row.get("rule_id") or "")
+    record_key = ""
+    refs = row.get("evidence_refs")
+    if isinstance(refs, list) and refs:
+        first = refs[0]
+        if isinstance(first, Mapping):
+            record_key = str(first.get("record_key") or "")
+    finding_id = str(row.get("id") or "")
+    return (severity_rank, rule_id, record_key, finding_id)
+
+
 def _render_csv(selected_sections: dict[str, Any]) -> str:
     rows = _dict_rows(selected_sections.get("findings")) or _dict_rows(selected_sections.get("action_plan"))
+    rows = sorted(rows, key=_csv_sort_key)
     buffer = StringIO()
     writer = csv.DictWriter(buffer, fieldnames=list(_CSV_COLUMNS), extrasaction="ignore")
     writer.writeheader()
