@@ -32,3 +32,4 @@ Started: 2026-05-09
 | 09:05 | live | green  | diagnostic aggregation (real fix); tests +5 | 551b088 |
 | 09:08 | live | green  | usage-report anonymization (real fix); tests +5 | dae72d8 |
 | 09:12 | live | green  | 3 silent rule_ids + templates + mappings   | 8ed5517 |
+| 09:20 | live | green  | conftest: isolate test sessions from real .secrets/ (CRITICAL fix) | 2bfb621 |
