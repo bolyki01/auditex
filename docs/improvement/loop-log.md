@@ -27,3 +27,4 @@ Started: 2026-05-09
 | 06:00 | D4   | green  | CSV deterministic sort (real fix); tests +7 | 5c20e4b |
 | 06:15 | D5   | green  | JSON trailing newline + stability; tests +7 | 5f21a7d |
 | 06:35 | E1   | green  | Jira dedup via fingerprint label; tests +3 | 2a5e746 |
+| 06:50 | E2   | green  | GitHub dedup via fingerprint title token; tests +3 | 50252f5 |
