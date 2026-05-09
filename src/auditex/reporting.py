@@ -163,7 +163,10 @@ def _default_output_path(run_path: Path, format_name: str) -> Path:
 
 
 def _render_json(selected_sections: dict[str, Any]) -> str:
-    return _json({"sections": selected_sections})
+    # D5 contract: 2-space indent, sort_keys (via _json), trailing newline so
+    # POSIX tools (sha256sum, diff, git) treat the file as line-terminated and
+    # downstream concatenation doesn't run files together.
+    return _json({"sections": selected_sections}) + "\n"
 
 
 def _markdown_cell(value: Any) -> str:
