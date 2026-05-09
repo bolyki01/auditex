@@ -1442,6 +1442,7 @@ def build_normalized_snapshot(
             str(item.get("id")),
             display_name=item.get("display_name"),
             app_id=item.get("app_id"),
+            created_date_time=item.get("created_date_time"),
             sign_in_audience=item.get("sign_in_audience"),
             publisher_domain=item.get("publisher_domain"),
             password_credentials=item.get("password_credentials") or [],
@@ -1450,6 +1451,11 @@ def build_normalized_snapshot(
             owner_count=item.get("owner_count"),
             federated_credentials=item.get("federated_credentials") or [],
             required_resource_access=item.get("required_resource_access") or [],
+            # signInActivity is a beta Graph endpoint requiring AuditLog.Read.All; the
+            # collector populates these when available, otherwise the dormant-credential
+            # finding stays inert (signin_data_available=False).
+            last_signin_at=item.get("last_signin_at"),
+            signin_data_available=bool(item.get("signin_data_available")),
         )
         for item in _values(collector_payloads.get("app_credentials", {}), "applicationCredentials")
         if item.get("id")

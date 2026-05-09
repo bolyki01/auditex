@@ -269,7 +269,9 @@ def _parse_iso_datetime(value: Any) -> "datetime | None":
         return None
 
 
-def _credential_expiry_state(end_date_time: Any) -> tuple[str | None, int | None]:
+def _credential_expiry_state(
+    end_date_time: Any, *, warning_days: int = _APP_CREDENTIAL_EXPIRY_WARNING_DAYS
+) -> tuple[str | None, int | None]:
     from datetime import datetime, timezone
 
     parsed = _parse_iso_datetime(end_date_time)
@@ -281,9 +283,89 @@ def _credential_expiry_state(end_date_time: Any) -> tuple[str | None, int | None
     days = int(delta.total_seconds() // 86400)
     if delta.total_seconds() < 0:
         return "expired", days
-    if days <= _APP_CREDENTIAL_EXPIRY_WARNING_DAYS:
+    if days <= warning_days:
         return "expiring", days
     return "ok", days
+
+
+def _earliest_state(
+    credentials: list[Any],
+    target_state: str,
+    *,
+    warning_days: int = _APP_CREDENTIAL_EXPIRY_WARNING_DAYS,
+) -> dict[str, Any] | None:
+    """Find the credential whose expiry-state matches ``target_state`` and has the
+    smallest days-remaining (most urgent / most expired)."""
+    chosen: dict[str, Any] | None = None
+    for credential in credentials:
+        if not isinstance(credential, dict):
+            continue
+        state, days = _credential_expiry_state(
+            credential.get("end_date_time"), warning_days=warning_days
+        )
+        if state != target_state:
+            continue
+        annotated = {
+            **credential,
+            "expiry_state": state,
+            "expiry_days_remaining": days,
+        }
+        if chosen is None:
+            chosen = annotated
+            continue
+        chosen_days = chosen.get("expiry_days_remaining")
+        if days is not None and chosen_days is not None and days < chosen_days:
+            chosen = annotated
+    return chosen
+
+
+def _first_long_validity_secret(credentials: list[Any]) -> dict[str, Any] | None:
+    """Detect a password credential whose total validity exceeds 2 years OR
+    is open-ended (missing ``end_date_time``)."""
+    for credential in credentials:
+        if not isinstance(credential, dict):
+            continue
+        end = _parse_iso_datetime(credential.get("end_date_time"))
+        start = _parse_iso_datetime(credential.get("start_date_time"))
+        if end is None:
+            return {**credential, "validity_days": None, "open_ended": True}
+        if start is None:
+            continue
+        validity_days = int((end - start).total_seconds() // 86400)
+        if validity_days > _SECRET_LONG_VALIDITY_DAYS:
+            return {**credential, "validity_days": validity_days, "open_ended": False}
+    return None
+
+
+def _is_credential_dormant(item: dict[str, Any]) -> bool:
+    """Return True iff the application has been silent for > 1 year and the collector
+    actually fetched signInActivity (signin_data_available=True). Without that flag,
+    we cannot distinguish 'never signed in' from 'we never asked' and stay silent
+    rather than flooding findings with false positives.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    if not item.get("signin_data_available"):
+        return False
+    last_signin = _parse_iso_datetime(item.get("last_signin_at"))
+    created = _parse_iso_datetime(item.get("created_date_time"))
+    if created is None:
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    one_year_ago = datetime.now(tz=timezone.utc) - timedelta(days=365)
+    if created > one_year_ago:
+        return False
+    if last_signin is None:
+        # Old app + collector tried + got null → dormant.
+        return True
+    if last_signin.tzinfo is None:
+        last_signin = last_signin.replace(tzinfo=timezone.utc)
+    return last_signin < one_year_ago
+
+
+_CERTIFICATE_EXPIRY_WARNING_DAYS = 30
+_SECRET_LONG_VALIDITY_DAYS = 730  # 2 years; Microsoft default cap is 24 months.
 
 
 def _build_app_credential_findings(item: dict[str, Any]) -> list[dict[str, Any]]:
@@ -298,25 +380,18 @@ def _build_app_credential_findings(item: dict[str, Any]) -> list[dict[str, Any]]
         "application_credential_objects", item, "app_credentials"
     )
 
-    earliest_expired: dict[str, Any] | None = None
-    earliest_expiring: dict[str, Any] | None = None
-    for credential in (item.get("password_credentials") or []) + (item.get("key_credentials") or []):
-        if not isinstance(credential, dict):
-            continue
-        state, days = _credential_expiry_state(credential.get("end_date_time"))
-        annotated = {
-            **credential,
-            "expiry_state": state,
-            "expiry_days_remaining": days,
-        }
-        if state == "expired":
-            if earliest_expired is None or (days is not None and days < (earliest_expired.get("expiry_days_remaining") or 0)):
-                earliest_expired = annotated
-        elif state == "expiring":
-            if earliest_expiring is None or (days is not None and days < (earliest_expiring.get("expiry_days_remaining") or 9999)):
-                earliest_expiring = annotated
+    earliest_secret_expired = _earliest_state(item.get("password_credentials") or [], "expired")
+    earliest_secret_expiring = _earliest_state(
+        item.get("password_credentials") or [], "expiring"
+    )
+    earliest_cert_expired = _earliest_state(item.get("key_credentials") or [], "expired")
+    earliest_cert_expiring = _earliest_state(
+        item.get("key_credentials") or [],
+        "expiring",
+        warning_days=_CERTIFICATE_EXPIRY_WARNING_DAYS,
+    )
 
-    if earliest_expired is not None:
+    if earliest_secret_expired is not None:
         findings.append(
             _finalize_finding(
                 {
@@ -324,18 +399,18 @@ def _build_app_credential_findings(item: dict[str, Any]) -> list[dict[str, Any]]
                     "rule_id": "app_credentials.secret_expired",
                     "severity": "critical",
                     "category": "application",
-                    "title": "Application credential is expired",
+                    "title": "Application secret is expired",
                     "status": "open",
                     "collector": "app_credentials",
                     "affected_objects": affected,
-                    "evidence": earliest_expired,
+                    "evidence": earliest_secret_expired,
                     "evidence_refs": evidence_refs,
-                    "returned_value": earliest_expired.get("expiry_days_remaining"),
+                    "returned_value": earliest_secret_expired.get("expiry_days_remaining"),
                     **_metadata_for("app_credentials.secret_expired"),
                 }
             )
         )
-    elif earliest_expiring is not None:
+    elif earliest_secret_expiring is not None:
         findings.append(
             _finalize_finding(
                 {
@@ -343,14 +418,96 @@ def _build_app_credential_findings(item: dict[str, Any]) -> list[dict[str, Any]]
                     "rule_id": "app_credentials.secret_expiring",
                     "severity": "high",
                     "category": "application",
-                    "title": "Application credential is expiring soon",
+                    "title": "Application secret is expiring soon",
                     "status": "open",
                     "collector": "app_credentials",
                     "affected_objects": affected,
-                    "evidence": earliest_expiring,
+                    "evidence": earliest_secret_expiring,
                     "evidence_refs": evidence_refs,
-                    "returned_value": earliest_expiring.get("expiry_days_remaining"),
+                    "returned_value": earliest_secret_expiring.get("expiry_days_remaining"),
                     **_metadata_for("app_credentials.secret_expiring"),
+                }
+            )
+        )
+
+    if earliest_cert_expired is not None:
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"app_credentials:{object_id}:certificate_expired",
+                    "rule_id": "app_credentials.certificate_expired",
+                    "severity": "high",
+                    "category": "application",
+                    "title": "Application certificate is expired",
+                    "status": "open",
+                    "collector": "app_credentials",
+                    "affected_objects": affected,
+                    "evidence": earliest_cert_expired,
+                    "evidence_refs": evidence_refs,
+                    "returned_value": earliest_cert_expired.get("expiry_days_remaining"),
+                    **_metadata_for("app_credentials.certificate_expired"),
+                }
+            )
+        )
+    elif earliest_cert_expiring is not None:
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"app_credentials:{object_id}:certificate_expiring",
+                    "rule_id": "app_credentials.certificate_expiring",
+                    "severity": "medium",
+                    "category": "application",
+                    "title": "Application certificate is expiring within 30 days",
+                    "status": "open",
+                    "collector": "app_credentials",
+                    "affected_objects": affected,
+                    "evidence": earliest_cert_expiring,
+                    "evidence_refs": evidence_refs,
+                    "returned_value": earliest_cert_expiring.get("expiry_days_remaining"),
+                    **_metadata_for("app_credentials.certificate_expiring"),
+                }
+            )
+        )
+
+    long_validity_secret = _first_long_validity_secret(item.get("password_credentials") or [])
+    if long_validity_secret is not None:
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"app_credentials:{object_id}:secret_long_validity",
+                    "rule_id": "app_credentials.secret_long_validity",
+                    "severity": "high",
+                    "category": "application",
+                    "title": "Application secret has long or open-ended validity",
+                    "status": "open",
+                    "collector": "app_credentials",
+                    "affected_objects": affected,
+                    "evidence": long_validity_secret,
+                    "evidence_refs": evidence_refs,
+                    "returned_value": long_validity_secret.get("validity_days"),
+                    **_metadata_for("app_credentials.secret_long_validity"),
+                }
+            )
+        )
+
+    if _is_credential_dormant(item):
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"app_credentials:{object_id}:credential_dormant",
+                    "rule_id": "app_credentials.credential_dormant",
+                    "severity": "low",
+                    "category": "application",
+                    "title": "Application has not signed in for over 365 days",
+                    "status": "open",
+                    "collector": "app_credentials",
+                    "affected_objects": affected,
+                    "evidence": {
+                        "created_date_time": item.get("created_date_time"),
+                        "last_signin_at": item.get("last_signin_at"),
+                    },
+                    "evidence_refs": evidence_refs,
+                    **_metadata_for("app_credentials.credential_dormant"),
                 }
             )
         )

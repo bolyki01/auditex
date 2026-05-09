@@ -89,6 +89,42 @@
     "control_ids": ["AUDITEX-APP-AUDIENCE-WIDE"],
     "expected_value": "Sign-in audience is 'AzureADMyOrg' for tenant-owned apps unless multi-tenant is justified."
   },
+  "app_credentials.certificate_expired": {
+    "risk_rating": "high",
+    "description": "An application certificate (keyCredential) has already expired.",
+    "impact": "Once a cert expires, downstream Microsoft and partner authentication fails; lingering expired certs also indicate weak rotation hygiene and unmaintained apps.",
+    "remediation": "Remove the expired certificate, issue a fresh one with a documented validity window, and confirm the application is still required.",
+    "references": ["Microsoft Entra application credential rotation guidance"],
+    "control_ids": ["AUDITEX-APP-CERT-EXPIRED"],
+    "expected_value": "All keyCredentials are within their validity window."
+  },
+  "app_credentials.certificate_expiring": {
+    "risk_rating": "medium",
+    "description": "An application certificate (keyCredential) will expire within 30 days.",
+    "impact": "Certificate rotation has more lead time than secret rotation; flagging at 30 days lets the operator schedule reissuance before authentication breaks.",
+    "remediation": "Reissue the certificate before expiry, deploy the new value, and remove the soon-to-expire entry.",
+    "references": ["Microsoft Entra application credential rotation guidance"],
+    "control_ids": ["AUDITEX-APP-CERT-EXPIRING"],
+    "expected_value": "keyCredentials are rotated at least 30 days before they expire."
+  },
+  "app_credentials.secret_long_validity": {
+    "risk_rating": "high",
+    "description": "An application secret either has no end_date_time or a validity window that exceeds two years.",
+    "impact": "Long-lived or open-ended secrets violate cryptographic hygiene, magnify blast radius if leaked, and bypass Entra's default 24-month cap. They are a recurring root cause of supply-chain compromise.",
+    "remediation": "Replace with a secret bounded to 6-12 months (or move to certificate auth) and rotate on a schedule.",
+    "references": ["Microsoft Entra default credential lifetime", "OWASP cryptographic storage cheat sheet"],
+    "control_ids": ["AUDITEX-APP-SECRET-LONG-VALIDITY"],
+    "expected_value": "Application secrets bounded to <= 24 months."
+  },
+  "app_credentials.credential_dormant": {
+    "risk_rating": "low",
+    "description": "Application has not signed in for more than 365 days (signInActivity observed and null).",
+    "impact": "Stale applications expand the attack surface — credentials persist after the workload is gone, owners forget the app exists, and consent grants outlive their purpose.",
+    "remediation": "Confirm the application is still required; if not, retire it (delete, or disable and document) and revoke consent grants.",
+    "references": ["Microsoft Entra application lifecycle review"],
+    "control_ids": ["AUDITEX-APP-DORMANT"],
+    "expected_value": "Application has signed in within the last year, or has been retired."
+  },
   "cross_tenant_access.default_b2b_direct_connect_inbound_open": {
     "risk_rating": "high",
     "description": "Default cross-tenant access policy allows inbound B2B Direct Connect from any tenant.",

@@ -181,6 +181,41 @@
     "dora": ["Article 9(4)(a)"],
     "mitre_attack": ["T1078.004"]
   },
+  "app_credentials.certificate_expired": {
+    "cis_m365_v3": ["5.1.5"],
+    "nist_800_53": ["IA-5", "AC-3", "SC-12"],
+    "iso_27001": ["A.5.16", "A.5.17", "A.8.5", "A.8.24"],
+    "soc2": ["CC6.1", "CC6.7"],
+    "nis2": ["Article 21(2)(d)"],
+    "dora": ["Article 9(4)(a)"],
+    "mitre_attack": ["T1078.004"]
+  },
+  "app_credentials.certificate_expiring": {
+    "cis_m365_v3": ["5.1.5"],
+    "nist_800_53": ["IA-5", "SC-12"],
+    "iso_27001": ["A.5.17", "A.8.24"],
+    "soc2": ["CC6.1"],
+    "nis2": ["Article 21(2)(d)"],
+    "dora": ["Article 9(4)(a)"]
+  },
+  "app_credentials.secret_long_validity": {
+    "cis_m365_v3": ["5.1.5"],
+    "nist_800_53": ["IA-5(1)", "SC-12"],
+    "iso_27001": ["A.5.17", "A.8.5"],
+    "soc2": ["CC6.1"],
+    "nis2": ["Article 21(2)(d)"],
+    "dora": ["Article 9(4)(a)"],
+    "mitre_attack": ["T1078.004", "T1098.001"]
+  },
+  "app_credentials.credential_dormant": {
+    "cis_m365_v3": ["5.1.6"],
+    "nist_800_53": ["AC-2(3)", "PM-5"],
+    "iso_27001": ["A.5.16", "A.5.18"],
+    "soc2": ["CC6.1", "CC6.3"],
+    "nis2": ["Article 21(2)(d)"],
+    "dora": ["Article 9(4)(a)"],
+    "mitre_attack": ["T1078.004"]
+  },
   "cross_tenant_access.default_b2b_direct_connect_inbound_open": {
     "cis_m365_v3": ["1.1.4"],
     "nist_800_53": ["AC-3", "AC-6", "AC-20"],
