@@ -34,3 +34,4 @@ Started: 2026-05-09
 | 09:12 | live | green  | 3 silent rule_ids + templates + mappings   | 8ed5517 |
 | 09:20 | live | green  | conftest: isolate test sessions from real .secrets/ (CRITICAL fix) | 2bfb621 |
 | 09:25 | live | green  | drop empty mitre_attack on service_health  | b73a985 |
+| 09:35 | E3   | green  | SMTP STARTTLS strict (real hardening); tests +7 | 30ae3eb |
