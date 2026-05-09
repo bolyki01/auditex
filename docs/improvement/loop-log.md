@@ -23,3 +23,4 @@ Started: 2026-05-09
 | 04:50 | B5   | green  | NIS2/DORA enrichment to 100% coverage     | 6441c1a |
 | 05:10 | D1   | green  | SARIF help.markdown + helpUri; tests +3 | 4d354f4 |
 | 05:25 | D2   | green  | SARIF stable fingerprints (auditex/v1); tests +3 | 13e05e2 |
+| 05:40 | D3   | green  | OSCAL reviewed-controls fix (real bug); tests +3 | f484008 |
