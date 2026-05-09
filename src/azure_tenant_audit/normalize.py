@@ -1488,16 +1488,20 @@ def build_normalized_snapshot(
             spf_present=bool((item.get("spf") or {}).get("present")),
             spf_all_qualifier=(item.get("spf") or {}).get("all_qualifier"),
             spf_mechanisms=(item.get("spf") or {}).get("mechanisms"),
+            spf_multiple_records=bool((item.get("spf") or {}).get("multiple_records")),
             dmarc_present=bool((item.get("dmarc") or {}).get("present")),
             dmarc_policy=(item.get("dmarc") or {}).get("policy"),
             dmarc_subdomain_policy=(item.get("dmarc") or {}).get("subdomain_policy"),
             dmarc_pct=(item.get("dmarc") or {}).get("pct"),
+            dmarc_pct_partial=bool((item.get("dmarc") or {}).get("pct_partial")),
             dmarc_aggregate_addresses=(item.get("dmarc") or {}).get("aggregate_addresses"),
+            dmarc_aggregate_invalid=(item.get("dmarc") or {}).get("aggregate_addresses_invalid") or [],
             dkim_selectors_present=(item.get("dkim") or {}).get("selectors_present") or [],
             dkim_selectors_missing=(item.get("dkim") or {}).get("selectors_missing") or [],
             mta_sts_dns_present=bool((item.get("mta_sts") or {}).get("dns_present")),
             mta_sts_id=(item.get("mta_sts") or {}).get("id"),
             bimi_present=bool((item.get("bimi") or {}).get("present")),
+            bimi_logo_https=(item.get("bimi") or {}).get("logo_url_is_https"),
         )
         for item in _values(collector_payloads.get("dns_posture", {}), "domainPosture")
         if item.get("domain")

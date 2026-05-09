@@ -178,5 +178,41 @@
     "references": ["RFC 6376", "Microsoft 365 DKIM guidance"],
     "control_ids": ["AUDITEX-DNS-DKIM-MISSING"],
     "expected_value": "At least one DKIM selector resolves with a valid public key."
+  },
+  "dns_posture.spf_multiple_records": {
+    "risk_rating": "high",
+    "description": "More than one SPF (v=spf1) TXT record is published at the domain apex.",
+    "impact": "RFC 7208 §4.5 mandates exactly one SPF record; multiple v=spf1 records cause receivers to return PermError, leaving the domain effectively unauthenticated.",
+    "remediation": "Merge SPF policy into a single record using nested 'include:' mechanisms and remove the redundant TXT entries.",
+    "references": ["RFC 7208 §4.5"],
+    "control_ids": ["AUDITEX-DNS-SPF-MULTIPLE"],
+    "expected_value": "Exactly one v=spf1 record at the domain apex."
+  },
+  "dns_posture.dmarc_pct_partial": {
+    "risk_rating": "medium",
+    "description": "DMARC policy is enforcing (p=quarantine or p=reject) but only on a fraction of mail (pct<100).",
+    "impact": "Partial enforcement leaves a documented bypass: receivers apply the enforcing policy probabilistically, so spoofed mail can still be delivered to users.",
+    "remediation": "Once SPF/DKIM coverage is healthy, raise pct to 100 (or omit pct, which defaults to 100) so the policy applies to every message.",
+    "references": ["RFC 7489 §6.3"],
+    "control_ids": ["AUDITEX-DNS-DMARC-PCT-PARTIAL"],
+    "expected_value": "DMARC pct=100 for enforcing policies."
+  },
+  "dns_posture.dmarc_rua_invalid": {
+    "risk_rating": "low",
+    "description": "DMARC rua= aggregate-report URI list contains entries that are neither well-formed mailto: addresses nor https:// URLs.",
+    "impact": "Invalid URIs prevent DMARC report delivery; the operator loses visibility into spoofing attempts and SPF/DKIM alignment failures.",
+    "remediation": "Replace malformed entries with mailto:<address>@<domain> or https://<endpoint>; remove bare addresses missing the mailto: scheme and HTTP (clear-text) endpoints.",
+    "references": ["RFC 7489 §6.4"],
+    "control_ids": ["AUDITEX-DNS-DMARC-RUA-INVALID"],
+    "expected_value": "All rua= URIs use mailto: with a valid address or https://."
+  },
+  "dns_posture.bimi_logo_insecure": {
+    "risk_rating": "low",
+    "description": "BIMI l= logo URL is not served over HTTPS.",
+    "impact": "BIMI consumers (e.g., Gmail, Yahoo) require HTTPS-served SVG logos; HTTP delivery prevents brand-indicator rendering and exposes logo fetches to tampering.",
+    "remediation": "Host the BIMI SVG over HTTPS and update the l= tag to the https:// URL.",
+    "references": ["BIMI draft (Brand Indicators for Message Identification)"],
+    "control_ids": ["AUDITEX-DNS-BIMI-LOGO-INSECURE"],
+    "expected_value": "BIMI l= URL uses the https:// scheme."
   }
 }

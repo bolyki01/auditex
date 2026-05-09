@@ -84,6 +84,42 @@
     "dora": ["Article 9(2)"],
     "mitre_attack": ["T1566"]
   },
+  "dns_posture.spf_multiple_records": {
+    "cis_m365_v3": ["4.4"],
+    "nist_800_53": ["SC-7", "SC-8", "SI-3"],
+    "iso_27001": ["A.5.14", "A.8.20"],
+    "soc2": ["CC6.6"],
+    "nis2": ["Article 21(2)(g)"],
+    "dora": ["Article 9(2)"],
+    "mitre_attack": ["T1566", "T1566.001"]
+  },
+  "dns_posture.dmarc_pct_partial": {
+    "cis_m365_v3": ["4.6"],
+    "nist_800_53": ["SC-7", "SC-8", "SI-3"],
+    "iso_27001": ["A.5.14", "A.8.20"],
+    "soc2": ["CC6.6"],
+    "nis2": ["Article 21(2)(g)"],
+    "dora": ["Article 9(2)"],
+    "mitre_attack": ["T1566", "T1566.001"]
+  },
+  "dns_posture.dmarc_rua_invalid": {
+    "cis_m365_v3": ["4.6"],
+    "nist_800_53": ["AU-6", "SI-4"],
+    "iso_27001": ["A.5.14", "A.8.16"],
+    "soc2": ["CC7.2"],
+    "nis2": ["Article 21(2)(g)"],
+    "dora": ["Article 9(2)"],
+    "mitre_attack": ["T1566"]
+  },
+  "dns_posture.bimi_logo_insecure": {
+    "cis_m365_v3": ["4.5"],
+    "nist_800_53": ["SC-8"],
+    "iso_27001": ["A.5.14", "A.8.20"],
+    "soc2": ["CC6.6"],
+    "nis2": ["Article 21(2)(g)"],
+    "dora": ["Article 9(2)"],
+    "mitre_attack": ["T1566"]
+  },
   "mailbox_forwarding.external_inbox_rule": {
     "cis_m365_v3": ["1.2.2", "6.2.1"],
     "nist_800_53": ["AC-4", "AC-20", "AU-12", "IR-4"],

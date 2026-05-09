@@ -878,6 +878,84 @@ def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, 
                     }
                 )
             )
+        if item.get("spf_multiple_records"):
+            findings.append(
+                _finalize_finding(
+                    {
+                        "id": f"dns_posture:{domain}:spf_multiple_records",
+                        "rule_id": "dns_posture.spf_multiple_records",
+                        "severity": "high",
+                        "category": "mail_flow",
+                        "title": "Multiple SPF records published",
+                        "status": "open",
+                        "collector": "dns_posture",
+                        "affected_objects": [domain],
+                        "evidence": item,
+                        "evidence_refs": evidence_refs,
+                        **_metadata_for("dns_posture.spf_multiple_records"),
+                    }
+                )
+            )
+        if item.get("dmarc_present") and item.get("dmarc_pct_partial"):
+            policy = str(item.get("dmarc_policy") or "").lower()
+            # ``p=none`` already captured by dmarc_monitor_only — only flag partial
+            # enforcement when the policy is meant to enforce.
+            if policy in {"quarantine", "reject"}:
+                findings.append(
+                    _finalize_finding(
+                        {
+                            "id": f"dns_posture:{domain}:dmarc_pct_partial",
+                            "rule_id": "dns_posture.dmarc_pct_partial",
+                            "severity": "medium",
+                            "category": "mail_flow",
+                            "title": "DMARC enforcement is partial (pct < 100)",
+                            "status": "open",
+                            "collector": "dns_posture",
+                            "affected_objects": [domain],
+                            "evidence": item,
+                            "evidence_refs": evidence_refs,
+                            "returned_value": item.get("dmarc_pct"),
+                            **_metadata_for("dns_posture.dmarc_pct_partial"),
+                        }
+                    )
+                )
+        if item.get("dmarc_aggregate_invalid"):
+            findings.append(
+                _finalize_finding(
+                    {
+                        "id": f"dns_posture:{domain}:dmarc_rua_invalid",
+                        "rule_id": "dns_posture.dmarc_rua_invalid",
+                        "severity": "low",
+                        "category": "mail_flow",
+                        "title": "DMARC rua= URI list contains invalid entries",
+                        "status": "open",
+                        "collector": "dns_posture",
+                        "affected_objects": [domain],
+                        "evidence": item,
+                        "evidence_refs": evidence_refs,
+                        "returned_value": item.get("dmarc_aggregate_invalid"),
+                        **_metadata_for("dns_posture.dmarc_rua_invalid"),
+                    }
+                )
+            )
+        if item.get("bimi_present") and item.get("bimi_logo_https") is False:
+            findings.append(
+                _finalize_finding(
+                    {
+                        "id": f"dns_posture:{domain}:bimi_logo_insecure",
+                        "rule_id": "dns_posture.bimi_logo_insecure",
+                        "severity": "low",
+                        "category": "mail_flow",
+                        "title": "BIMI logo URL is not served over HTTPS",
+                        "status": "open",
+                        "collector": "dns_posture",
+                        "affected_objects": [domain],
+                        "evidence": item,
+                        "evidence_refs": evidence_refs,
+                        **_metadata_for("dns_posture.bimi_logo_insecure"),
+                    }
+                )
+            )
 
     consent_policy_records = ((normalized_snapshot.get("consent_policy_objects") or {}).get("records") or [])
     for item in consent_policy_records:

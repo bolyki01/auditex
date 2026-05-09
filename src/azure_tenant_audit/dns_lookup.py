@@ -103,13 +103,17 @@ def parse_dmarc(record: str) -> dict[str, Any] | None:
         pct = None
     aggregate = _split_csv(tags.get("rua"))
     forensic = _split_csv(tags.get("ruf"))
+    aggregate_invalid = [uri for uri in aggregate if not _is_valid_dmarc_uri(uri)]
+    forensic_invalid = [uri for uri in forensic if not _is_valid_dmarc_uri(uri)]
     return {
         "version": "DMARC1",
         "policy": tags.get("p"),
         "subdomain_policy": tags.get("sp"),
         "pct": pct,
         "aggregate_addresses": aggregate,
+        "aggregate_addresses_invalid": aggregate_invalid,
         "forensic_addresses": forensic,
+        "forensic_addresses_invalid": forensic_invalid,
         "raw": record,
     }
 
@@ -131,12 +135,37 @@ def parse_bimi(record: str) -> dict[str, Any] | None:
     if "v=bimi1" not in text.lower():
         return None
     tags = _split_semicolon_tags(text)
+    logo_url = tags.get("l")
+    authority_url = tags.get("a")
     return {
         "version": "BIMI1",
-        "logo_url": tags.get("l"),
-        "authority_url": tags.get("a"),
+        "logo_url": logo_url,
+        "authority_url": authority_url,
+        "logo_url_is_https": _is_https_url(logo_url) if logo_url is not None else False,
+        "authority_url_is_https": _is_https_url(authority_url) if authority_url is not None else None,
         "raw": record,
     }
+
+
+def _is_valid_dmarc_uri(uri: str) -> bool:
+    """Permissive validator for DMARC ``rua=``/``ruf=`` URIs (RFC 7489 §6.4).
+
+    Accepts ``mailto:`` URIs with an ``@`` in the local-part/host, and ``https://`` URLs.
+    Rejects bare addresses (no ``mailto:`` scheme), ``http://`` (mixed-content / clear-text),
+    and obviously malformed mailto entries (no ``@``).
+    """
+    s = uri.strip()
+    if not s:
+        return False
+    if s.lower().startswith("mailto:"):
+        return "@" in s[len("mailto:") :]
+    if s.lower().startswith("https://"):
+        return True
+    return False
+
+
+def _is_https_url(url: str) -> bool:
+    return bool(url) and url.lower().startswith("https://")
 
 
 def _split_semicolon_tags(text: str) -> dict[str, str]:
@@ -199,14 +228,18 @@ def collect_domain_posture(
 
 
 def _summarize_spf(records: list[str]) -> dict[str, Any]:
-    parsed = next((parse_spf(rec) for rec in records if parse_spf(rec)), None)
-    if parsed is None:
+    parsed_records = [parsed for rec in records if (parsed := parse_spf(rec)) is not None]
+    if not parsed_records:
         return _absent("spf")
+    parsed = parsed_records[0]
     return {
         "present": True,
         "all_qualifier": parsed.get("all_qualifier"),
         "mechanisms": parsed.get("mechanisms"),
         "raw": parsed.get("raw"),
+        # RFC 7208 §4.5: multiple v=spf1 records yield PermError on the receiver side,
+        # which makes both records ineffective. Surface the violation so findings can fire.
+        "multiple_records": len(parsed_records) > 1,
     }
 
 
@@ -214,13 +247,18 @@ def _summarize_dmarc(records: list[str]) -> dict[str, Any]:
     parsed = next((parse_dmarc(rec) for rec in records if parse_dmarc(rec)), None)
     if parsed is None:
         return _absent("dmarc")
+    pct = parsed.get("pct")
+    pct_partial = isinstance(pct, int) and 0 <= pct < 100
     return {
         "present": True,
         "policy": parsed.get("policy"),
         "subdomain_policy": parsed.get("subdomain_policy"),
-        "pct": parsed.get("pct"),
+        "pct": pct,
+        "pct_partial": pct_partial,
         "aggregate_addresses": parsed.get("aggregate_addresses"),
+        "aggregate_addresses_invalid": parsed.get("aggregate_addresses_invalid") or [],
         "forensic_addresses": parsed.get("forensic_addresses"),
+        "forensic_addresses_invalid": parsed.get("forensic_addresses_invalid") or [],
         "raw": parsed.get("raw"),
     }
 
@@ -241,7 +279,9 @@ def _summarize_bimi(records: list[str]) -> dict[str, Any]:
     return {
         "present": True,
         "logo_url": parsed.get("logo_url"),
+        "logo_url_is_https": parsed.get("logo_url_is_https"),
         "authority_url": parsed.get("authority_url"),
+        "authority_url_is_https": parsed.get("authority_url_is_https"),
         "raw": parsed.get("raw"),
     }
 
