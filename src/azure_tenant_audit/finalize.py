@@ -39,6 +39,14 @@ def finalize_bundle_contract(
         }
     )
 
+    # Pre-register the artifacts finalize is about to create so the suppressed
+    # manifest write (and the evidence DB rebuild that reads it) sees the same
+    # artifacts list on the first finalize call as it does on a re-finalize of
+    # the same bundle. Without this the first call writes 22 artifacts and the
+    # second writes 25, breaking idempotent re-finalize.
+    for relative in ("index/evidence.sqlite", "ai_context.json", "validation.json"):
+        writer.record_artifact(writer.run_dir / relative)
+
     writer.write_bundle({**metadata, "_suppress_completion_log": True})
     evidence_db_path = build_run_evidence_index(writer.run_dir)
     writer.record_artifact(evidence_db_path)
@@ -70,6 +78,12 @@ def finalize_bundle_contract(
     final_metadata["contract_status"] = "valid" if validation.get("valid") else "invalid"
     final_metadata["contract_issue_count"] = validation.get("issue_count", 0)
     writer.write_bundle(final_metadata)
+
+    # Rebuild the evidence DB once the final manifest (with contract_status /
+    # contract_issue_count) is on disk so run_meta carries the final values.
+    # build_run_evidence_index is idempotent (DROP TABLE / CREATE TABLE on each
+    # call) so this second pass is safe and keeps re-finalise byte-stable.
+    build_run_evidence_index(writer.run_dir)
 
     return {
         "evidence_db_path": str(Path(evidence_db_path).relative_to(writer.run_dir)),

@@ -269,7 +269,9 @@ def _parse_iso_datetime(value: Any) -> "datetime | None":
         return None
 
 
-def _credential_expiry_state(end_date_time: Any) -> tuple[str | None, int | None]:
+def _credential_expiry_state(
+    end_date_time: Any, *, warning_days: int = _APP_CREDENTIAL_EXPIRY_WARNING_DAYS
+) -> tuple[str | None, int | None]:
     from datetime import datetime, timezone
 
     parsed = _parse_iso_datetime(end_date_time)
@@ -281,9 +283,89 @@ def _credential_expiry_state(end_date_time: Any) -> tuple[str | None, int | None
     days = int(delta.total_seconds() // 86400)
     if delta.total_seconds() < 0:
         return "expired", days
-    if days <= _APP_CREDENTIAL_EXPIRY_WARNING_DAYS:
+    if days <= warning_days:
         return "expiring", days
     return "ok", days
+
+
+def _earliest_state(
+    credentials: list[Any],
+    target_state: str,
+    *,
+    warning_days: int = _APP_CREDENTIAL_EXPIRY_WARNING_DAYS,
+) -> dict[str, Any] | None:
+    """Find the credential whose expiry-state matches ``target_state`` and has the
+    smallest days-remaining (most urgent / most expired)."""
+    chosen: dict[str, Any] | None = None
+    for credential in credentials:
+        if not isinstance(credential, dict):
+            continue
+        state, days = _credential_expiry_state(
+            credential.get("end_date_time"), warning_days=warning_days
+        )
+        if state != target_state:
+            continue
+        annotated = {
+            **credential,
+            "expiry_state": state,
+            "expiry_days_remaining": days,
+        }
+        if chosen is None:
+            chosen = annotated
+            continue
+        chosen_days = chosen.get("expiry_days_remaining")
+        if days is not None and chosen_days is not None and days < chosen_days:
+            chosen = annotated
+    return chosen
+
+
+def _first_long_validity_secret(credentials: list[Any]) -> dict[str, Any] | None:
+    """Detect a password credential whose total validity exceeds 2 years OR
+    is open-ended (missing ``end_date_time``)."""
+    for credential in credentials:
+        if not isinstance(credential, dict):
+            continue
+        end = _parse_iso_datetime(credential.get("end_date_time"))
+        start = _parse_iso_datetime(credential.get("start_date_time"))
+        if end is None:
+            return {**credential, "validity_days": None, "open_ended": True}
+        if start is None:
+            continue
+        validity_days = int((end - start).total_seconds() // 86400)
+        if validity_days > _SECRET_LONG_VALIDITY_DAYS:
+            return {**credential, "validity_days": validity_days, "open_ended": False}
+    return None
+
+
+def _is_credential_dormant(item: dict[str, Any]) -> bool:
+    """Return True iff the application has been silent for > 1 year and the collector
+    actually fetched signInActivity (signin_data_available=True). Without that flag,
+    we cannot distinguish 'never signed in' from 'we never asked' and stay silent
+    rather than flooding findings with false positives.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    if not item.get("signin_data_available"):
+        return False
+    last_signin = _parse_iso_datetime(item.get("last_signin_at"))
+    created = _parse_iso_datetime(item.get("created_date_time"))
+    if created is None:
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    one_year_ago = datetime.now(tz=timezone.utc) - timedelta(days=365)
+    if created > one_year_ago:
+        return False
+    if last_signin is None:
+        # Old app + collector tried + got null → dormant.
+        return True
+    if last_signin.tzinfo is None:
+        last_signin = last_signin.replace(tzinfo=timezone.utc)
+    return last_signin < one_year_ago
+
+
+_CERTIFICATE_EXPIRY_WARNING_DAYS = 30
+_SECRET_LONG_VALIDITY_DAYS = 730  # 2 years; Microsoft default cap is 24 months.
 
 
 def _build_app_credential_findings(item: dict[str, Any]) -> list[dict[str, Any]]:
@@ -298,25 +380,18 @@ def _build_app_credential_findings(item: dict[str, Any]) -> list[dict[str, Any]]
         "application_credential_objects", item, "app_credentials"
     )
 
-    earliest_expired: dict[str, Any] | None = None
-    earliest_expiring: dict[str, Any] | None = None
-    for credential in (item.get("password_credentials") or []) + (item.get("key_credentials") or []):
-        if not isinstance(credential, dict):
-            continue
-        state, days = _credential_expiry_state(credential.get("end_date_time"))
-        annotated = {
-            **credential,
-            "expiry_state": state,
-            "expiry_days_remaining": days,
-        }
-        if state == "expired":
-            if earliest_expired is None or (days is not None and days < (earliest_expired.get("expiry_days_remaining") or 0)):
-                earliest_expired = annotated
-        elif state == "expiring":
-            if earliest_expiring is None or (days is not None and days < (earliest_expiring.get("expiry_days_remaining") or 9999)):
-                earliest_expiring = annotated
+    earliest_secret_expired = _earliest_state(item.get("password_credentials") or [], "expired")
+    earliest_secret_expiring = _earliest_state(
+        item.get("password_credentials") or [], "expiring"
+    )
+    earliest_cert_expired = _earliest_state(item.get("key_credentials") or [], "expired")
+    earliest_cert_expiring = _earliest_state(
+        item.get("key_credentials") or [],
+        "expiring",
+        warning_days=_CERTIFICATE_EXPIRY_WARNING_DAYS,
+    )
 
-    if earliest_expired is not None:
+    if earliest_secret_expired is not None:
         findings.append(
             _finalize_finding(
                 {
@@ -324,18 +399,18 @@ def _build_app_credential_findings(item: dict[str, Any]) -> list[dict[str, Any]]
                     "rule_id": "app_credentials.secret_expired",
                     "severity": "critical",
                     "category": "application",
-                    "title": "Application credential is expired",
+                    "title": "Application secret is expired",
                     "status": "open",
                     "collector": "app_credentials",
                     "affected_objects": affected,
-                    "evidence": earliest_expired,
+                    "evidence": earliest_secret_expired,
                     "evidence_refs": evidence_refs,
-                    "returned_value": earliest_expired.get("expiry_days_remaining"),
+                    "returned_value": earliest_secret_expired.get("expiry_days_remaining"),
                     **_metadata_for("app_credentials.secret_expired"),
                 }
             )
         )
-    elif earliest_expiring is not None:
+    elif earliest_secret_expiring is not None:
         findings.append(
             _finalize_finding(
                 {
@@ -343,14 +418,96 @@ def _build_app_credential_findings(item: dict[str, Any]) -> list[dict[str, Any]]
                     "rule_id": "app_credentials.secret_expiring",
                     "severity": "high",
                     "category": "application",
-                    "title": "Application credential is expiring soon",
+                    "title": "Application secret is expiring soon",
                     "status": "open",
                     "collector": "app_credentials",
                     "affected_objects": affected,
-                    "evidence": earliest_expiring,
+                    "evidence": earliest_secret_expiring,
                     "evidence_refs": evidence_refs,
-                    "returned_value": earliest_expiring.get("expiry_days_remaining"),
+                    "returned_value": earliest_secret_expiring.get("expiry_days_remaining"),
                     **_metadata_for("app_credentials.secret_expiring"),
+                }
+            )
+        )
+
+    if earliest_cert_expired is not None:
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"app_credentials:{object_id}:certificate_expired",
+                    "rule_id": "app_credentials.certificate_expired",
+                    "severity": "high",
+                    "category": "application",
+                    "title": "Application certificate is expired",
+                    "status": "open",
+                    "collector": "app_credentials",
+                    "affected_objects": affected,
+                    "evidence": earliest_cert_expired,
+                    "evidence_refs": evidence_refs,
+                    "returned_value": earliest_cert_expired.get("expiry_days_remaining"),
+                    **_metadata_for("app_credentials.certificate_expired"),
+                }
+            )
+        )
+    elif earliest_cert_expiring is not None:
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"app_credentials:{object_id}:certificate_expiring",
+                    "rule_id": "app_credentials.certificate_expiring",
+                    "severity": "medium",
+                    "category": "application",
+                    "title": "Application certificate is expiring within 30 days",
+                    "status": "open",
+                    "collector": "app_credentials",
+                    "affected_objects": affected,
+                    "evidence": earliest_cert_expiring,
+                    "evidence_refs": evidence_refs,
+                    "returned_value": earliest_cert_expiring.get("expiry_days_remaining"),
+                    **_metadata_for("app_credentials.certificate_expiring"),
+                }
+            )
+        )
+
+    long_validity_secret = _first_long_validity_secret(item.get("password_credentials") or [])
+    if long_validity_secret is not None:
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"app_credentials:{object_id}:secret_long_validity",
+                    "rule_id": "app_credentials.secret_long_validity",
+                    "severity": "high",
+                    "category": "application",
+                    "title": "Application secret has long or open-ended validity",
+                    "status": "open",
+                    "collector": "app_credentials",
+                    "affected_objects": affected,
+                    "evidence": long_validity_secret,
+                    "evidence_refs": evidence_refs,
+                    "returned_value": long_validity_secret.get("validity_days"),
+                    **_metadata_for("app_credentials.secret_long_validity"),
+                }
+            )
+        )
+
+    if _is_credential_dormant(item):
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": f"app_credentials:{object_id}:credential_dormant",
+                    "rule_id": "app_credentials.credential_dormant",
+                    "severity": "low",
+                    "category": "application",
+                    "title": "Application has not signed in for over 365 days",
+                    "status": "open",
+                    "collector": "app_credentials",
+                    "affected_objects": affected,
+                    "evidence": {
+                        "created_date_time": item.get("created_date_time"),
+                        "last_signin_at": item.get("last_signin_at"),
+                    },
+                    "evidence_refs": evidence_refs,
+                    **_metadata_for("app_credentials.credential_dormant"),
                 }
             )
         )
@@ -465,6 +622,84 @@ def _build_cross_tenant_default_findings(item: dict[str, Any]) -> list[dict[str,
                     "evidence": item,
                     "evidence_refs": evidence_refs,
                     **_metadata_for("cross_tenant_access.default_b2b_collaboration_outbound_open"),
+                }
+            )
+        )
+
+    # Previously-unflagged combinations (A5):
+
+    if str(item.get("b2b_collaboration_inbound_access") or "").lower() == "allowed":
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": "cross_tenant_access:default:b2b_collaboration_inbound_open",
+                    "rule_id": "cross_tenant_access.default_b2b_collaboration_inbound_open",
+                    "severity": "high",
+                    "category": "external_access",
+                    "title": "Default B2B Collaboration inbound access is allowed for any external tenant",
+                    "status": "open",
+                    "collector": "cross_tenant_access",
+                    "affected_objects": ["default"],
+                    "evidence": item,
+                    "evidence_refs": evidence_refs,
+                    **_metadata_for("cross_tenant_access.default_b2b_collaboration_inbound_open"),
+                }
+            )
+        )
+
+    if str(item.get("b2b_direct_connect_outbound_access") or "").lower() == "allowed":
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": "cross_tenant_access:default:b2b_direct_connect_outbound_open",
+                    "rule_id": "cross_tenant_access.default_b2b_direct_connect_outbound_open",
+                    "severity": "medium",
+                    "category": "external_access",
+                    "title": "Default B2B Direct Connect outbound access is allowed without partner scoping",
+                    "status": "open",
+                    "collector": "cross_tenant_access",
+                    "affected_objects": ["default"],
+                    "evidence": item,
+                    "evidence_refs": evidence_refs,
+                    **_metadata_for("cross_tenant_access.default_b2b_direct_connect_outbound_open"),
+                }
+            )
+        )
+
+    if item.get("automatic_user_consent_inbound_allowed"):
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": "cross_tenant_access:default:auto_user_consent_inbound_enabled",
+                    "rule_id": "cross_tenant_access.auto_user_consent_inbound_enabled",
+                    "severity": "medium",
+                    "category": "external_access",
+                    "title": "Automatic user consent is enabled for inbound external collaborations",
+                    "status": "open",
+                    "collector": "cross_tenant_access",
+                    "affected_objects": ["default"],
+                    "evidence": item,
+                    "evidence_refs": evidence_refs,
+                    **_metadata_for("cross_tenant_access.auto_user_consent_inbound_enabled"),
+                }
+            )
+        )
+
+    if item.get("automatic_user_consent_outbound_allowed"):
+        findings.append(
+            _finalize_finding(
+                {
+                    "id": "cross_tenant_access:default:auto_user_consent_outbound_enabled",
+                    "rule_id": "cross_tenant_access.auto_user_consent_outbound_enabled",
+                    "severity": "low",
+                    "category": "external_access",
+                    "title": "Automatic user consent is enabled for outbound collaborations",
+                    "status": "open",
+                    "collector": "cross_tenant_access",
+                    "affected_objects": ["default"],
+                    "evidence": item,
+                    "evidence_refs": evidence_refs,
+                    **_metadata_for("cross_tenant_access.auto_user_consent_outbound_enabled"),
                 }
             )
         )
@@ -717,6 +952,7 @@ def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, 
             _finalize_finding(
                 {
                 "id": f"service_health:{item.get('id')}:active_service_issue",
+                "rule_id": "service_health.active_service_issue",
                 "severity": "medium",
                 "category": "service",
                 "title": "Active Microsoft 365 service issue",
@@ -725,6 +961,7 @@ def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, 
                 "affected_objects": [item.get("service") or item.get("title") or item.get("id")],
                 "evidence": item,
                 "evidence_refs": _normalized_evidence_refs("service_health_objects", item, "service_health"),
+                **_metadata_for("service_health.active_service_issue"),
             }
             )
         )
@@ -740,6 +977,7 @@ def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, 
             _finalize_finding(
                 {
                 "id": f"external_identity:{item.get('id')}:broad_guest_invite_policy",
+                "rule_id": "external_identity.broad_guest_invite_policy",
                 "severity": "medium",
                 "category": "external_access",
                 "title": "Broad guest invitation policy is enabled",
@@ -748,6 +986,7 @@ def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, 
                 "affected_objects": [item.get("id")],
                 "evidence": item,
                 "evidence_refs": _normalized_evidence_refs("external_identity_objects", item, "external_identity"),
+                **_metadata_for("external_identity.broad_guest_invite_policy"),
             }
             )
         )
@@ -878,6 +1117,84 @@ def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, 
                     }
                 )
             )
+        if item.get("spf_multiple_records"):
+            findings.append(
+                _finalize_finding(
+                    {
+                        "id": f"dns_posture:{domain}:spf_multiple_records",
+                        "rule_id": "dns_posture.spf_multiple_records",
+                        "severity": "high",
+                        "category": "mail_flow",
+                        "title": "Multiple SPF records published",
+                        "status": "open",
+                        "collector": "dns_posture",
+                        "affected_objects": [domain],
+                        "evidence": item,
+                        "evidence_refs": evidence_refs,
+                        **_metadata_for("dns_posture.spf_multiple_records"),
+                    }
+                )
+            )
+        if item.get("dmarc_present") and item.get("dmarc_pct_partial"):
+            policy = str(item.get("dmarc_policy") or "").lower()
+            # ``p=none`` already captured by dmarc_monitor_only — only flag partial
+            # enforcement when the policy is meant to enforce.
+            if policy in {"quarantine", "reject"}:
+                findings.append(
+                    _finalize_finding(
+                        {
+                            "id": f"dns_posture:{domain}:dmarc_pct_partial",
+                            "rule_id": "dns_posture.dmarc_pct_partial",
+                            "severity": "medium",
+                            "category": "mail_flow",
+                            "title": "DMARC enforcement is partial (pct < 100)",
+                            "status": "open",
+                            "collector": "dns_posture",
+                            "affected_objects": [domain],
+                            "evidence": item,
+                            "evidence_refs": evidence_refs,
+                            "returned_value": item.get("dmarc_pct"),
+                            **_metadata_for("dns_posture.dmarc_pct_partial"),
+                        }
+                    )
+                )
+        if item.get("dmarc_aggregate_invalid"):
+            findings.append(
+                _finalize_finding(
+                    {
+                        "id": f"dns_posture:{domain}:dmarc_rua_invalid",
+                        "rule_id": "dns_posture.dmarc_rua_invalid",
+                        "severity": "low",
+                        "category": "mail_flow",
+                        "title": "DMARC rua= URI list contains invalid entries",
+                        "status": "open",
+                        "collector": "dns_posture",
+                        "affected_objects": [domain],
+                        "evidence": item,
+                        "evidence_refs": evidence_refs,
+                        "returned_value": item.get("dmarc_aggregate_invalid"),
+                        **_metadata_for("dns_posture.dmarc_rua_invalid"),
+                    }
+                )
+            )
+        if item.get("bimi_present") and item.get("bimi_logo_https") is False:
+            findings.append(
+                _finalize_finding(
+                    {
+                        "id": f"dns_posture:{domain}:bimi_logo_insecure",
+                        "rule_id": "dns_posture.bimi_logo_insecure",
+                        "severity": "low",
+                        "category": "mail_flow",
+                        "title": "BIMI logo URL is not served over HTTPS",
+                        "status": "open",
+                        "collector": "dns_posture",
+                        "affected_objects": [domain],
+                        "evidence": item,
+                        "evidence_refs": evidence_refs,
+                        **_metadata_for("dns_posture.bimi_logo_insecure"),
+                    }
+                )
+            )
 
     consent_policy_records = ((normalized_snapshot.get("consent_policy_objects") or {}).get("records") or [])
     for item in consent_policy_records:
@@ -889,6 +1206,7 @@ def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, 
             _finalize_finding(
                 {
                 "id": f"consent_policy:{item.get('id')}:admin_consent_workflow_disabled",
+                "rule_id": "consent_policy.admin_consent_workflow_disabled",
                 "severity": "medium",
                 "category": "application",
                 "title": "Admin consent request workflow is disabled",
@@ -897,6 +1215,7 @@ def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, 
                 "affected_objects": [item.get("id")],
                 "evidence": item,
                 "evidence_refs": _normalized_evidence_refs("consent_policy_objects", item, "consent_policy"),
+                **_metadata_for("consent_policy.admin_consent_workflow_disabled"),
             }
             )
         )
@@ -988,51 +1307,93 @@ def build_findings(
     waiver_file: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
+
+    # Group diagnostics by their would-be finding ID so collectors that probe
+    # N sub-resources (e.g. sharepoint_access enumerating site permissions
+    # across N sites) emit ONE aggregated finding instead of N duplicates.
+    # Live audit on 2026-05-09 surfaced 5 ``sharepoint_access:sitePermissions``
+    # findings collapsing to a single id and tripping the C3 duplicate-id
+    # validator.
+    diagnostic_groups: dict[str, list[dict[str, Any]]] = {}
+    diagnostic_order: list[str] = []
     for item in diagnostics:
         collector = str(item.get("collector") or "unknown")
         target = item.get("item") or item.get("endpoint") or collector
-        error_class = str(item.get("error_class")) if item.get("error_class") else None
+        finding_id = f"{collector}:{target}"
+        if finding_id not in diagnostic_groups:
+            diagnostic_order.append(finding_id)
+            diagnostic_groups[finding_id] = []
+        diagnostic_groups[finding_id].append(item)
+
+    for finding_id in diagnostic_order:
+        group = diagnostic_groups[finding_id]
+        primary = group[0]
+        collector = str(primary.get("collector") or "unknown")
+        target = primary.get("item") or primary.get("endpoint") or collector
+        error_class = (
+            str(primary.get("error_class")) if primary.get("error_class") else None
+        )
         rule_id = _rule_id_for(error_class)
-        evidence_refs = item.get("evidence_refs")
-        if not isinstance(evidence_refs, list):
+        # Collect distinct endpoints across the group; surface them as
+        # affected_objects so the report shows what was probed.
+        endpoints = []
+        seen_endpoints: set[str] = set()
+        for entry in group:
+            endpoint = entry.get("endpoint")
+            if isinstance(endpoint, str) and endpoint and endpoint not in seen_endpoints:
+                seen_endpoints.add(endpoint)
+                endpoints.append(endpoint)
+        affected_objects: list[str] = []
+        if endpoints:
+            affected_objects = endpoints
+        elif target:
+            affected_objects = [str(target)]
+
+        evidence_refs: list[dict[str, Any]] = []
+        for entry in group:
+            entry_refs = entry.get("evidence_refs")
+            if isinstance(entry_refs, list):
+                evidence_refs.extend(dict(ref) for ref in entry_refs if isinstance(ref, dict))
+        if not evidence_refs:
             evidence_refs = [
                 _evidence_ref(
                     artifact_path=f"raw/{collector}.json",
                     artifact_kind="raw_json",
                     collector=collector,
                     record_key=f"{collector}:{target}",
-                    source_name=str(item.get("item") or target),
-                    json_pointer=f"/{item.get('item') or ''}" if item.get("item") else None,
-                    endpoint=str(item.get("endpoint")) if item.get("endpoint") else None,
-                    response_status=str(item.get("status")) if item.get("status") else None,
+                    source_name=str(primary.get("item") or target),
+                    json_pointer=f"/{primary.get('item') or ''}" if primary.get("item") else None,
+                    endpoint=str(primary.get("endpoint")) if primary.get("endpoint") else None,
+                    response_status=str(primary.get("status")) if primary.get("status") else None,
                     query_params={
-                        key: item.get(key)
+                        key: primary.get(key)
                         for key in ("top", "page", "result_limit")
-                        if item.get(key) is not None
+                        if primary.get(key) is not None
                     }
                     or None,
                 )
             ]
-        findings.append(
-            _finalize_finding(
-                {
-                "id": f"{collector}:{target}",
-                "rule_id": rule_id,
-                "severity": _severity_for(error_class, str(item.get("status") or "")),
-                "category": _category_for(error_class),
-                "title": f"{collector} collector issue",
-                "status": "open",
-                "collector": collector,
-                "affected_objects": [str(target)] if target else [],
-                "error_class": error_class,
-                "error": item.get("error"),
-                "returned_value": item.get("error"),
-                "recommendations": item.get("recommendations", {}),
-                "evidence_refs": evidence_refs,
-                **_metadata_for(rule_id),
-            }
-            )
-        )
+        body: dict[str, Any] = {
+            "id": finding_id,
+            "rule_id": rule_id,
+            "severity": _severity_for(error_class, str(primary.get("status") or "")),
+            "category": _category_for(error_class),
+            "title": f"{collector} collector issue",
+            "status": "open",
+            "collector": collector,
+            "affected_objects": affected_objects,
+            "error_class": error_class,
+            "error": primary.get("error"),
+            "returned_value": primary.get("error"),
+            "recommendations": primary.get("recommendations", {}),
+            "evidence_refs": evidence_refs,
+            **_metadata_for(rule_id),
+        }
+        if len(group) > 1:
+            # Transparency for the report: how many distinct probes failed
+            # the same way? Operators would otherwise lose this signal.
+            body["aggregated_count"] = len(group)
+        findings.append(_finalize_finding(body))
     if normalized_snapshot:
         findings.extend(_normalized_findings(normalized_snapshot))
     waiver_rows = load_waivers(Path(waiver_file)) if waiver_file else []

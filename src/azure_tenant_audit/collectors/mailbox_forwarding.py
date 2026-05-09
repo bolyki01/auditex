@@ -295,8 +295,11 @@ def _classify_message_rule(
         for entry in actions.get(action_key, []) or []:
             if not isinstance(entry, dict):
                 continue
-            email = (entry.get("emailAddress") or {}).get("address")
-            if isinstance(email, str) and email:
+            email = _extract_smtp((entry.get("emailAddress") or {}).get("address"))
+            # Fall back to ``name`` if Graph stuffed the angle-bracket form there.
+            if not email:
+                email = _extract_smtp((entry.get("emailAddress") or {}).get("name"))
+            if email:
                 forwards_to.append(email)
 
     external_recipients = [
@@ -344,6 +347,35 @@ def _is_accepted_address(address: str, accepted: set[str]) -> bool:
         return False
     domain = address.rsplit("@", 1)[-1].lower()
     return domain in accepted
+
+
+def _extract_smtp(raw: Any) -> str:
+    """Best-effort extraction of an SMTP address from a Graph emailAddress payload.
+
+    Tolerates:
+    - ``"Alice" <alice@example.com>`` display-name form
+    - bare SMTP with surrounding whitespace
+    - mixed case (lowercased on return so accepted-domain comparison is stable)
+    - ``None`` and non-string inputs
+
+    Returns an empty string when no SMTP-like substring is found.
+    """
+    if not isinstance(raw, str):
+        return ""
+    text = raw.strip()
+    if not text:
+        return ""
+    if "<" in text and ">" in text:
+        start = text.rfind("<")
+        end = text.rfind(">")
+        if start < end:
+            text = text[start + 1 : end].strip()
+    # Strip a possible "mailto:" scheme before validating.
+    if text.lower().startswith("mailto:"):
+        text = text[len("mailto:") :].strip()
+    if "@" not in text:
+        return ""
+    return text.lower()
 
 
 def _is_broad_filter(conditions: dict[str, Any]) -> bool:

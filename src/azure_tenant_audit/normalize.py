@@ -1209,6 +1209,30 @@ def build_normalized_snapshot(
                     status=item.get("status"),
                 )
             )
+    # Microsoft 365 reports are anonymized by default — when a tenant has
+    # ``ConcealedInfo=true`` (the secure-by-default setting), every row's
+    # Site Id / Owner Principal Name / User Principal Name comes back as
+    # the all-zeros placeholder UUID, collapsing all rows to one
+    # record_key. Live audit on 2026-05-09 surfaced this as a
+    # ``duplicate_record_key`` violation in C3. Detect the placeholder and
+    # synthesize a stable per-row key from source + refresh-date + index.
+    _USAGE_ANONYMIZED_PLACEHOLDERS = {
+        "00000000-0000-0000-0000-000000000000",
+        "00000000-0000-0000-0000-000000000000@",
+        "anonymous",
+        "",
+    }
+
+    def _usage_object_id(item: dict[str, Any], source_name: str, idx: int) -> str:
+        raw = item.get("Site Id") or item.get("Owner Principal Name") or item.get("User Principal Name") or ""
+        text = str(raw).strip()
+        if text and text.lower() not in _USAGE_ANONYMIZED_PLACEHOLDERS:
+            return text
+        refresh_date = str(item.get("Report Refresh Date") or "").strip()
+        if refresh_date:
+            return f"anonymized:{source_name}:{refresh_date}:{idx}"
+        return f"anonymized:{source_name}:{idx}"
+
     usage_report_objects: list[dict[str, Any]] = []
     for source_name in (
         "office365ActiveUserCounts",
@@ -1217,7 +1241,7 @@ def build_normalized_snapshot(
         "mailboxUsageDetail",
     ):
         for idx, item in enumerate(_values(collector_payloads.get("reports_usage", {}), source_name), start=1):
-            object_id = str(item.get("Site Id") or item.get("Owner Principal Name") or item.get("User Principal Name") or f"{source_name}:{idx}")
+            object_id = _usage_object_id(item, source_name, idx)
             usage_report_objects.append(
                 _record(
                     "usage_report_object",
@@ -1380,6 +1404,8 @@ def build_normalized_snapshot(
             inbound_trust_mfa_accepted=item.get("inbound_trust_mfa_accepted"),
             inbound_trust_compliant_device_accepted=item.get("inbound_trust_compliant_device_accepted"),
             inbound_trust_hybrid_aad_joined_accepted=item.get("inbound_trust_hybrid_aad_joined_accepted"),
+            automatic_user_consent_inbound_allowed=bool(item.get("automatic_user_consent_inbound_allowed")),
+            automatic_user_consent_outbound_allowed=bool(item.get("automatic_user_consent_outbound_allowed")),
         )
         for item in _values(collector_payloads.get("cross_tenant_access", {}), "defaultPolicy")
     ]
@@ -1442,6 +1468,7 @@ def build_normalized_snapshot(
             str(item.get("id")),
             display_name=item.get("display_name"),
             app_id=item.get("app_id"),
+            created_date_time=item.get("created_date_time"),
             sign_in_audience=item.get("sign_in_audience"),
             publisher_domain=item.get("publisher_domain"),
             password_credentials=item.get("password_credentials") or [],
@@ -1450,6 +1477,11 @@ def build_normalized_snapshot(
             owner_count=item.get("owner_count"),
             federated_credentials=item.get("federated_credentials") or [],
             required_resource_access=item.get("required_resource_access") or [],
+            # signInActivity is a beta Graph endpoint requiring AuditLog.Read.All; the
+            # collector populates these when available, otherwise the dormant-credential
+            # finding stays inert (signin_data_available=False).
+            last_signin_at=item.get("last_signin_at"),
+            signin_data_available=bool(item.get("signin_data_available")),
         )
         for item in _values(collector_payloads.get("app_credentials", {}), "applicationCredentials")
         if item.get("id")
@@ -1488,16 +1520,20 @@ def build_normalized_snapshot(
             spf_present=bool((item.get("spf") or {}).get("present")),
             spf_all_qualifier=(item.get("spf") or {}).get("all_qualifier"),
             spf_mechanisms=(item.get("spf") or {}).get("mechanisms"),
+            spf_multiple_records=bool((item.get("spf") or {}).get("multiple_records")),
             dmarc_present=bool((item.get("dmarc") or {}).get("present")),
             dmarc_policy=(item.get("dmarc") or {}).get("policy"),
             dmarc_subdomain_policy=(item.get("dmarc") or {}).get("subdomain_policy"),
             dmarc_pct=(item.get("dmarc") or {}).get("pct"),
+            dmarc_pct_partial=bool((item.get("dmarc") or {}).get("pct_partial")),
             dmarc_aggregate_addresses=(item.get("dmarc") or {}).get("aggregate_addresses"),
+            dmarc_aggregate_invalid=(item.get("dmarc") or {}).get("aggregate_addresses_invalid") or [],
             dkim_selectors_present=(item.get("dkim") or {}).get("selectors_present") or [],
             dkim_selectors_missing=(item.get("dkim") or {}).get("selectors_missing") or [],
             mta_sts_dns_present=bool((item.get("mta_sts") or {}).get("dns_present")),
             mta_sts_id=(item.get("mta_sts") or {}).get("id"),
             bimi_present=bool((item.get("bimi") or {}).get("present")),
+            bimi_logo_https=(item.get("bimi") or {}).get("logo_url_is_https"),
         )
         for item in _values(collector_payloads.get("dns_posture", {}), "domainPosture")
         if item.get("domain")
@@ -1550,6 +1586,126 @@ def build_normalized_snapshot(
         if item.get("id") or item.get("name")
     ]
 
+    # ----- Capability-gated collector sections (A7 normalize coverage) -----
+    # Each gated collector exposes a small structured payload when the underlying
+    # service is provisioned; flattening to records ensures the evidence DB indexes
+    # the data and downstream report-pack consumers can reference it. When the
+    # service is not provisioned the source list is empty and the section stays
+    # absent (records_by_section drops empty values via object_counts).
+
+    power_platform_environment_records = [
+        _record(
+            "power_platform_environment",
+            "power_platform.environments",
+            str(item.get("id") or item.get("name")),
+            display_name=item.get("display_name") or item.get("displayName"),
+            environment_sku=item.get("environment_sku") or item.get("environmentSku"),
+            is_default=bool(item.get("is_default") or item.get("isDefault")),
+            created_time=item.get("created_time") or item.get("createdTime"),
+        )
+        for item in _values(collector_payloads.get("power_platform", {}), "environments")
+        if item.get("id") or item.get("name")
+    ]
+    power_platform_dlp_policy_records = [
+        _record(
+            "power_platform_dlp_policy",
+            "power_platform.dlpPolicies",
+            str(item.get("id") or item.get("name") or item.get("display_name") or "policy"),
+            display_name=item.get("display_name"),
+            environment_type=item.get("environment_type"),
+            business_connector_count=item.get("business_connector_count"),
+            non_business_connector_count=item.get("non_business_connector_count"),
+            blocked_connector_count=item.get("blocked_connector_count"),
+        )
+        for item in _values(collector_payloads.get("power_platform", {}), "dlpPolicies")
+        if item.get("id") or item.get("name") or item.get("display_name")
+    ]
+    power_platform_tenant_setting_records = [
+        _record(
+            "power_platform_tenant_setting",
+            "power_platform.tenantSettings",
+            "tenant",
+            **{k: v for k, v in item.items() if isinstance(k, str)},
+        )
+        for item in _values(collector_payloads.get("power_platform", {}), "tenantSettings")
+    ]
+
+    sentinel_xdr_incident_records = [
+        _record(
+            "sentinel_xdr_incident",
+            "sentinel_xdr.xdrIncidents",
+            str(item.get("id") or item.get("incidentId") or ""),
+            display_name=item.get("displayName"),
+            severity=item.get("severity"),
+            status=item.get("status"),
+            classification=item.get("classification"),
+            created=item.get("createdDateTime"),
+        )
+        for item in _values(collector_payloads.get("sentinel_xdr", {}), "xdrIncidents")
+        if item.get("id") or item.get("incidentId")
+    ]
+    sentinel_xdr_alert_records = [
+        _record(
+            "sentinel_xdr_alert",
+            "sentinel_xdr.xdrAlerts",
+            str(item.get("id") or ""),
+            title=item.get("title"),
+            severity=item.get("severity"),
+            status=item.get("status"),
+            category=item.get("category"),
+            created=item.get("createdDateTime"),
+        )
+        for item in _values(collector_payloads.get("sentinel_xdr", {}), "xdrAlerts")
+        if item.get("id")
+    ]
+
+    defender_cloud_apps_profile_records = [
+        _record(
+            "defender_cloud_apps_profile",
+            "defender_cloud_apps.cloudAppSecurityProfiles",
+            str(item.get("id") or ""),
+            display_name=item.get("displayName"),
+            risk_score=item.get("riskScore"),
+            category=item.get("category"),
+        )
+        for item in _values(collector_payloads.get("defender_cloud_apps", {}), "cloudAppSecurityProfiles")
+        if item.get("id")
+    ]
+    defender_cloud_apps_consent_records = [
+        _record(
+            "defender_cloud_apps_consent_request",
+            "defender_cloud_apps.appConsentRequests",
+            str(item.get("id") or ""),
+            app_id=item.get("appId") or item.get("applicationId"),
+            status=item.get("status"),
+            created=item.get("createdDateTime"),
+        )
+        for item in _values(collector_payloads.get("defender_cloud_apps", {}), "appConsentRequests")
+        if item.get("id")
+    ]
+
+    copilot_admin_setting_records = [
+        _record(
+            "copilot_admin_setting",
+            "copilot_governance.copilotAdminSettings",
+            str(item.get("id") or "settings"),
+            **{k: v for k, v in item.items() if isinstance(k, str) and k != "id"},
+        )
+        for item in _values(collector_payloads.get("copilot_governance", {}), "copilotAdminSettings")
+    ]
+    copilot_usage_records = [
+        _record(
+            "copilot_usage_summary",
+            "copilot_governance.copilotUsageReports",
+            str(item.get("id") or item.get("reportPeriod") or "summary"),
+            report_period=item.get("reportPeriod"),
+            assigned_users=item.get("assignedUsers"),
+            active_users=item.get("activeUsers"),
+            created=item.get("reportRefreshDate"),
+        )
+        for item in _values(collector_payloads.get("copilot_governance", {}), "copilotUsageReports")
+    ]
+
     records_by_section = {
         "users": users,
         "groups": groups,
@@ -1594,6 +1750,17 @@ def build_normalized_snapshot(
         "ediscovery_searches": ediscovery_searches,
         "ediscovery_export_jobs": ediscovery_export_jobs,
         "ediscovery_review_sets": ediscovery_review_sets,
+        # Capability-gated sections (A7) — drop out via empty-section pruning
+        # below when the underlying tenant lacks the feature.
+        "power_platform_environment_objects": power_platform_environment_records,
+        "power_platform_dlp_policy_objects": power_platform_dlp_policy_records,
+        "power_platform_tenant_setting_objects": power_platform_tenant_setting_records,
+        "sentinel_xdr_incident_objects": sentinel_xdr_incident_records,
+        "sentinel_xdr_alert_objects": sentinel_xdr_alert_records,
+        "defender_cloud_apps_profile_objects": defender_cloud_apps_profile_records,
+        "defender_cloud_apps_consent_objects": defender_cloud_apps_consent_records,
+        "copilot_admin_setting_objects": copilot_admin_setting_records,
+        "copilot_usage_objects": copilot_usage_records,
     }
 
     conditional_access_graph_records, relationships, graph_summary, policy_findings = _build_conditional_access_graph(

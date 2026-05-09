@@ -103,13 +103,17 @@ def parse_dmarc(record: str) -> dict[str, Any] | None:
         pct = None
     aggregate = _split_csv(tags.get("rua"))
     forensic = _split_csv(tags.get("ruf"))
+    aggregate_invalid = [uri for uri in aggregate if not _is_valid_dmarc_uri(uri)]
+    forensic_invalid = [uri for uri in forensic if not _is_valid_dmarc_uri(uri)]
     return {
         "version": "DMARC1",
         "policy": tags.get("p"),
         "subdomain_policy": tags.get("sp"),
         "pct": pct,
         "aggregate_addresses": aggregate,
+        "aggregate_addresses_invalid": aggregate_invalid,
         "forensic_addresses": forensic,
+        "forensic_addresses_invalid": forensic_invalid,
         "raw": record,
     }
 
@@ -131,12 +135,37 @@ def parse_bimi(record: str) -> dict[str, Any] | None:
     if "v=bimi1" not in text.lower():
         return None
     tags = _split_semicolon_tags(text)
+    logo_url = tags.get("l")
+    authority_url = tags.get("a")
     return {
         "version": "BIMI1",
-        "logo_url": tags.get("l"),
-        "authority_url": tags.get("a"),
+        "logo_url": logo_url,
+        "authority_url": authority_url,
+        "logo_url_is_https": _is_https_url(logo_url) if logo_url is not None else False,
+        "authority_url_is_https": _is_https_url(authority_url) if authority_url is not None else None,
         "raw": record,
     }
+
+
+def _is_valid_dmarc_uri(uri: str) -> bool:
+    """Permissive validator for DMARC ``rua=``/``ruf=`` URIs (RFC 7489 §6.4).
+
+    Accepts ``mailto:`` URIs with an ``@`` in the local-part/host, and ``https://`` URLs.
+    Rejects bare addresses (no ``mailto:`` scheme), ``http://`` (mixed-content / clear-text),
+    and obviously malformed mailto entries (no ``@``).
+    """
+    s = uri.strip()
+    if not s:
+        return False
+    if s.lower().startswith("mailto:"):
+        return "@" in s[len("mailto:") :]
+    if s.lower().startswith("https://"):
+        return True
+    return False
+
+
+def _is_https_url(url: str) -> bool:
+    return bool(url) and url.lower().startswith("https://")
 
 
 def _split_semicolon_tags(text: str) -> dict[str, str]:
@@ -165,8 +194,20 @@ def collect_domain_posture(
     resolver: DnsResolver,
     *,
     dkim_selectors: Iterable[str] = ("selector1", "selector2"),
+    dkim_fallback_selectors: Iterable[str] = (),
 ) -> dict[str, Any]:
-    """Resolve and assess email-auth records for a single domain."""
+    """Resolve and assess email-auth records for a single domain.
+
+    The DKIM probe is tiered: primary ``dkim_selectors`` are queried first
+    (Microsoft 365 defaults ``selector1``/``selector2`` in the typical case),
+    and ``dkim_fallback_selectors`` are only queried when no primary selector
+    resolves. This avoids extra DoH traffic on tenants that are correctly
+    using the M365 defaults.
+    """
+    primary = tuple(dkim_selectors)
+    fallback = tuple(dkim_fallback_selectors)
+    all_probed = list(primary) + [s for s in fallback if s not in primary]
+
     posture: dict[str, Any] = {
         "domain": domain,
         "managed_by_microsoft": is_microsoft_managed_domain(domain),
@@ -178,14 +219,20 @@ def collect_domain_posture(
         mta_sts_records = resolver.query(f"_mta-sts.{domain}", "TXT")
         bimi_records = resolver.query(f"default._bimi.{domain}", "TXT")
         dkim_results: dict[str, dict[str, Any] | None] = {}
-        for selector in dkim_selectors:
-            dkim_records = resolver.query(f"{selector}._domainkey.{domain}", "TXT")
-            dkim_results[selector] = _summarize_dkim(dkim_records)
+        for selector in primary:
+            records = resolver.query(f"{selector}._domainkey.{domain}", "TXT")
+            dkim_results[selector] = _summarize_dkim(records)
+        if fallback and not any(dkim_results.values()):
+            for selector in fallback:
+                if selector in dkim_results:
+                    continue
+                records = resolver.query(f"{selector}._domainkey.{domain}", "TXT")
+                dkim_results[selector] = _summarize_dkim(records)
     except DohError as exc:
         posture["resolver_error"] = str(exc)
         posture["spf"] = _absent("spf")
         posture["dmarc"] = _absent("dmarc")
-        posture["dkim"] = {"selectors_present": [], "selectors_missing": list(dkim_selectors)}
+        posture["dkim"] = {"selectors_present": [], "selectors_missing": list(all_probed)}
         posture["mta_sts"] = {"dns_present": False}
         posture["bimi"] = _absent("bimi")
         return posture
@@ -199,14 +246,18 @@ def collect_domain_posture(
 
 
 def _summarize_spf(records: list[str]) -> dict[str, Any]:
-    parsed = next((parse_spf(rec) for rec in records if parse_spf(rec)), None)
-    if parsed is None:
+    parsed_records = [parsed for rec in records if (parsed := parse_spf(rec)) is not None]
+    if not parsed_records:
         return _absent("spf")
+    parsed = parsed_records[0]
     return {
         "present": True,
         "all_qualifier": parsed.get("all_qualifier"),
         "mechanisms": parsed.get("mechanisms"),
         "raw": parsed.get("raw"),
+        # RFC 7208 §4.5: multiple v=spf1 records yield PermError on the receiver side,
+        # which makes both records ineffective. Surface the violation so findings can fire.
+        "multiple_records": len(parsed_records) > 1,
     }
 
 
@@ -214,13 +265,18 @@ def _summarize_dmarc(records: list[str]) -> dict[str, Any]:
     parsed = next((parse_dmarc(rec) for rec in records if parse_dmarc(rec)), None)
     if parsed is None:
         return _absent("dmarc")
+    pct = parsed.get("pct")
+    pct_partial = isinstance(pct, int) and 0 <= pct < 100
     return {
         "present": True,
         "policy": parsed.get("policy"),
         "subdomain_policy": parsed.get("subdomain_policy"),
-        "pct": parsed.get("pct"),
+        "pct": pct,
+        "pct_partial": pct_partial,
         "aggregate_addresses": parsed.get("aggregate_addresses"),
+        "aggregate_addresses_invalid": parsed.get("aggregate_addresses_invalid") or [],
         "forensic_addresses": parsed.get("forensic_addresses"),
+        "forensic_addresses_invalid": parsed.get("forensic_addresses_invalid") or [],
         "raw": parsed.get("raw"),
     }
 
@@ -241,7 +297,9 @@ def _summarize_bimi(records: list[str]) -> dict[str, Any]:
     return {
         "present": True,
         "logo_url": parsed.get("logo_url"),
+        "logo_url_is_https": parsed.get("logo_url_is_https"),
         "authority_url": parsed.get("authority_url"),
+        "authority_url_is_https": parsed.get("authority_url_is_https"),
         "raw": parsed.get("raw"),
     }
 

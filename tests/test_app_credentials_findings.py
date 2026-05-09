@@ -181,3 +181,240 @@ def test_findings_flag_multi_tenant_audience() -> None:
     finding = next((f for f in findings if f["id"] == "app_credentials:app-1:multi_tenant_audience"), None)
     assert finding is not None
     assert finding["severity"] == "medium"
+
+
+# ----- A3: split secret/cert + long-validity + dormant -----
+
+
+def test_findings_flag_certificate_expired_distinct_from_secret() -> None:
+    snapshot = _snapshot_with_apps(
+        [
+            {
+                "id": "app-1",
+                "display_name": "TLS App",
+                "app_id": "1",
+                "sign_in_audience": "AzureADMyOrg",
+                "password_credentials": [],
+                "key_credentials": [{"key_id": "c1", "end_date_time": _iso(-30)}],
+                "redirect_uris": [],
+                "owner_count": 1,
+                "federated_credentials": [],
+            }
+        ]
+    )
+
+    findings = build_findings([], normalized_snapshot=snapshot)
+    cert_finding = next(
+        (f for f in findings if f["id"] == "app_credentials:app-1:certificate_expired"), None
+    )
+    secret_finding = next(
+        (f for f in findings if f["id"] == "app_credentials:app-1:secret_expired"), None
+    )
+    assert cert_finding is not None
+    assert cert_finding["severity"] == "high"
+    # Cert path must NOT bleed into the legacy secret_expired rule_id.
+    assert secret_finding is None
+
+
+def test_findings_flag_certificate_expiring_within_30_days_as_medium() -> None:
+    snapshot = _snapshot_with_apps(
+        [
+            {
+                "id": "app-1",
+                "display_name": "TLS App",
+                "app_id": "1",
+                "sign_in_audience": "AzureADMyOrg",
+                "password_credentials": [],
+                "key_credentials": [{"key_id": "c1", "end_date_time": _iso(20)}],
+                "redirect_uris": [],
+                "owner_count": 1,
+                "federated_credentials": [],
+            }
+        ]
+    )
+
+    findings = build_findings([], normalized_snapshot=snapshot)
+    finding = next(
+        (f for f in findings if f["id"] == "app_credentials:app-1:certificate_expiring"), None
+    )
+    assert finding is not None
+    assert finding["severity"] == "medium"
+
+
+def test_findings_skip_certificate_expiring_when_more_than_30_days_remaining() -> None:
+    """Cert expiring rule has its own 30-day threshold (tighter than secret default)."""
+    snapshot = _snapshot_with_apps(
+        [
+            {
+                "id": "app-1",
+                "display_name": "TLS App",
+                "app_id": "1",
+                "sign_in_audience": "AzureADMyOrg",
+                "password_credentials": [],
+                "key_credentials": [{"key_id": "c1", "end_date_time": _iso(120)}],
+                "redirect_uris": [],
+                "owner_count": 1,
+                "federated_credentials": [],
+            }
+        ]
+    )
+
+    findings = build_findings([], normalized_snapshot=snapshot)
+    flagged = [f for f in findings if "certificate_expiring" in f["id"]]
+    assert flagged == []
+
+
+def test_findings_flag_secret_long_validity_above_two_years() -> None:
+    snapshot = _snapshot_with_apps(
+        [
+            {
+                "id": "app-1",
+                "display_name": "Long App",
+                "app_id": "1",
+                "sign_in_audience": "AzureADMyOrg",
+                "password_credentials": [
+                    {"key_id": "k1", "start_date_time": _iso(-1), "end_date_time": _iso(800)}
+                ],
+                "key_credentials": [],
+                "redirect_uris": [],
+                "owner_count": 1,
+                "federated_credentials": [],
+            }
+        ]
+    )
+
+    findings = build_findings([], normalized_snapshot=snapshot)
+    finding = next(
+        (f for f in findings if f["id"] == "app_credentials:app-1:secret_long_validity"), None
+    )
+    assert finding is not None
+    assert finding["severity"] == "high"
+
+
+def test_findings_flag_secret_open_ended_validity() -> None:
+    """Secret with no end_date_time (open-ended) is flagged identically to >2y validity."""
+    snapshot = _snapshot_with_apps(
+        [
+            {
+                "id": "app-1",
+                "display_name": "Forever App",
+                "app_id": "1",
+                "sign_in_audience": "AzureADMyOrg",
+                "password_credentials": [{"key_id": "k1", "start_date_time": _iso(-1)}],
+                "key_credentials": [],
+                "redirect_uris": [],
+                "owner_count": 1,
+                "federated_credentials": [],
+            }
+        ]
+    )
+
+    findings = build_findings([], normalized_snapshot=snapshot)
+    finding = next(
+        (f for f in findings if f["id"] == "app_credentials:app-1:secret_long_validity"), None
+    )
+    assert finding is not None
+    assert finding["evidence"]["open_ended"] is True
+
+
+def test_findings_skip_secret_long_validity_under_two_years() -> None:
+    snapshot = _snapshot_with_apps(
+        [
+            {
+                "id": "app-1",
+                "display_name": "Reasonable App",
+                "app_id": "1",
+                "sign_in_audience": "AzureADMyOrg",
+                "password_credentials": [
+                    {"key_id": "k1", "start_date_time": _iso(-1), "end_date_time": _iso(180)}
+                ],
+                "key_credentials": [],
+                "redirect_uris": [],
+                "owner_count": 1,
+                "federated_credentials": [],
+            }
+        ]
+    )
+
+    findings = build_findings([], normalized_snapshot=snapshot)
+    flagged = [f for f in findings if "secret_long_validity" in f["id"]]
+    assert flagged == []
+
+
+def test_findings_flag_credential_dormant_when_signin_data_available_and_old() -> None:
+    snapshot = _snapshot_with_apps(
+        [
+            {
+                "id": "app-1",
+                "display_name": "Old Bot",
+                "app_id": "1",
+                "sign_in_audience": "AzureADMyOrg",
+                "created_date_time": _iso(-400),
+                "last_signin_at": None,
+                "signin_data_available": True,
+                "password_credentials": [{"key_id": "k1", "end_date_time": _iso(365)}],
+                "key_credentials": [],
+                "redirect_uris": [],
+                "owner_count": 1,
+                "federated_credentials": [],
+            }
+        ]
+    )
+
+    findings = build_findings([], normalized_snapshot=snapshot)
+    finding = next(
+        (f for f in findings if f["id"] == "app_credentials:app-1:credential_dormant"), None
+    )
+    assert finding is not None
+    assert finding["severity"] == "low"
+
+
+def test_findings_skip_credential_dormant_when_signin_data_unavailable() -> None:
+    """Without signInActivity coverage, the dormant rule must stay silent (no false flood)."""
+    snapshot = _snapshot_with_apps(
+        [
+            {
+                "id": "app-1",
+                "display_name": "Old Bot",
+                "app_id": "1",
+                "sign_in_audience": "AzureADMyOrg",
+                "created_date_time": _iso(-400),
+                "last_signin_at": None,
+                "signin_data_available": False,
+                "password_credentials": [{"key_id": "k1", "end_date_time": _iso(365)}],
+                "key_credentials": [],
+                "redirect_uris": [],
+                "owner_count": 1,
+                "federated_credentials": [],
+            }
+        ]
+    )
+
+    findings = build_findings([], normalized_snapshot=snapshot)
+    flagged = [f for f in findings if "credential_dormant" in f["id"]]
+    assert flagged == []
+
+
+def test_findings_skip_credential_dormant_for_recent_apps() -> None:
+    snapshot = _snapshot_with_apps(
+        [
+            {
+                "id": "app-1",
+                "display_name": "Recent Bot",
+                "app_id": "1",
+                "sign_in_audience": "AzureADMyOrg",
+                "created_date_time": _iso(-30),
+                "last_signin_at": None,
+                "signin_data_available": True,
+                "password_credentials": [{"key_id": "k1", "end_date_time": _iso(365)}],
+                "key_credentials": [],
+                "redirect_uris": [],
+                "owner_count": 1,
+                "federated_credentials": [],
+            }
+        ]
+    )
+
+    findings = build_findings([], normalized_snapshot=snapshot)
+    flagged = [f for f in findings if "credential_dormant" in f["id"]]
+    assert flagged == []

@@ -193,3 +193,204 @@ def test_collector_records_per_user_403_in_coverage() -> None:
         row["status"] == "failed" and row["error_class"] == "insufficient_permissions"
         for row in coverage
     )
+
+
+# ----- A4: forwarding-action coverage + casing + display-name + shared mailbox -----
+
+
+def test_collector_classifies_forward_as_attachment_to_external() -> None:
+    """``forwardAsAttachmentTo`` is the sneaky cousin — historically used to attach
+    sensitive mail as a forwarded attachment to bypass content filters."""
+    users = [
+        {"id": "u1", "userPrincipalName": "alice@contoso.com", "mail": "alice@contoso.com", "accountEnabled": True}
+    ]
+    domains = [{"id": "contoso.com", "isVerified": True, "isDefault": True}]
+    rules = {
+        "u1": [
+            {
+                "id": "rule-1",
+                "displayName": "Stash via attachment",
+                "isEnabled": True,
+                "actions": {
+                    "forwardAsAttachmentTo": [
+                        {"emailAddress": {"address": "exfil@evil.example"}}
+                    ]
+                },
+                "conditions": {},
+            }
+        ]
+    }
+    collector = MailboxForwardingCollector()
+    result = collector.run({"client": _FakeClient(users, domains, rules), "top": 100})
+
+    rule = result.payload["messageRules"]["value"][0]
+    assert rule["forwards_externally"] is True
+    assert rule["external_recipients"] == ["exfil@evil.example"]
+
+
+def test_collector_classifies_redirect_to_external() -> None:
+    users = [
+        {"id": "u1", "userPrincipalName": "alice@contoso.com", "mail": "alice@contoso.com", "accountEnabled": True}
+    ]
+    domains = [{"id": "contoso.com", "isVerified": True, "isDefault": True}]
+    rules = {
+        "u1": [
+            {
+                "id": "rule-1",
+                "displayName": "Redirect",
+                "isEnabled": True,
+                "actions": {
+                    "redirectTo": [
+                        {"emailAddress": {"address": "out@evil.example"}}
+                    ]
+                },
+                "conditions": {},
+            }
+        ]
+    }
+    collector = MailboxForwardingCollector()
+    result = collector.run({"client": _FakeClient(users, domains, rules), "top": 100})
+
+    rule = result.payload["messageRules"]["value"][0]
+    assert rule["forwards_externally"] is True
+    assert rule["external_recipients"] == ["out@evil.example"]
+
+
+def test_collector_internal_forwarding_tolerant_of_address_casing() -> None:
+    """``Alice@CONTOSO.COM`` is internal even though ``contoso.com`` is the verified domain."""
+    users = [
+        {"id": "u1", "userPrincipalName": "alice@contoso.com", "mail": "alice@contoso.com", "accountEnabled": True}
+    ]
+    domains = [{"id": "contoso.com", "isVerified": True, "isDefault": True}]
+    rules = {
+        "u1": [
+            {
+                "id": "rule-1",
+                "displayName": "Forward",
+                "isEnabled": True,
+                "actions": {
+                    "forwardTo": [
+                        {"emailAddress": {"address": "Bob@CONTOSO.COM"}}
+                    ]
+                },
+                "conditions": {},
+            }
+        ]
+    }
+    collector = MailboxForwardingCollector()
+    result = collector.run({"client": _FakeClient(users, domains, rules), "top": 100})
+
+    rule = result.payload["messageRules"]["value"][0]
+    assert rule["forwards_internally"] is True
+    assert rule["forwards_externally"] is False
+    assert rule["internal_recipients"] == ["bob@contoso.com"]
+
+
+def test_collector_extracts_address_from_display_name_brackets() -> None:
+    """Defensive: if Graph ever returns the ``"Alice" <alice@contoso.com>`` form, we
+    must still extract the SMTP and classify correctly."""
+    users = [
+        {"id": "u1", "userPrincipalName": "alice@contoso.com", "mail": "alice@contoso.com", "accountEnabled": True}
+    ]
+    domains = [{"id": "contoso.com", "isVerified": True, "isDefault": True}]
+    rules = {
+        "u1": [
+            {
+                "id": "rule-1",
+                "displayName": "Forward",
+                "isEnabled": True,
+                "actions": {
+                    "forwardTo": [
+                        {"emailAddress": {"address": '"Carol" <carol@contoso.com>'}}
+                    ]
+                },
+                "conditions": {},
+            }
+        ]
+    }
+    collector = MailboxForwardingCollector()
+    result = collector.run({"client": _FakeClient(users, domains, rules), "top": 100})
+
+    rule = result.payload["messageRules"]["value"][0]
+    assert rule["internal_recipients"] == ["carol@contoso.com"]
+
+
+def test_collector_classifies_mixed_internal_and_external_recipients() -> None:
+    users = [
+        {"id": "u1", "userPrincipalName": "alice@contoso.com", "mail": "alice@contoso.com", "accountEnabled": True}
+    ]
+    domains = [{"id": "contoso.com", "isVerified": True, "isDefault": True}]
+    rules = {
+        "u1": [
+            {
+                "id": "rule-1",
+                "displayName": "Forward to many",
+                "isEnabled": True,
+                "actions": {
+                    "forwardTo": [
+                        {"emailAddress": {"address": "bob@contoso.com"}},
+                        {"emailAddress": {"address": "exfil@evil.example"}},
+                    ]
+                },
+                "conditions": {},
+            }
+        ]
+    }
+    collector = MailboxForwardingCollector()
+    result = collector.run({"client": _FakeClient(users, domains, rules), "top": 100})
+
+    rule = result.payload["messageRules"]["value"][0]
+    assert rule["forwards_externally"] is True
+    assert rule["forwards_internally"] is True
+    assert rule["external_recipients"] == ["exfil@evil.example"]
+    assert rule["internal_recipients"] == ["bob@contoso.com"]
+
+
+def test_collector_processes_shared_mailbox_inbox_rules() -> None:
+    """Shared mailboxes (``accountEnabled=False``) still expose inbox rules to a
+    delegate; the collector must not skip them."""
+    users = [
+        {
+            "id": "u-shared",
+            "userPrincipalName": "support@contoso.com",
+            "mail": "support@contoso.com",
+            "accountEnabled": False,
+            "userType": "Member",
+        },
+    ]
+    domains = [{"id": "contoso.com", "isVerified": True, "isDefault": True}]
+    rules = {
+        "u-shared": [
+            {
+                "id": "rule-1",
+                "displayName": "Cover-up",
+                "isEnabled": True,
+                "actions": {
+                    "forwardTo": [
+                        {"emailAddress": {"address": "exfil@evil.example"}}
+                    ]
+                },
+                "conditions": {},
+            }
+        ]
+    }
+    collector = MailboxForwardingCollector()
+    result = collector.run({"client": _FakeClient(users, domains, rules), "top": 100})
+
+    rules_payload = result.payload["messageRules"]["value"]
+    assert len(rules_payload) == 1
+    assert rules_payload[0]["forwards_externally"] is True
+    assert rules_payload[0]["user_principal_name"] == "support@contoso.com"
+
+
+def test_extract_smtp_helper_normalises_inputs() -> None:
+    from azure_tenant_audit.collectors.mailbox_forwarding import _extract_smtp
+
+    assert _extract_smtp("alice@contoso.com") == "alice@contoso.com"
+    assert _extract_smtp("Alice@CONTOSO.com") == "alice@contoso.com"
+    assert _extract_smtp('"Alice" <alice@contoso.com>') == "alice@contoso.com"
+    assert _extract_smtp("  bob@contoso.com  ") == "bob@contoso.com"
+    assert _extract_smtp("mailto:carol@contoso.com") == "carol@contoso.com"
+    assert _extract_smtp("not-an-email") == ""
+    assert _extract_smtp(None) == ""
+    assert _extract_smtp("") == ""

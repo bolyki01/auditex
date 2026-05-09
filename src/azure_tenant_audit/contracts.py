@@ -45,6 +45,18 @@ _AI_SAFE_SENSITIVE_KEYS = re.compile(
     r"(access[_-]?token|refresh[_-]?token|client[_-]?secret|secret|password|credential|authorization|raw_claims)",
     re.IGNORECASE,
 )
+# Identifier patterns that contain a sensitive-key token but refer to legitimate
+# non-secret Microsoft 365 resources (``authorization_policy`` /
+# ``credential_method`` / etc.). Live audits of real tenants surfaced
+# ``authorization_policy`` and friends as false positives on 2026-05-09; the
+# allowlist neutralises them without weakening the underlying regex.
+_AI_SAFE_KEY_ALLOWLIST = re.compile(
+    r"^(authorization|credential)_"
+    r"(?:policy|policies|context|contexts|method|methods|metric|metrics|"
+    r"setting|settings|level|type|kind|state|status|class|admin|grant|grants|"
+    r"provider|providers|flow|flows)$",
+    re.IGNORECASE,
+)
 _AI_SAFE_SENSITIVE_VALUES = re.compile(r"(Bearer\s+[A-Za-z0-9._-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.)")
 _SENSITIVE_CONTRACT_ARTIFACTS = (
     "run-manifest.json",
@@ -52,6 +64,18 @@ _SENSITIVE_CONTRACT_ARTIFACTS = (
     "reports/report-pack.json",
     "normalized/auth_context.json",
 )
+# Canonical framework keys used by exporters / control-mappings. C3 fails the
+# bundle if a finding's framework_mappings drifts from this set, since SARIF/
+# OSCAL exporters depend on knowing the framework taxonomy at bundle-build
+# time.
+_KNOWN_FRAMEWORK_KEYS = frozenset(
+    {"cis_m365_v3", "nist_800_53", "iso_27001", "soc2", "nis2", "dora", "mitre_attack"}
+)
+# Provenance markers that are NOT in the audit collector REGISTRY but are
+# still legitimate ``collector`` values on findings — they identify
+# non-audit planes (response actions, etc.) that produce findings via a
+# different runtime path. Keep this list short and explicit.
+_KNOWN_NON_COLLECTOR_PROVENANCE = frozenset({"response"})
 
 
 def _read_json(path: Path, fallback: Any = None) -> Any:
@@ -131,6 +155,145 @@ def _validate_evidence_refs(run_dir: Path, findings: list[dict[str, Any]], issue
                 )
 
 
+def _record_key_for_check(record: Mapping[str, Any], section_name: str, index: int) -> str:
+    """Mirror of evidence_db._record_key for validation purposes — must stay in
+    sync so the contract layer flags the same collisions the evidence DB will hit.
+    """
+    for key in ("key", "id", "display_name", "name", "collector", "surface"):
+        value = record.get(key)
+        if value is not None and str(value).strip():
+            return f"{section_name}:{value}" if key != "key" else str(value)
+    return f"{section_name}:{index}"
+
+
+def _validate_record_key_uniqueness(run_dir: Path, issues: list[dict[str, Any]]) -> None:
+    normalized_dir = run_dir / "normalized"
+    if not normalized_dir.exists():
+        return
+    for path in sorted(normalized_dir.glob("*.json")):
+        payload = _read_json(path, fallback={})
+        if not isinstance(payload, Mapping):
+            continue
+        records = payload.get("records")
+        if not isinstance(records, list) or not records:
+            continue
+        section_name = str(payload.get("kind") or path.stem)
+        seen: dict[str, int] = {}
+        duplicates: list[dict[str, Any]] = []
+        for index, record in enumerate(records):
+            if not isinstance(record, Mapping):
+                continue
+            key = _record_key_for_check(record, section_name, index)
+            previous = seen.get(key)
+            if previous is None:
+                seen[key] = index
+                continue
+            duplicates.append({"record_key": key, "first": previous, "second": index})
+        if duplicates:
+            issues.append(
+                _issue(
+                    "duplicate_record_key",
+                    path=str(path.relative_to(run_dir)),
+                    details=duplicates[:25],
+                )
+            )
+
+
+def _validate_finding_collectors(
+    findings: list[dict[str, Any]], issues: list[dict[str, Any]]
+) -> None:
+    """Every finding's ``collector`` field must reference a known collector
+    from the registry; otherwise SARIF / OSCAL exporters and notify sinks
+    cannot resolve provenance."""
+    try:  # lazy import: contracts.py is imported earlier in the boot order
+        from .collectors import REGISTRY as _REGISTRY
+    except Exception:  # noqa: BLE001 — never let import failure crash validation
+        return
+    known = set(_REGISTRY.keys()) | set(_KNOWN_NON_COLLECTOR_PROVENANCE)
+    for finding in findings:
+        collector = finding.get("collector")
+        if not isinstance(collector, str) or not collector.strip():
+            # Already covered by other validators; don't double-flag here.
+            continue
+        if collector not in known:
+            issues.append(
+                _issue(
+                    "unknown_finding_collector",
+                    path="findings/findings.json",
+                    details={
+                        "finding_id": str(finding.get("id") or ""),
+                        "collector": collector,
+                    },
+                )
+            )
+
+
+def _validate_finding_framework_mappings(
+    findings: list[dict[str, Any]], issues: list[dict[str, Any]]
+) -> None:
+    """Each finding's ``framework_mappings`` must use canonical framework keys
+    and non-empty list-of-strings values. Drift breaks SARIF/OSCAL exporters
+    that depend on the framework taxonomy."""
+    for finding in findings:
+        mappings = finding.get("framework_mappings")
+        if mappings is None:
+            continue
+        finding_id = str(finding.get("id") or "")
+        if not isinstance(mappings, Mapping):
+            issues.append(
+                _issue(
+                    "invalid_framework_mapping_value",
+                    path="findings/findings.json",
+                    details={"finding_id": finding_id, "reason": "framework_mappings is not an object"},
+                )
+            )
+            continue
+        for framework, controls in mappings.items():
+            if framework not in _KNOWN_FRAMEWORK_KEYS:
+                issues.append(
+                    _issue(
+                        "unknown_framework_mapping_key",
+                        path="findings/findings.json",
+                        details={
+                            "finding_id": finding_id,
+                            "framework": framework,
+                            "known": sorted(_KNOWN_FRAMEWORK_KEYS),
+                        },
+                    )
+                )
+                continue
+            if not isinstance(controls, list) or not controls:
+                issues.append(
+                    _issue(
+                        "invalid_framework_mapping_value",
+                        path="findings/findings.json",
+                        details={
+                            "finding_id": finding_id,
+                            "framework": framework,
+                            "reason": "value is not a non-empty list",
+                        },
+                    )
+                )
+                continue
+            empty = [
+                index
+                for index, control in enumerate(controls)
+                if not isinstance(control, str) or not control.strip()
+            ]
+            if empty:
+                issues.append(
+                    _issue(
+                        "invalid_framework_mapping_value",
+                        path="findings/findings.json",
+                        details={
+                            "finding_id": finding_id,
+                            "framework": framework,
+                            "empty_or_non_string_indexes": empty[:25],
+                        },
+                    )
+                )
+
+
 def _validate_normalized_records(run_dir: Path, issues: list[dict[str, Any]]) -> None:
     normalized_dir = run_dir / "normalized"
     if not normalized_dir.exists():
@@ -171,7 +334,7 @@ def _walk_sensitive_ai_safe(value: Any, path: str, hits: list[dict[str, Any]]) -
         for key, item in value.items():
             key_text = str(key)
             current = f"{path}/{key_text}" if path else key_text
-            if _AI_SAFE_SENSITIVE_KEYS.search(key_text):
+            if _AI_SAFE_SENSITIVE_KEYS.search(key_text) and not _AI_SAFE_KEY_ALLOWLIST.match(key_text):
                 hits.append({"path": current, "reason": "sensitive_key"})
             _walk_sensitive_ai_safe(item, current, hits)
     elif isinstance(value, list):
@@ -242,6 +405,9 @@ def build_validation_report(
     loaded_findings = _load_findings(run_path, findings)
     _validate_evidence_refs(run_path, loaded_findings, issues)
     _validate_normalized_records(run_path, issues)
+    _validate_record_key_uniqueness(run_path, issues)
+    _validate_finding_collectors(loaded_findings, issues)
+    _validate_finding_framework_mappings(loaded_findings, issues)
     _validate_ai_safe(run_path, issues)
     _validate_sensitive_contract_artifacts(run_path, issues)
     _validate_evidence_db(run_path, issues)

@@ -4,10 +4,15 @@ from typing import Any
 
 import pytest
 
-from azure_tenant_audit.collectors.dns_posture import DnsPostureCollector
+from azure_tenant_audit.collectors.dns_posture import (
+    DEFAULT_DKIM_SELECTORS,
+    FALLBACK_DKIM_SELECTORS,
+    DnsPostureCollector,
+)
 from azure_tenant_audit.dns_lookup import (
     DohClient,
     DohError,
+    collect_domain_posture,
     parse_bimi,
     parse_dmarc,
     parse_mta_sts,
@@ -302,3 +307,116 @@ def test_dns_posture_collector_records_resolver_failures_per_domain() -> None:
     record = result.payload["domainPosture"]["value"][0]
     assert record["resolver_error"] is not None
     assert record["spf"]["present"] is False
+
+
+# ----- Tiered DKIM probe (A2) -----
+
+
+def test_dkim_default_selectors_hit_skips_fallback_probes() -> None:
+    """When M365 selectors resolve, the fallback list must NOT generate extra DNS queries."""
+    resolver = _DnsResolverStub(
+        {
+            ("contoso.com", "TXT"): ["v=spf1 -all"],
+            ("_dmarc.contoso.com", "TXT"): ["v=DMARC1; p=reject"],
+            ("_mta-sts.contoso.com", "TXT"): [],
+            ("default._bimi.contoso.com", "TXT"): [],
+            ("selector1._domainkey.contoso.com", "TXT"): ["v=DKIM1; k=rsa; p=AAAA"],
+            ("selector2._domainkey.contoso.com", "TXT"): ["v=DKIM1; k=rsa; p=BBBB"],
+        }
+    )
+
+    posture = collect_domain_posture(
+        "contoso.com",
+        resolver,
+        dkim_selectors=DEFAULT_DKIM_SELECTORS,
+        dkim_fallback_selectors=FALLBACK_DKIM_SELECTORS,
+    )
+
+    # Only the M365 DKIM selectors should appear in queries — none of the fallbacks.
+    queried_dkim = [
+        name for (name, _kind) in resolver.queries if name.endswith("._domainkey.contoso.com")
+    ]
+    assert queried_dkim == [
+        "selector1._domainkey.contoso.com",
+        "selector2._domainkey.contoso.com",
+    ]
+    assert posture["dkim"]["selectors_present"] == ["selector1", "selector2"]
+
+
+def test_dkim_default_selectors_miss_triggers_fallback_probes() -> None:
+    """When M365 selectors miss, every fallback selector must be probed exactly once."""
+    resolver = _DnsResolverStub(
+        {
+            ("contoso.com", "TXT"): [],
+            ("_dmarc.contoso.com", "TXT"): [],
+            ("_mta-sts.contoso.com", "TXT"): [],
+            ("default._bimi.contoso.com", "TXT"): [],
+            # All M365 + fallback selectors miss → returns empty per stub default.
+        }
+    )
+
+    posture = collect_domain_posture(
+        "contoso.com",
+        resolver,
+        dkim_selectors=DEFAULT_DKIM_SELECTORS,
+        dkim_fallback_selectors=FALLBACK_DKIM_SELECTORS,
+    )
+
+    queried_dkim_selectors = [
+        name.split("._domainkey.")[0]
+        for (name, _kind) in resolver.queries
+        if name.endswith("._domainkey.contoso.com")
+    ]
+    assert queried_dkim_selectors == [
+        *DEFAULT_DKIM_SELECTORS,
+        *FALLBACK_DKIM_SELECTORS,
+    ]
+    assert posture["dkim"]["selectors_present"] == []
+    # Missing list must enumerate every probed selector for downstream reporting.
+    assert set(posture["dkim"]["selectors_missing"]) == {
+        *DEFAULT_DKIM_SELECTORS,
+        *FALLBACK_DKIM_SELECTORS,
+    }
+
+
+def test_dkim_fallback_selector_can_resolve() -> None:
+    """A non-M365 selector (e.g. ``google``) resolving must be reported as present."""
+    resolver = _DnsResolverStub(
+        {
+            ("contoso.com", "TXT"): [],
+            ("_dmarc.contoso.com", "TXT"): [],
+            ("_mta-sts.contoso.com", "TXT"): [],
+            ("default._bimi.contoso.com", "TXT"): [],
+            ("google._domainkey.contoso.com", "TXT"): ["v=DKIM1; k=rsa; p=ZZZZ"],
+        }
+    )
+
+    posture = collect_domain_posture(
+        "contoso.com",
+        resolver,
+        dkim_selectors=DEFAULT_DKIM_SELECTORS,
+        dkim_fallback_selectors=FALLBACK_DKIM_SELECTORS,
+    )
+
+    assert posture["dkim"]["selectors_present"] == ["google"]
+    # selector_details must surface the resolved key for the auditor.
+    assert posture["dkim"]["selector_details"]["google"]["present"] is True
+
+
+def test_dns_posture_collector_uses_fallback_selectors_by_default() -> None:
+    """The collector defaults to FALLBACK_DKIM_SELECTORS when context omits the override."""
+    domains = [{"id": "naked.example", "isVerified": True, "isDefault": False, "authenticationType": "Managed"}]
+    resolver = _DnsResolverStub({})
+
+    collector = DnsPostureCollector()
+    result = collector.run({"client": _GraphClientStub(domains), "top": 500, "dns_resolver": resolver})
+
+    queried_dkim = [
+        name.split("._domainkey.")[0]
+        for (name, _kind) in resolver.queries
+        if "._domainkey.naked.example" in name
+    ]
+    # Both primary + fallback should have been probed exactly once each.
+    assert queried_dkim == [*DEFAULT_DKIM_SELECTORS, *FALLBACK_DKIM_SELECTORS]
+    record = result.payload["domainPosture"]["value"][0]
+    assert record["dkim"]["selectors_present"] == []

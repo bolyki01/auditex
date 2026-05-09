@@ -147,6 +147,7 @@ def _access_type(section: dict[str, Any] | None, key: str) -> Any:
 
 def _normalize_default_policy(payload: dict[str, Any]) -> dict[str, Any]:
     inbound_trust = payload.get("inboundTrust") or {}
+    auto_consent = payload.get("automaticUserConsentSettings") or {}
     return {
         "id": "default",
         "is_service_default": bool(payload.get("isServiceDefault")),
@@ -157,6 +158,8 @@ def _normalize_default_policy(payload: dict[str, Any]) -> dict[str, Any]:
         "inbound_trust_mfa_accepted": bool(inbound_trust.get("isMfaAccepted")),
         "inbound_trust_compliant_device_accepted": bool(inbound_trust.get("isCompliantDeviceAccepted")),
         "inbound_trust_hybrid_aad_joined_accepted": bool(inbound_trust.get("isHybridAzureADJoinedDeviceAccepted")),
+        "automatic_user_consent_inbound_allowed": bool(auto_consent.get("inboundAllowed")),
+        "automatic_user_consent_outbound_allowed": bool(auto_consent.get("outboundAllowed")),
     }
 
 

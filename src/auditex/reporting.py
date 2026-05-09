@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import html
 import json
 from collections.abc import Iterable, Mapping
@@ -35,6 +36,16 @@ AUDITEX_OSCAL_NS = "https://magrathean.uk/auditex/oscal"
 
 _SECTION_ORDER = ("summary", "findings", "action_plan", "normalized", "blockers", "manifest")
 _CSV_COLUMNS = ("id", "title", "severity", "status")
+# Severity ordering used for deterministic CSV row sort (highest first).
+# Anything outside this set sorts after ``info`` to keep the order stable.
+_SEVERITY_RANK: Mapping[str, int] = {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+    "info": 4,
+    "informational": 4,
+}
 
 
 def _read_json(path: Path, fallback: Any) -> Any:
@@ -152,7 +163,10 @@ def _default_output_path(run_path: Path, format_name: str) -> Path:
 
 
 def _render_json(selected_sections: dict[str, Any]) -> str:
-    return _json({"sections": selected_sections})
+    # D5 contract: 2-space indent, sort_keys (via _json), trailing newline so
+    # POSIX tools (sha256sum, diff, git) treat the file as line-terminated and
+    # downstream concatenation doesn't run files together.
+    return _json({"sections": selected_sections}) + "\n"
 
 
 def _markdown_cell(value: Any) -> str:
@@ -202,8 +216,30 @@ def _render_markdown(selected_sections: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _csv_sort_key(row: Mapping[str, Any]) -> tuple:
+    """Deterministic sort key for CSV rows.
+
+    Severity desc (critical → high → medium → low → info → unknown), then
+    rule_id, then record_key (from the first evidence_ref), then id. This
+    keeps the CSV byte-stable across runs of the same input — D4
+    contract.
+    """
+    severity = str(row.get("severity") or "").strip().lower()
+    severity_rank = _SEVERITY_RANK.get(severity, 99)
+    rule_id = str(row.get("rule_id") or "")
+    record_key = ""
+    refs = row.get("evidence_refs")
+    if isinstance(refs, list) and refs:
+        first = refs[0]
+        if isinstance(first, Mapping):
+            record_key = str(first.get("record_key") or "")
+    finding_id = str(row.get("id") or "")
+    return (severity_rank, rule_id, record_key, finding_id)
+
+
 def _render_csv(selected_sections: dict[str, Any]) -> str:
     rows = _dict_rows(selected_sections.get("findings")) or _dict_rows(selected_sections.get("action_plan"))
+    rows = sorted(rows, key=_csv_sort_key)
     buffer = StringIO()
     writer = csv.DictWriter(buffer, fieldnames=list(_CSV_COLUMNS), extrasaction="ignore")
     writer.writeheader()
@@ -281,6 +317,85 @@ def _render_html(selected_sections: dict[str, Any]) -> str:
     return "".join(sections)
 
 
+def _sarif_rule_help_markdown(finding: Mapping[str, Any]) -> str:
+    """Build a Markdown help block for a SARIF rule.
+
+    GitHub Code Scanning surfaces ``help.markdown`` in the Security UI;
+    a structured block (description / impact / remediation / mapped controls /
+    references) makes findings actionable inline rather than forcing operators
+    to open the auditex bundle to figure out what a rule means.
+    """
+    parts: list[str] = []
+    title = _text(finding.get("title")) or _text(finding.get("rule_id")) or "Auditex finding"
+    parts.append(f"## {title}")
+    description = _text(finding.get("description"))
+    if description:
+        parts.append(f"**Description:** {description}")
+    impact = _text(finding.get("impact"))
+    if impact:
+        parts.append(f"**Impact:** {impact}")
+    remediation = _text(finding.get("remediation"))
+    if remediation:
+        parts.append(f"**Remediation:** {remediation}")
+    severity = _text(finding.get("severity"))
+    if severity:
+        parts.append(f"**Severity:** {severity}")
+    framework_mappings = (
+        finding.get("framework_mappings")
+        if isinstance(finding.get("framework_mappings"), Mapping)
+        else {}
+    )
+    if framework_mappings:
+        rows: list[str] = []
+        for framework, controls in sorted(framework_mappings.items()):
+            if isinstance(controls, list) and controls:
+                control_text = ", ".join(_text(c) for c in controls if _text(c))
+                if control_text:
+                    rows.append(f"- **{framework}**: {control_text}")
+        if rows:
+            parts.append("**Mapped controls:**\n\n" + "\n".join(rows))
+    references = finding.get("references")
+    if isinstance(references, list) and references:
+        ref_lines = "\n".join(f"- {_text(ref)}" for ref in references if _text(ref))
+        if ref_lines:
+            parts.append("**References:**\n\n" + ref_lines)
+    return "\n\n".join(parts)
+
+
+def _sarif_help_uri(rule_id: str) -> str:
+    """Per-rule help URI surfaced by GitHub Code Scanning.
+
+    Until per-rule docs pages exist on a stable site, point at the canonical
+    finding-templates.json — operators can navigate to the rule_id entry
+    there. URL is deterministic per rule_id so dedup is stable.
+    """
+    return f"{AUDITEX_SARIF_TOOL_URI}/blob/main/configs/finding-templates.json#{rule_id}"
+
+
+def _sarif_finding_fingerprint(finding: Mapping[str, Any]) -> str:
+    """Stable, content-derived SHA-256 hex digest for SARIF dedup.
+
+    Includes ``rule_id``, the finding ``id``, and the first evidence_ref's
+    ``record_key`` (when present). All three are stable across runs of the
+    same tenant — re-running auditex against the same posture should
+    produce the same fingerprints, which is what GitHub Code Scanning's
+    dedup contract requires for its alert tracking.
+
+    Excludes wall-clock and run-derived fields so a re-run against a
+    static bundle yields byte-identical fingerprints.
+    """
+    rule_id = _text(finding.get("rule_id"))
+    finding_id = _text(finding.get("id"))
+    record_key = ""
+    refs = finding.get("evidence_refs")
+    if isinstance(refs, list) and refs:
+        first = refs[0]
+        if isinstance(first, Mapping):
+            record_key = _text(first.get("record_key"))
+    payload = f"{rule_id}|{finding_id}|{record_key}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def render_sarif(
     *,
     findings: list[dict[str, Any]] | None,
@@ -310,6 +425,11 @@ def render_sarif(
         category = _text(finding.get("category"))
         if category:
             tags.append(f"category:{category}")
+        help_text = (
+            _text(finding.get("remediation"))
+            or _text(finding.get("description"))
+            or "See Auditex finding for remediation guidance."
+        )
         rules.append(
             {
                 "id": rule_id,
@@ -317,8 +437,10 @@ def render_sarif(
                 "shortDescription": {"text": _text(finding.get("title")) or rule_id},
                 "fullDescription": {"text": _text(finding.get("description")) or _text(finding.get("title")) or rule_id},
                 "help": {
-                    "text": _text(finding.get("remediation")) or _text(finding.get("description")) or "See Auditex finding for remediation guidance.",
+                    "text": help_text,
+                    "markdown": _sarif_rule_help_markdown(finding),
                 },
+                "helpUri": _sarif_help_uri(rule_id),
                 "defaultConfiguration": {"level": _SARIF_LEVELS.get(_text(finding.get("severity")).lower(), "warning")},
                 "properties": {"tags": sorted(set(tags))} if tags else {"tags": []},
             }
@@ -358,6 +480,11 @@ def render_sarif(
                     ],
                 }
             ],
+            # Stable per-finding fingerprint for GitHub Code Scanning dedup
+            # across runs. Content-derived (rule_id + id + record_key); the
+            # ``auditex/v1`` key is the version sentinel — bumping the
+            # algorithm in a future release means a new key.
+            "fingerprints": {"auditex/v1": _sarif_finding_fingerprint(finding)},
             "properties": {
                 "auditex.finding_id": _text(finding.get("id")),
                 "auditex.severity": _text(finding.get("severity")),
@@ -480,6 +607,19 @@ def render_oscal(
                     "description": "Findings produced by Auditex collectors and rules.",
                     "start": now,
                     "end": now,
+                    # OSCAL Assessment Results 1.1.2 requires ``reviewed-controls``
+                    # on each result. ``include-all: {}`` is the canonical "all
+                    # controls in scope" selector — auditex's findings are not
+                    # scoped per-control at the result level, the framework
+                    # mappings on each finding handle that.
+                    "reviewed-controls": {
+                        "control-selections": [
+                            {
+                                "description": "Controls reviewed by Auditex collectors and rules",
+                                "include-all": {},
+                            }
+                        ]
+                    },
                     "observations": observations,
                     "findings": findings_oscal,
                 }

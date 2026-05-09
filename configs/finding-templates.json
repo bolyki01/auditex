@@ -89,6 +89,78 @@
     "control_ids": ["AUDITEX-APP-AUDIENCE-WIDE"],
     "expected_value": "Sign-in audience is 'AzureADMyOrg' for tenant-owned apps unless multi-tenant is justified."
   },
+  "app_credentials.certificate_expired": {
+    "risk_rating": "high",
+    "description": "An application certificate (keyCredential) has already expired.",
+    "impact": "Once a cert expires, downstream Microsoft and partner authentication fails; lingering expired certs also indicate weak rotation hygiene and unmaintained apps.",
+    "remediation": "Remove the expired certificate, issue a fresh one with a documented validity window, and confirm the application is still required.",
+    "references": ["Microsoft Entra application credential rotation guidance"],
+    "control_ids": ["AUDITEX-APP-CERT-EXPIRED"],
+    "expected_value": "All keyCredentials are within their validity window."
+  },
+  "app_credentials.certificate_expiring": {
+    "risk_rating": "medium",
+    "description": "An application certificate (keyCredential) will expire within 30 days.",
+    "impact": "Certificate rotation has more lead time than secret rotation; flagging at 30 days lets the operator schedule reissuance before authentication breaks.",
+    "remediation": "Reissue the certificate before expiry, deploy the new value, and remove the soon-to-expire entry.",
+    "references": ["Microsoft Entra application credential rotation guidance"],
+    "control_ids": ["AUDITEX-APP-CERT-EXPIRING"],
+    "expected_value": "keyCredentials are rotated at least 30 days before they expire."
+  },
+  "app_credentials.secret_long_validity": {
+    "risk_rating": "high",
+    "description": "An application secret either has no end_date_time or a validity window that exceeds two years.",
+    "impact": "Long-lived or open-ended secrets violate cryptographic hygiene, magnify blast radius if leaked, and bypass Entra's default 24-month cap. They are a recurring root cause of supply-chain compromise.",
+    "remediation": "Replace with a secret bounded to 6-12 months (or move to certificate auth) and rotate on a schedule.",
+    "references": ["Microsoft Entra default credential lifetime", "OWASP cryptographic storage cheat sheet"],
+    "control_ids": ["AUDITEX-APP-SECRET-LONG-VALIDITY"],
+    "expected_value": "Application secrets bounded to <= 24 months."
+  },
+  "app_credentials.credential_dormant": {
+    "risk_rating": "low",
+    "description": "Application has not signed in for more than 365 days (signInActivity observed and null).",
+    "impact": "Stale applications expand the attack surface — credentials persist after the workload is gone, owners forget the app exists, and consent grants outlive their purpose.",
+    "remediation": "Confirm the application is still required; if not, retire it (delete, or disable and document) and revoke consent grants.",
+    "references": ["Microsoft Entra application lifecycle review"],
+    "control_ids": ["AUDITEX-APP-DORMANT"],
+    "expected_value": "Application has signed in within the last year, or has been retired."
+  },
+  "cross_tenant_access.default_b2b_collaboration_inbound_open": {
+    "risk_rating": "high",
+    "description": "Default cross-tenant access policy allows inbound B2B Collaboration from any external tenant.",
+    "impact": "Open inbound B2B Collaboration lets users from any external tenant be invited to resources in your tenant without per-partner scoping or trust requirements; common phishing-driven account-takeover precursor.",
+    "remediation": "Set the default B2B Collaboration inbound access to 'blocked' and enable per-partner allow-lists with inbound trust requirements (MFA, compliant device).",
+    "references": ["Microsoft Entra cross-tenant access default policy guidance", "CIS Microsoft 365 Foundations 1.1.4"],
+    "control_ids": ["AUDITEX-CTA-COLLAB-IN-OPEN"],
+    "expected_value": "Default inbound B2B Collaboration is 'blocked' or scoped to specific partners."
+  },
+  "cross_tenant_access.default_b2b_direct_connect_outbound_open": {
+    "risk_rating": "medium",
+    "description": "Default cross-tenant access policy allows outbound B2B Direct Connect to any external tenant.",
+    "impact": "Open outbound Direct Connect lets your users participate in shared channels in any external tenant; sensitive content can flow out without partner-specific governance.",
+    "remediation": "Set default outbound Direct Connect to 'blocked' and enable per-partner where shared-channel collaboration is required.",
+    "references": ["Microsoft Entra cross-tenant access default policy guidance"],
+    "control_ids": ["AUDITEX-CTA-DC-OUT-OPEN"],
+    "expected_value": "Default outbound B2B Direct Connect is 'blocked' or scoped per partner."
+  },
+  "cross_tenant_access.auto_user_consent_inbound_enabled": {
+    "risk_rating": "medium",
+    "description": "Cross-tenant access policy enables automatic user consent for inbound external users.",
+    "impact": "Automatic user consent skips the per-app consent prompt for external users, removing a key data-sharing checkpoint and enabling silent over-permissioned flows.",
+    "remediation": "Disable automatic user consent inbound and require explicit user or admin consent for external app access.",
+    "references": ["Microsoft Entra automatic user consent settings"],
+    "control_ids": ["AUDITEX-CTA-AUTOCONSENT-IN"],
+    "expected_value": "automaticUserConsentSettings.inboundAllowed = false."
+  },
+  "cross_tenant_access.auto_user_consent_outbound_enabled": {
+    "risk_rating": "low",
+    "description": "Cross-tenant access policy enables automatic user consent for outbound interactions with external apps.",
+    "impact": "Outbound auto-consent lets your users grant access to data hosted in external tenants without an explicit consent prompt; weakens data-egress visibility.",
+    "remediation": "Disable automatic user consent outbound; require an explicit consent step or admin approval for external app access.",
+    "references": ["Microsoft Entra automatic user consent settings"],
+    "control_ids": ["AUDITEX-CTA-AUTOCONSENT-OUT"],
+    "expected_value": "automaticUserConsentSettings.outboundAllowed = false."
+  },
   "cross_tenant_access.default_b2b_direct_connect_inbound_open": {
     "risk_rating": "high",
     "description": "Default cross-tenant access policy allows inbound B2B Direct Connect from any tenant.",
@@ -178,5 +250,68 @@
     "references": ["RFC 6376", "Microsoft 365 DKIM guidance"],
     "control_ids": ["AUDITEX-DNS-DKIM-MISSING"],
     "expected_value": "At least one DKIM selector resolves with a valid public key."
+  },
+  "dns_posture.spf_multiple_records": {
+    "risk_rating": "high",
+    "description": "More than one SPF (v=spf1) TXT record is published at the domain apex.",
+    "impact": "RFC 7208 §4.5 mandates exactly one SPF record; multiple v=spf1 records cause receivers to return PermError, leaving the domain effectively unauthenticated.",
+    "remediation": "Merge SPF policy into a single record using nested 'include:' mechanisms and remove the redundant TXT entries.",
+    "references": ["RFC 7208 §4.5"],
+    "control_ids": ["AUDITEX-DNS-SPF-MULTIPLE"],
+    "expected_value": "Exactly one v=spf1 record at the domain apex."
+  },
+  "dns_posture.dmarc_pct_partial": {
+    "risk_rating": "medium",
+    "description": "DMARC policy is enforcing (p=quarantine or p=reject) but only on a fraction of mail (pct<100).",
+    "impact": "Partial enforcement leaves a documented bypass: receivers apply the enforcing policy probabilistically, so spoofed mail can still be delivered to users.",
+    "remediation": "Once SPF/DKIM coverage is healthy, raise pct to 100 (or omit pct, which defaults to 100) so the policy applies to every message.",
+    "references": ["RFC 7489 §6.3"],
+    "control_ids": ["AUDITEX-DNS-DMARC-PCT-PARTIAL"],
+    "expected_value": "DMARC pct=100 for enforcing policies."
+  },
+  "dns_posture.dmarc_rua_invalid": {
+    "risk_rating": "low",
+    "description": "DMARC rua= aggregate-report URI list contains entries that are neither well-formed mailto: addresses nor https:// URLs.",
+    "impact": "Invalid URIs prevent DMARC report delivery; the operator loses visibility into spoofing attempts and SPF/DKIM alignment failures.",
+    "remediation": "Replace malformed entries with mailto:<address>@<domain> or https://<endpoint>; remove bare addresses missing the mailto: scheme and HTTP (clear-text) endpoints.",
+    "references": ["RFC 7489 §6.4"],
+    "control_ids": ["AUDITEX-DNS-DMARC-RUA-INVALID"],
+    "expected_value": "All rua= URIs use mailto: with a valid address or https://."
+  },
+  "dns_posture.bimi_logo_insecure": {
+    "risk_rating": "low",
+    "description": "BIMI l= logo URL is not served over HTTPS.",
+    "impact": "BIMI consumers (e.g., Gmail, Yahoo) require HTTPS-served SVG logos; HTTP delivery prevents brand-indicator rendering and exposes logo fetches to tampering.",
+    "remediation": "Host the BIMI SVG over HTTPS and update the l= tag to the https:// URL.",
+    "references": ["BIMI draft (Brand Indicators for Message Identification)"],
+    "control_ids": ["AUDITEX-DNS-BIMI-LOGO-INSECURE"],
+    "expected_value": "BIMI l= URL uses the https:// scheme."
+  },
+  "service_health.active_service_issue": {
+    "risk_rating": "medium",
+    "description": "An active Microsoft 365 service issue is currently affecting the tenant or one of its services.",
+    "impact": "Active service degradations or interruptions may invalidate evidence collected during the audit window and can mask other anomalies; operators should correlate the audit findings with the timeline of the service issue.",
+    "remediation": "Track the issue in the Microsoft 365 admin center service-health board, document any audit-evidence gaps caused by the outage, and re-run affected collectors once the service is restored.",
+    "references": ["Microsoft 365 service health"],
+    "control_ids": ["AUDITEX-SERVICE-HEALTH-ACTIVE-ISSUE"],
+    "expected_value": "No active service issues during the audit window."
+  },
+  "external_identity.broad_guest_invite_policy": {
+    "risk_rating": "medium",
+    "description": "Authorization policy allows guest invitations from anyone (including unauthenticated members).",
+    "impact": "Tenant-wide ``allowInvitesFrom=everyone`` lets any member invite arbitrary external identities into the tenant, expanding the attack surface and bypassing partner-specific governance.",
+    "remediation": "Restrict ``allowInvitesFrom`` to ``adminsAndGuestInviters`` (CIS-recommended) or ``adminsGuestInvitersAndAllMembers`` with reviewer rotation; document who can invite externals.",
+    "references": ["Microsoft Entra authorization policy", "CIS Microsoft 365 Foundations 1.1.5"],
+    "control_ids": ["AUDITEX-EXTID-BROAD-INVITE"],
+    "expected_value": "allowInvitesFrom restricted to adminsAndGuestInviters or stricter."
+  },
+  "consent_policy.admin_consent_workflow_disabled": {
+    "risk_rating": "medium",
+    "description": "Admin consent request workflow is disabled for users requiring app permissions beyond the user-consent allowlist.",
+    "impact": "Without the admin-consent workflow, end-users either consent unilaterally to risky scopes or are blocked entirely with no escalation path — both outcomes erode tenant governance over OAuth grants.",
+    "remediation": "Enable the admin consent request workflow (Microsoft Entra → Enterprise applications → Consent and permissions → Admin consent settings) and assign reviewers with a documented SLA.",
+    "references": ["Microsoft Entra admin consent workflow"],
+    "control_ids": ["AUDITEX-CONSENT-WORKFLOW-DISABLED"],
+    "expected_value": "Admin consent request workflow enabled with named reviewers."
   }
 }
