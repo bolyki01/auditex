@@ -1301,51 +1301,93 @@ def build_findings(
     waiver_file: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
+
+    # Group diagnostics by their would-be finding ID so collectors that probe
+    # N sub-resources (e.g. sharepoint_access enumerating site permissions
+    # across N sites) emit ONE aggregated finding instead of N duplicates.
+    # Live audit on 2026-05-09 surfaced 5 ``sharepoint_access:sitePermissions``
+    # findings collapsing to a single id and tripping the C3 duplicate-id
+    # validator.
+    diagnostic_groups: dict[str, list[dict[str, Any]]] = {}
+    diagnostic_order: list[str] = []
     for item in diagnostics:
         collector = str(item.get("collector") or "unknown")
         target = item.get("item") or item.get("endpoint") or collector
-        error_class = str(item.get("error_class")) if item.get("error_class") else None
+        finding_id = f"{collector}:{target}"
+        if finding_id not in diagnostic_groups:
+            diagnostic_order.append(finding_id)
+            diagnostic_groups[finding_id] = []
+        diagnostic_groups[finding_id].append(item)
+
+    for finding_id in diagnostic_order:
+        group = diagnostic_groups[finding_id]
+        primary = group[0]
+        collector = str(primary.get("collector") or "unknown")
+        target = primary.get("item") or primary.get("endpoint") or collector
+        error_class = (
+            str(primary.get("error_class")) if primary.get("error_class") else None
+        )
         rule_id = _rule_id_for(error_class)
-        evidence_refs = item.get("evidence_refs")
-        if not isinstance(evidence_refs, list):
+        # Collect distinct endpoints across the group; surface them as
+        # affected_objects so the report shows what was probed.
+        endpoints = []
+        seen_endpoints: set[str] = set()
+        for entry in group:
+            endpoint = entry.get("endpoint")
+            if isinstance(endpoint, str) and endpoint and endpoint not in seen_endpoints:
+                seen_endpoints.add(endpoint)
+                endpoints.append(endpoint)
+        affected_objects: list[str] = []
+        if endpoints:
+            affected_objects = endpoints
+        elif target:
+            affected_objects = [str(target)]
+
+        evidence_refs: list[dict[str, Any]] = []
+        for entry in group:
+            entry_refs = entry.get("evidence_refs")
+            if isinstance(entry_refs, list):
+                evidence_refs.extend(dict(ref) for ref in entry_refs if isinstance(ref, dict))
+        if not evidence_refs:
             evidence_refs = [
                 _evidence_ref(
                     artifact_path=f"raw/{collector}.json",
                     artifact_kind="raw_json",
                     collector=collector,
                     record_key=f"{collector}:{target}",
-                    source_name=str(item.get("item") or target),
-                    json_pointer=f"/{item.get('item') or ''}" if item.get("item") else None,
-                    endpoint=str(item.get("endpoint")) if item.get("endpoint") else None,
-                    response_status=str(item.get("status")) if item.get("status") else None,
+                    source_name=str(primary.get("item") or target),
+                    json_pointer=f"/{primary.get('item') or ''}" if primary.get("item") else None,
+                    endpoint=str(primary.get("endpoint")) if primary.get("endpoint") else None,
+                    response_status=str(primary.get("status")) if primary.get("status") else None,
                     query_params={
-                        key: item.get(key)
+                        key: primary.get(key)
                         for key in ("top", "page", "result_limit")
-                        if item.get(key) is not None
+                        if primary.get(key) is not None
                     }
                     or None,
                 )
             ]
-        findings.append(
-            _finalize_finding(
-                {
-                "id": f"{collector}:{target}",
-                "rule_id": rule_id,
-                "severity": _severity_for(error_class, str(item.get("status") or "")),
-                "category": _category_for(error_class),
-                "title": f"{collector} collector issue",
-                "status": "open",
-                "collector": collector,
-                "affected_objects": [str(target)] if target else [],
-                "error_class": error_class,
-                "error": item.get("error"),
-                "returned_value": item.get("error"),
-                "recommendations": item.get("recommendations", {}),
-                "evidence_refs": evidence_refs,
-                **_metadata_for(rule_id),
-            }
-            )
-        )
+        body: dict[str, Any] = {
+            "id": finding_id,
+            "rule_id": rule_id,
+            "severity": _severity_for(error_class, str(primary.get("status") or "")),
+            "category": _category_for(error_class),
+            "title": f"{collector} collector issue",
+            "status": "open",
+            "collector": collector,
+            "affected_objects": affected_objects,
+            "error_class": error_class,
+            "error": primary.get("error"),
+            "returned_value": primary.get("error"),
+            "recommendations": primary.get("recommendations", {}),
+            "evidence_refs": evidence_refs,
+            **_metadata_for(rule_id),
+        }
+        if len(group) > 1:
+            # Transparency for the report: how many distinct probes failed
+            # the same way? Operators would otherwise lose this signal.
+            body["aggregated_count"] = len(group)
+        findings.append(_finalize_finding(body))
     if normalized_snapshot:
         findings.extend(_normalized_findings(normalized_snapshot))
     waiver_rows = load_waivers(Path(waiver_file)) if waiver_file else []
