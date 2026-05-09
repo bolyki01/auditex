@@ -19,3 +19,5 @@ Started: 2026-05-09
 | 03:45 | C3   | green  | 3 new validators (dup-key/unknown-collector/framework); +9 | 70ad740 |
 | 04:00 | C4   | green  | contract-bump checklist (docs only)        | e8126c8 |
 | 04:20 | B3   | green  | ATT&CK calibration: 6 mappings + spec swaps + rationale | f7392ef |
+| 04:35 | B4   | green  | severity calibration audit (no source changes) | 7958036 |
+| 04:50 | B5   | green  | NIS2/DORA enrichment to 100% coverage     | 6441c1a |
