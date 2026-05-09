@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import html
 import json
 from collections.abc import Iterable, Mapping
@@ -336,6 +337,30 @@ def _sarif_help_uri(rule_id: str) -> str:
     return f"{AUDITEX_SARIF_TOOL_URI}/blob/main/configs/finding-templates.json#{rule_id}"
 
 
+def _sarif_finding_fingerprint(finding: Mapping[str, Any]) -> str:
+    """Stable, content-derived SHA-256 hex digest for SARIF dedup.
+
+    Includes ``rule_id``, the finding ``id``, and the first evidence_ref's
+    ``record_key`` (when present). All three are stable across runs of the
+    same tenant — re-running auditex against the same posture should
+    produce the same fingerprints, which is what GitHub Code Scanning's
+    dedup contract requires for its alert tracking.
+
+    Excludes wall-clock and run-derived fields so a re-run against a
+    static bundle yields byte-identical fingerprints.
+    """
+    rule_id = _text(finding.get("rule_id"))
+    finding_id = _text(finding.get("id"))
+    record_key = ""
+    refs = finding.get("evidence_refs")
+    if isinstance(refs, list) and refs:
+        first = refs[0]
+        if isinstance(first, Mapping):
+            record_key = _text(first.get("record_key"))
+    payload = f"{rule_id}|{finding_id}|{record_key}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def render_sarif(
     *,
     findings: list[dict[str, Any]] | None,
@@ -420,6 +445,11 @@ def render_sarif(
                     ],
                 }
             ],
+            # Stable per-finding fingerprint for GitHub Code Scanning dedup
+            # across runs. Content-derived (rule_id + id + record_key); the
+            # ``auditex/v1`` key is the version sentinel — bumping the
+            # algorithm in a future release means a new key.
+            "fingerprints": {"auditex/v1": _sarif_finding_fingerprint(finding)},
             "properties": {
                 "auditex.finding_id": _text(finding.get("id")),
                 "auditex.severity": _text(finding.get("severity")),

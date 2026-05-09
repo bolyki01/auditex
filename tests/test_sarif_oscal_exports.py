@@ -204,6 +204,100 @@ def test_sarif_help_fields_populated_for_every_rule_under_diverse_input() -> Non
         )
 
 
+def test_sarif_fingerprint_is_stable_across_renders() -> None:
+    """D2: rendering the same finding twice must produce the same
+    fingerprint so GitHub Code Scanning dedupes its alert tracking
+    across runs."""
+    from auditex.reporting import render_sarif
+
+    finding = {
+        "id": "app_credentials:app-1:secret_expired",
+        "rule_id": "app_credentials.secret_expired",
+        "severity": "critical",
+        "title": "Application secret is expired",
+        "category": "application",
+        "evidence_refs": [
+            {
+                "artifact_path": "normalized/application_credential_objects.json",
+                "artifact_kind": "normalized_section",
+                "collector": "app_credentials",
+                "record_key": "application_credentials:app-1",
+            }
+        ],
+    }
+    first = render_sarif(findings=[finding], summary={}, manifest={})
+    second = render_sarif(findings=[finding], summary={}, manifest={})
+
+    fp1 = first["runs"][0]["results"][0]["fingerprints"]
+    fp2 = second["runs"][0]["results"][0]["fingerprints"]
+    assert fp1 == fp2
+    assert "auditex/v1" in fp1
+    # Sanity: SHA-256 hex is 64 chars.
+    assert len(fp1["auditex/v1"]) == 64
+
+
+def test_sarif_fingerprint_differs_for_distinct_findings() -> None:
+    """Two findings under the same rule against different objects must
+    produce different fingerprints."""
+    from auditex.reporting import render_sarif
+
+    findings = [
+        {
+            "id": "app_credentials:app-1:secret_expired",
+            "rule_id": "app_credentials.secret_expired",
+            "severity": "critical",
+            "title": "Secret expired (app 1)",
+            "evidence_refs": [
+                {
+                    "artifact_path": "normalized/x.json",
+                    "artifact_kind": "normalized_section",
+                    "collector": "app_credentials",
+                    "record_key": "application_credentials:app-1",
+                }
+            ],
+        },
+        {
+            "id": "app_credentials:app-2:secret_expired",
+            "rule_id": "app_credentials.secret_expired",
+            "severity": "critical",
+            "title": "Secret expired (app 2)",
+            "evidence_refs": [
+                {
+                    "artifact_path": "normalized/x.json",
+                    "artifact_kind": "normalized_section",
+                    "collector": "app_credentials",
+                    "record_key": "application_credentials:app-2",
+                }
+            ],
+        },
+    ]
+    document = render_sarif(findings=findings, summary={}, manifest={})
+    fps = [r["fingerprints"]["auditex/v1"] for r in document["runs"][0]["results"]]
+    assert len(set(fps)) == 2, f"distinct findings produced colliding fingerprints: {fps}"
+
+
+def test_sarif_fingerprint_independent_of_run_metadata() -> None:
+    """A re-run of the same audit must keep fingerprints stable even when
+    run_id / created_utc / tenant context changes — the dedup contract
+    breaks otherwise."""
+    from auditex.reporting import render_sarif
+
+    finding = {
+        "id": "rule.example:obj-1",
+        "rule_id": "rule.example",
+        "severity": "high",
+        "evidence_refs": [
+            {"record_key": "section:obj-1", "artifact_path": "x", "artifact_kind": "y", "collector": "c"}
+        ],
+    }
+    a = render_sarif(findings=[finding], summary={"tenant_name": "old", "schema_version": "old"}, manifest={"run_id": "run-A"})
+    b = render_sarif(findings=[finding], summary={"tenant_name": "new", "schema_version": "new"}, manifest={"run_id": "run-B"})
+    assert (
+        a["runs"][0]["results"][0]["fingerprints"]
+        == b["runs"][0]["results"][0]["fingerprints"]
+    )
+
+
 def test_run_exporter_writes_sarif_to_disk(offline_run_dir: Path) -> None:
     result = run_exporter(name="sarif", run_dir=str(offline_run_dir))
     artifact = Path(result["artifacts"][0]["path"])
