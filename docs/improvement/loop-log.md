@@ -21,3 +21,4 @@ Started: 2026-05-09
 | 04:20 | B3   | green  | ATT&CK calibration: 6 mappings + spec swaps + rationale | f7392ef |
 | 04:35 | B4   | green  | severity calibration audit (no source changes) | 7958036 |
 | 04:50 | B5   | green  | NIS2/DORA enrichment to 100% coverage     | 6441c1a |
+| 05:10 | D1   | green  | SARIF help.markdown + helpUri; tests +3 | 4d354f4 |
