@@ -572,6 +572,19 @@ def render_oscal(
                     "description": "Findings produced by Auditex collectors and rules.",
                     "start": now,
                     "end": now,
+                    # OSCAL Assessment Results 1.1.2 requires ``reviewed-controls``
+                    # on each result. ``include-all: {}`` is the canonical "all
+                    # controls in scope" selector — auditex's findings are not
+                    # scoped per-control at the result level, the framework
+                    # mappings on each finding handle that.
+                    "reviewed-controls": {
+                        "control-selections": [
+                            {
+                                "description": "Controls reviewed by Auditex collectors and rules",
+                                "include-all": {},
+                            }
+                        ]
+                    },
                     "observations": observations,
                     "findings": findings_oscal,
                 }

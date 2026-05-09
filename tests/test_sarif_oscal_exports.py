@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -305,6 +306,153 @@ def test_run_exporter_writes_sarif_to_disk(offline_run_dir: Path) -> None:
     assert artifact.suffix in {".json", ".sarif"} or artifact.name.endswith(".sarif.json")
     document = json.loads(artifact.read_text(encoding="utf-8"))
     assert document["version"] == "2.1.0"
+
+
+UUID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+def _validate_oscal_assessment_results(document: dict) -> list[str]:
+    """Lightweight structural validator for OSCAL Assessment Results 1.1.2.
+
+    Asserts the invariants that GitHub Code Scanning, Defender for Cloud
+    consumers, and the OSCAL reference parser all rely on. NOT a full
+    schema check (the OSCAL JSON schema cross-references multiple
+    documents); intentionally focuses on the must-have fields per the
+    OSCAL spec § Assessment Results.
+    """
+    errors: list[str] = []
+    if not isinstance(document, dict):
+        return ["root: not a dict"]
+    ar = document.get("assessment-results")
+    if not isinstance(ar, dict):
+        return ["assessment-results: missing or not a dict"]
+    if not UUID_PATTERN.match(str(ar.get("uuid") or "")):
+        errors.append("assessment-results.uuid: missing or not a valid UUID")
+    metadata = ar.get("metadata")
+    if not isinstance(metadata, dict):
+        errors.append("assessment-results.metadata: missing or not a dict")
+    else:
+        for required in ("title", "last-modified", "version", "oscal-version"):
+            if not metadata.get(required):
+                errors.append(f"assessment-results.metadata.{required}: missing")
+    if "import-ap" not in ar or not isinstance(ar["import-ap"], dict) or not ar["import-ap"].get("href"):
+        errors.append("assessment-results.import-ap.href: missing")
+    results = ar.get("results")
+    if not isinstance(results, list) or not results:
+        errors.append("assessment-results.results: missing or empty")
+    else:
+        for index, result in enumerate(results):
+            if not isinstance(result, dict):
+                errors.append(f"results[{index}]: not a dict")
+                continue
+            for required in ("uuid", "title", "description", "start"):
+                if not result.get(required):
+                    errors.append(f"results[{index}].{required}: missing")
+            if not UUID_PATTERN.match(str(result.get("uuid") or "")):
+                errors.append(f"results[{index}].uuid: not a valid UUID")
+            reviewed = result.get("reviewed-controls")
+            if not isinstance(reviewed, dict):
+                errors.append(f"results[{index}].reviewed-controls: missing or not a dict")
+            else:
+                selections = reviewed.get("control-selections")
+                if not isinstance(selections, list) or not selections:
+                    errors.append(f"results[{index}].reviewed-controls.control-selections: empty")
+                else:
+                    for sindex, selection in enumerate(selections):
+                        if not isinstance(selection, dict):
+                            errors.append(
+                                f"results[{index}].reviewed-controls.control-selections[{sindex}]: not a dict"
+                            )
+                            continue
+                        # Each selection needs at least one selector — include-all,
+                        # include-controls, or exclude-controls.
+                        if not any(
+                            key in selection
+                            for key in ("include-all", "include-controls", "exclude-controls")
+                        ):
+                            errors.append(
+                                f"results[{index}].reviewed-controls.control-selections[{sindex}]:"
+                                " no include-all/include-controls/exclude-controls selector"
+                            )
+            for collection in ("observations", "findings"):
+                items = result.get(collection)
+                if items is None:
+                    continue
+                if not isinstance(items, list):
+                    errors.append(f"results[{index}].{collection}: not a list")
+                    continue
+                for iindex, item in enumerate(items):
+                    if not isinstance(item, dict):
+                        errors.append(f"results[{index}].{collection}[{iindex}]: not a dict")
+                        continue
+                    if not UUID_PATTERN.match(str(item.get("uuid") or "")):
+                        errors.append(
+                            f"results[{index}].{collection}[{iindex}].uuid: not a valid UUID"
+                        )
+    return errors
+
+
+def test_oscal_assessment_results_passes_structural_validator() -> None:
+    """D3: the auditex OSCAL output must satisfy the OSCAL Assessment
+    Results 1.1.2 minimum-viable invariants on a synthetic finding."""
+    from auditex.reporting import render_oscal
+
+    findings = [
+        {
+            "id": "rule.alpha:obj-1",
+            "rule_id": "rule.alpha",
+            "severity": "high",
+            "title": "Alpha",
+            "description": "alpha",
+            "framework_mappings": {"nist_800_53": ["AC-3"]},
+            "remediation": "fix",
+        }
+    ]
+    document = render_oscal(
+        findings=findings,
+        summary={"tenant_name": "acme"},
+        manifest={"run_id": "run-1", "schema_contract_version": "2026-04-21"},
+    )
+    errors = _validate_oscal_assessment_results(document)
+    assert not errors, f"OSCAL structural validation failed: {errors}"
+
+
+def test_oscal_assessment_results_passes_validator_with_zero_findings() -> None:
+    """OSCAL output must remain valid even when no findings exist —
+    consumers (CMS, Defender for Cloud) reject results with empty or
+    malformed envelopes."""
+    from auditex.reporting import render_oscal
+
+    document = render_oscal(
+        findings=[],
+        summary={"tenant_name": "acme"},
+        manifest={"run_id": "run-1", "schema_contract_version": "2026-04-21"},
+    )
+    errors = _validate_oscal_assessment_results(document)
+    assert not errors, errors
+
+
+def test_oscal_assessment_results_includes_reviewed_controls_per_result() -> None:
+    """Regression guard for the reviewed-controls field — OSCAL 1.1.2
+    requires it on every result, but auditex didn't emit it before D3.
+    Ensures the field never disappears in a future refactor."""
+    from auditex.reporting import render_oscal
+
+    document = render_oscal(
+        findings=[],
+        summary={"tenant_name": "acme"},
+        manifest={"run_id": "run-1", "schema_contract_version": "2026-04-21"},
+    )
+    result = document["assessment-results"]["results"][0]
+    reviewed = result.get("reviewed-controls")
+    assert isinstance(reviewed, dict)
+    selections = reviewed.get("control-selections")
+    assert isinstance(selections, list) and selections
+    # ``include-all: {}`` is the canonical "all controls in scope" selector.
+    assert "include-all" in selections[0]
 
 
 def test_oscal_export_has_assessment_results_shape(offline_run_dir: Path) -> None:
