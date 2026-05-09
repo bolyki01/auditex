@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import smtplib
@@ -10,6 +11,65 @@ from typing import Any
 import requests
 
 from .run_bundle import RunBundle
+
+
+def _run_fingerprint(payload: dict[str, Any]) -> str:
+    """Stable per-run fingerprint used to dedup notify-sink tickets.
+
+    Hash includes tenant_name + run_dir basename so re-running ``auditex
+    notify send`` against the same bundle hits the deduplication path
+    instead of creating a fresh ticket on each invocation.
+
+    The 16-char hex prefix is short enough to embed in a Jira label
+    (50-char max per label) and long enough that collisions across an
+    operator's portfolio are vanishingly unlikely.
+    """
+    tenant = str(payload.get("tenant_name") or "")
+    run_dir = str(payload.get("run_dir") or "")
+    digest = hashlib.sha256(f"{tenant}|{run_dir}".encode("utf-8")).hexdigest()
+    return digest[:16]
+
+
+def _audit_fingerprint_label(payload: dict[str, Any]) -> str:
+    return f"auditex-fp-{_run_fingerprint(payload)}"
+
+
+def _jira_search_existing(
+    base_url: str, project_key: str, label: str, auth: tuple[str, str]
+) -> str | None:
+    """Look up an existing Auditex issue with the dedup label.
+
+    Any error (network, auth failure, malformed response) → ``None``,
+    causing the caller to fall through to create the issue. Failing
+    closed would silently drop notifications during a transient Jira
+    outage; failing open creates one ticket per run, which is the
+    pre-E1 behaviour.
+    """
+    jql = f'project = "{project_key}" AND labels = "{label}"'
+    url = f"{base_url.rstrip('/')}/rest/api/3/search"
+    try:
+        response = requests.get(
+            url,
+            params={"jql": jql, "fields": "summary", "maxResults": 1},
+            headers={"accept": "application/json"},
+            auth=auth,
+            timeout=15,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    if response.status_code >= 400:
+        return None
+    try:
+        issues = response.json().get("issues") or []
+    except (ValueError, AttributeError, TypeError):
+        return None
+    if not isinstance(issues, list) or not issues:
+        return None
+    first = issues[0]
+    if not isinstance(first, dict):
+        return None
+    key = first.get("key")
+    return str(key) if key else None
 
 
 WEBHOOK_ENV = {
@@ -132,11 +192,30 @@ def _send_jira(payload: dict[str, Any]) -> dict[str, Any]:
             "payload": payload,
         }
     summary = f"[Auditex] {payload.get('tenant_name') or 'tenant'} run – {payload.get('finding_count', 0)} findings"
+    fingerprint = _run_fingerprint(payload)
+    dedup_label = _audit_fingerprint_label(payload)
+    auth = (email, token)
+
+    # E1 dedup: re-running notify against the same bundle must not create a
+    # second Jira issue. Search by stable fingerprint label; skip create when
+    # found. Search failures fall through to create (fail-open) so a transient
+    # Jira outage never silently drops a notification.
+    existing_key = _jira_search_existing(base_url, project_key, dedup_label, auth)
+    if existing_key:
+        return {
+            "status": "deduped",
+            "sink": "jira",
+            "payload": payload,
+            "issue_key": existing_key,
+            "fingerprint": fingerprint,
+        }
+
     body = {
         "fields": {
             "project": {"key": project_key},
             "summary": summary[:250],
             "issuetype": {"name": issue_type},
+            "labels": ["auditex", dedup_label],
             "description": {
                 "type": "doc",
                 "version": 1,
@@ -159,7 +238,7 @@ def _send_jira(payload: dict[str, Any]) -> dict[str, Any]:
         url,
         json=body,
         headers={"accept": "application/json", "content-type": "application/json"},
-        auth=(email, token),
+        auth=auth,
         timeout=15,
     )
     issue_key: str | None = None
@@ -175,6 +254,7 @@ def _send_jira(payload: dict[str, Any]) -> dict[str, Any]:
         "http_status": response.status_code,
         "response_text": response.text,
         "issue_key": issue_key,
+        "fingerprint": fingerprint,
     }
 
 
