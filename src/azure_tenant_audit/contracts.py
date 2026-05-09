@@ -45,6 +45,18 @@ _AI_SAFE_SENSITIVE_KEYS = re.compile(
     r"(access[_-]?token|refresh[_-]?token|client[_-]?secret|secret|password|credential|authorization|raw_claims)",
     re.IGNORECASE,
 )
+# Identifier patterns that contain a sensitive-key token but refer to legitimate
+# non-secret Microsoft 365 resources (``authorization_policy`` /
+# ``credential_method`` / etc.). Live audits of real tenants surfaced
+# ``authorization_policy`` and friends as false positives on 2026-05-09; the
+# allowlist neutralises them without weakening the underlying regex.
+_AI_SAFE_KEY_ALLOWLIST = re.compile(
+    r"^(authorization|credential)_"
+    r"(?:policy|policies|context|contexts|method|methods|metric|metrics|"
+    r"setting|settings|level|type|kind|state|status|class|admin|grant|grants|"
+    r"provider|providers|flow|flows)$",
+    re.IGNORECASE,
+)
 _AI_SAFE_SENSITIVE_VALUES = re.compile(r"(Bearer\s+[A-Za-z0-9._-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.)")
 _SENSITIVE_CONTRACT_ARTIFACTS = (
     "run-manifest.json",
@@ -322,7 +334,7 @@ def _walk_sensitive_ai_safe(value: Any, path: str, hits: list[dict[str, Any]]) -
         for key, item in value.items():
             key_text = str(key)
             current = f"{path}/{key_text}" if path else key_text
-            if _AI_SAFE_SENSITIVE_KEYS.search(key_text):
+            if _AI_SAFE_SENSITIVE_KEYS.search(key_text) and not _AI_SAFE_KEY_ALLOWLIST.match(key_text):
                 hits.append({"path": current, "reason": "sensitive_key"})
             _walk_sensitive_ai_safe(item, current, hits)
     elif isinstance(value, list):
