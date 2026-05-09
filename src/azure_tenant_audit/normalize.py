@@ -1209,6 +1209,30 @@ def build_normalized_snapshot(
                     status=item.get("status"),
                 )
             )
+    # Microsoft 365 reports are anonymized by default — when a tenant has
+    # ``ConcealedInfo=true`` (the secure-by-default setting), every row's
+    # Site Id / Owner Principal Name / User Principal Name comes back as
+    # the all-zeros placeholder UUID, collapsing all rows to one
+    # record_key. Live audit on 2026-05-09 surfaced this as a
+    # ``duplicate_record_key`` violation in C3. Detect the placeholder and
+    # synthesize a stable per-row key from source + refresh-date + index.
+    _USAGE_ANONYMIZED_PLACEHOLDERS = {
+        "00000000-0000-0000-0000-000000000000",
+        "00000000-0000-0000-0000-000000000000@",
+        "anonymous",
+        "",
+    }
+
+    def _usage_object_id(item: dict[str, Any], source_name: str, idx: int) -> str:
+        raw = item.get("Site Id") or item.get("Owner Principal Name") or item.get("User Principal Name") or ""
+        text = str(raw).strip()
+        if text and text.lower() not in _USAGE_ANONYMIZED_PLACEHOLDERS:
+            return text
+        refresh_date = str(item.get("Report Refresh Date") or "").strip()
+        if refresh_date:
+            return f"anonymized:{source_name}:{refresh_date}:{idx}"
+        return f"anonymized:{source_name}:{idx}"
+
     usage_report_objects: list[dict[str, Any]] = []
     for source_name in (
         "office365ActiveUserCounts",
@@ -1217,7 +1241,7 @@ def build_normalized_snapshot(
         "mailboxUsageDetail",
     ):
         for idx, item in enumerate(_values(collector_payloads.get("reports_usage", {}), source_name), start=1):
-            object_id = str(item.get("Site Id") or item.get("Owner Principal Name") or item.get("User Principal Name") or f"{source_name}:{idx}")
+            object_id = _usage_object_id(item, source_name, idx)
             usage_report_objects.append(
                 _record(
                     "usage_report_object",
