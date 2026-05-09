@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -12,6 +13,70 @@ from typing import Any
 import requests
 
 from .run_bundle import RunBundle
+
+
+# E4 redaction: any token-shaped string in an outbound webhook body gets
+# replaced before the body leaves the process. Webhook channels (Teams,
+# Slack) frequently get archived to long-lived stores (chat history,
+# email digests, third-party loggers) — once a credential lands there it
+# might never be rotated. Defence-in-depth: assume any long base64 blob
+# or JWT-shaped string in a finding's evidence is sensitive and redact
+# regardless of whether the key name was on the existing sensitive-key
+# allowlist.
+_REDACTION_PLACEHOLDER = "[REDACTED]"
+_TOKEN_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # OAuth Authorization headers: ``Authorization: Bearer <token>`` and
+    # bare ``Bearer <token>``.
+    (re.compile(r"Bearer\s+[A-Za-z0-9._\-+=/]{8,}", re.IGNORECASE), "Bearer [REDACTED]"),
+    # JWTs (header.payload.signature, base64url everywhere). The header
+    # almost always starts with ``eyJ`` (decoded ``{"``).
+    (re.compile(r"eyJ[A-Za-z0-9_\-]{15,}\.[A-Za-z0-9_\-]{15,}\.[A-Za-z0-9_\-]+"), "[REDACTED-JWT]"),
+    # Long base64 blobs — DSC export payloads, encrypted credential blobs,
+    # PFX-encoded certificates. 200 chars is well above any legitimate
+    # short ID / display name and short of a full RSA key dump.
+    (re.compile(r"[A-Za-z0-9+/]{200,}={0,2}"), "[REDACTED-BLOB]"),
+]
+# Sensitive key names whose VALUES (regardless of shape) get fully
+# replaced. Mirrors the contracts.py sensitive-keys regex but scoped
+# tightly to credentials that should never leave the auditex host.
+_SENSITIVE_VALUE_KEY_RE = re.compile(
+    r"^(?:client[_-]?secret|secret[_-]?text|app[_-]?secret|password|"
+    r"access[_-]?token|refresh[_-]?token|api[_-]?token|api[_-]?key|"
+    r"dsc[_-]?export|key[_-]?material)$",
+    re.IGNORECASE,
+)
+
+
+def _redact_string(value: str) -> str:
+    out = value
+    for pattern, replacement in _TOKEN_PATTERNS:
+        out = pattern.sub(replacement, out)
+    return out
+
+
+def _redact_value(value: Any, current_key: str = "") -> Any:
+    """Walk ``value`` and redact token-shaped strings.
+
+    For dict keys that match a sensitive-key name, the entire value is
+    replaced with the placeholder regardless of shape (catches values
+    that are short / ID-like / not yet token-formatted).
+    """
+    if isinstance(value, str):
+        return _redact_string(value)
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for k, v in value.items():
+            key_text = str(k)
+            if _SENSITIVE_VALUE_KEY_RE.match(key_text) and v not in (None, ""):
+                out[key_text] = _REDACTION_PLACEHOLDER
+            else:
+                out[key_text] = _redact_value(v, key_text)
+        return out
+    if isinstance(value, list):
+        return [_redact_value(item, current_key) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_value(item, current_key) for item in value)
+    return value
 
 
 def _run_fingerprint(payload: dict[str, Any]) -> str:
@@ -123,9 +188,14 @@ def _send_webhook(sink: str, payload: dict[str, Any]) -> dict[str, Any]:
     url = os.environ.get(env_name)
     if not url:
         return {"status": "blocked", "reason": f"{env_name} is not set", "payload": payload}
+    # E4: redact every token-shaped string and every sensitive-key value
+    # before the body crosses the process boundary. Both the rendered
+    # text and the embedded JSON payload pass through the same walker
+    # so adversarial values in finding evidence never reach Teams/Slack.
+    redacted_payload = _redact_value(payload)
     body = {
-        "text": _payload_text(payload, sink),
-        "auditex": payload,
+        "text": _redact_string(_payload_text(redacted_payload, sink)),
+        "auditex": redacted_payload,
     }
     response = requests.post(url, json=body, timeout=15)
     return {
