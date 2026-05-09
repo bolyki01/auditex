@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import smtplib
+import ssl
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
@@ -136,6 +137,25 @@ def _send_webhook(sink: str, payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _smtp_ssl_context(allow_self_signed: bool) -> ssl.SSLContext:
+    """Build the TLS context the SMTP sink uses for STARTTLS.
+
+    Default: ``ssl.create_default_context()`` — strict verification,
+    hostname check enabled, system CA bundle. Suitable for any
+    properly-configured outbound relay.
+
+    Opt-in: ``AUDITEX_SMTP_ALLOW_SELF_SIGNED=1`` relaxes both checks.
+    Used only for lab / pre-prod relays with non-public CA chains.
+    The relaxation surfaces in the response payload so audit trails
+    capture the elevated risk.
+    """
+    context = ssl.create_default_context()
+    if allow_self_signed:
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    return context
+
+
 def _send_smtp(payload: dict[str, Any]) -> dict[str, Any]:
     host = os.environ.get("AUDITEX_SMTP_HOST")
     to_addr = os.environ.get("AUDITEX_SMTP_TO")
@@ -147,14 +167,57 @@ def _send_smtp(payload: dict[str, Any]) -> dict[str, Any]:
             "payload": payload,
         }
     port = int(os.environ.get("AUDITEX_SMTP_PORT", "25"))
+    allow_self_signed = os.environ.get("AUDITEX_SMTP_ALLOW_SELF_SIGNED", "") == "1"
+    smtp_user = os.environ.get("AUDITEX_SMTP_USER")
+    smtp_password = os.environ.get("AUDITEX_SMTP_PASSWORD")
+
     message = EmailMessage()
     message["Subject"] = f"Auditex report for {payload.get('tenant_name') or 'tenant'}"
     message["From"] = from_addr
     message["To"] = to_addr
     message.set_content(_payload_text(payload, "smtp") + "\n\n" + json.dumps(payload, indent=2))
-    with smtplib.SMTP(host, port, timeout=15) as client:
-        client.send_message(message)
-    return {"status": "sent", "sink": "smtp", "payload": payload}
+
+    context = _smtp_ssl_context(allow_self_signed)
+    starttls_used = False
+    try:
+        with smtplib.SMTP(host, port, timeout=15) as client:
+            client.ehlo()
+            if not client.has_extn("STARTTLS"):
+                # E3 contract: refuse to send credentials/findings over a
+                # plaintext channel. Operators who genuinely need plaintext
+                # delivery should run an internal relay that wraps STARTTLS.
+                return {
+                    "status": "failed",
+                    "sink": "smtp",
+                    "payload": payload,
+                    "reason": (
+                        f"SMTP server {host}:{port} does not advertise STARTTLS; "
+                        "auditex refuses to send findings in plaintext"
+                    ),
+                }
+            client.starttls(context=context)
+            client.ehlo()
+            starttls_used = True
+            if smtp_user and smtp_password:
+                client.login(smtp_user, smtp_password)
+            client.send_message(message)
+    except ssl.SSLError as exc:
+        return {
+            "status": "failed",
+            "sink": "smtp",
+            "payload": payload,
+            "reason": (
+                f"SMTP TLS handshake failed: {exc}. Set "
+                "AUDITEX_SMTP_ALLOW_SELF_SIGNED=1 if you understand the risk."
+            ),
+        }
+    return {
+        "status": "sent",
+        "sink": "smtp",
+        "payload": payload,
+        "starttls_used": starttls_used,
+        "tls_verification_relaxed": allow_self_signed,
+    }
 
 
 def _ticket_summary_text(payload: dict[str, Any]) -> str:
