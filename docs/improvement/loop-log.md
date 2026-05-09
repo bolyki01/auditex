@@ -26,3 +26,4 @@ Started: 2026-05-09
 | 05:40 | D3   | green  | OSCAL reviewed-controls fix (real bug); tests +3 | f484008 |
 | 06:00 | D4   | green  | CSV deterministic sort (real fix); tests +7 | 5c20e4b |
 | 06:15 | D5   | green  | JSON trailing newline + stability; tests +7 | 5f21a7d |
+| 06:35 | E1   | green  | Jira dedup via fingerprint label; tests +3 | 2a5e746 |
