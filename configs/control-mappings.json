@@ -874,5 +874,86 @@
       "T1199",
       "T1078.004"
     ]
+  },
+  "service_health.active_service_issue": {
+    "cis_m365_v3": [
+      "1.1.1"
+    ],
+    "nist_800_53": [
+      "CP-2",
+      "SI-12"
+    ],
+    "iso_27001": [
+      "A.5.30",
+      "A.8.14"
+    ],
+    "soc2": [
+      "A1.2",
+      "A1.3"
+    ],
+    "nis2": [
+      "Article 21(2)(c)"
+    ],
+    "dora": [
+      "Article 11(1)"
+    ],
+    "mitre_attack": []
+  },
+  "external_identity.broad_guest_invite_policy": {
+    "cis_m365_v3": [
+      "1.1.5"
+    ],
+    "nist_800_53": [
+      "AC-2",
+      "AC-3",
+      "AC-21"
+    ],
+    "iso_27001": [
+      "A.5.10",
+      "A.5.16",
+      "A.5.19"
+    ],
+    "soc2": [
+      "CC6.1",
+      "CC6.3"
+    ],
+    "nis2": [
+      "Article 21(2)(d)",
+      "Article 21(2)(i)"
+    ],
+    "dora": [
+      "Article 28"
+    ],
+    "mitre_attack": [
+      "T1078.004",
+      "T1199"
+    ]
+  },
+  "consent_policy.admin_consent_workflow_disabled": {
+    "cis_m365_v3": [
+      "5.1.5",
+      "5.2.5"
+    ],
+    "nist_800_53": [
+      "AC-3",
+      "AC-6"
+    ],
+    "iso_27001": [
+      "A.5.16",
+      "A.5.17"
+    ],
+    "soc2": [
+      "CC6.1",
+      "CC6.3"
+    ],
+    "nis2": [
+      "Article 21(2)(d)"
+    ],
+    "dora": [
+      "Article 9(4)(a)"
+    ],
+    "mitre_attack": [
+      "T1528"
+    ]
   }
 }

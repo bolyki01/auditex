@@ -952,6 +952,7 @@ def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, 
             _finalize_finding(
                 {
                 "id": f"service_health:{item.get('id')}:active_service_issue",
+                "rule_id": "service_health.active_service_issue",
                 "severity": "medium",
                 "category": "service",
                 "title": "Active Microsoft 365 service issue",
@@ -960,6 +961,7 @@ def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, 
                 "affected_objects": [item.get("service") or item.get("title") or item.get("id")],
                 "evidence": item,
                 "evidence_refs": _normalized_evidence_refs("service_health_objects", item, "service_health"),
+                **_metadata_for("service_health.active_service_issue"),
             }
             )
         )
@@ -975,6 +977,7 @@ def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, 
             _finalize_finding(
                 {
                 "id": f"external_identity:{item.get('id')}:broad_guest_invite_policy",
+                "rule_id": "external_identity.broad_guest_invite_policy",
                 "severity": "medium",
                 "category": "external_access",
                 "title": "Broad guest invitation policy is enabled",
@@ -983,6 +986,7 @@ def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, 
                 "affected_objects": [item.get("id")],
                 "evidence": item,
                 "evidence_refs": _normalized_evidence_refs("external_identity_objects", item, "external_identity"),
+                **_metadata_for("external_identity.broad_guest_invite_policy"),
             }
             )
         )
@@ -1202,6 +1206,7 @@ def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, 
             _finalize_finding(
                 {
                 "id": f"consent_policy:{item.get('id')}:admin_consent_workflow_disabled",
+                "rule_id": "consent_policy.admin_consent_workflow_disabled",
                 "severity": "medium",
                 "category": "application",
                 "title": "Admin consent request workflow is disabled",
@@ -1210,6 +1215,7 @@ def _normalized_findings(normalized_snapshot: dict[str, Any]) -> list[dict[str, 
                 "affected_objects": [item.get("id")],
                 "evidence": item,
                 "evidence_refs": _normalized_evidence_refs("consent_policy_objects", item, "consent_policy"),
+                **_metadata_for("consent_policy.admin_consent_workflow_disabled"),
             }
             )
         )

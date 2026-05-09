@@ -286,5 +286,32 @@
     "references": ["BIMI draft (Brand Indicators for Message Identification)"],
     "control_ids": ["AUDITEX-DNS-BIMI-LOGO-INSECURE"],
     "expected_value": "BIMI l= URL uses the https:// scheme."
+  },
+  "service_health.active_service_issue": {
+    "risk_rating": "medium",
+    "description": "An active Microsoft 365 service issue is currently affecting the tenant or one of its services.",
+    "impact": "Active service degradations or interruptions may invalidate evidence collected during the audit window and can mask other anomalies; operators should correlate the audit findings with the timeline of the service issue.",
+    "remediation": "Track the issue in the Microsoft 365 admin center service-health board, document any audit-evidence gaps caused by the outage, and re-run affected collectors once the service is restored.",
+    "references": ["Microsoft 365 service health"],
+    "control_ids": ["AUDITEX-SERVICE-HEALTH-ACTIVE-ISSUE"],
+    "expected_value": "No active service issues during the audit window."
+  },
+  "external_identity.broad_guest_invite_policy": {
+    "risk_rating": "medium",
+    "description": "Authorization policy allows guest invitations from anyone (including unauthenticated members).",
+    "impact": "Tenant-wide ``allowInvitesFrom=everyone`` lets any member invite arbitrary external identities into the tenant, expanding the attack surface and bypassing partner-specific governance.",
+    "remediation": "Restrict ``allowInvitesFrom`` to ``adminsAndGuestInviters`` (CIS-recommended) or ``adminsGuestInvitersAndAllMembers`` with reviewer rotation; document who can invite externals.",
+    "references": ["Microsoft Entra authorization policy", "CIS Microsoft 365 Foundations 1.1.5"],
+    "control_ids": ["AUDITEX-EXTID-BROAD-INVITE"],
+    "expected_value": "allowInvitesFrom restricted to adminsAndGuestInviters or stricter."
+  },
+  "consent_policy.admin_consent_workflow_disabled": {
+    "risk_rating": "medium",
+    "description": "Admin consent request workflow is disabled for users requiring app permissions beyond the user-consent allowlist.",
+    "impact": "Without the admin-consent workflow, end-users either consent unilaterally to risky scopes or are blocked entirely with no escalation path — both outcomes erode tenant governance over OAuth grants.",
+    "remediation": "Enable the admin consent request workflow (Microsoft Entra → Enterprise applications → Consent and permissions → Admin consent settings) and assign reviewers with a documented SLA.",
+    "references": ["Microsoft Entra admin consent workflow"],
+    "control_ids": ["AUDITEX-CONSENT-WORKFLOW-DISABLED"],
+    "expected_value": "Admin consent request workflow enabled with named reviewers."
   }
 }
