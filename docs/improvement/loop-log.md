@@ -28,3 +28,7 @@ Started: 2026-05-09
 | 06:15 | D5   | green  | JSON trailing newline + stability; tests +7 | 5f21a7d |
 | 06:35 | E1   | green  | Jira dedup via fingerprint label; tests +3 | 2a5e746 |
 | 06:50 | E2   | green  | GitHub dedup via fingerprint title token; tests +3 | 50252f5 |
+| 09:00 | live | green  | sensitive-key allowlist (real fix); tests +5 | dfa45ab |
+| 09:05 | live | green  | diagnostic aggregation (real fix); tests +5 | 551b088 |
+| 09:08 | live | green  | usage-report anonymization (real fix); tests +5 | dae72d8 |
+| 09:12 | live | green  | 3 silent rule_ids + templates + mappings   | 8ed5517 |
