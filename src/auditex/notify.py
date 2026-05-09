@@ -258,6 +258,44 @@ def _send_jira(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _github_search_existing_issue(
+    api_root: str, repo: str, fingerprint_token: str, token: str
+) -> tuple[int | None, str | None]:
+    """Search GitHub for an open issue whose title contains the dedup
+    token. Returns ``(issue_number, html_url)`` when found, ``(None, None)``
+    on miss or error (fail-open).
+    """
+    query = f'repo:{repo} is:issue in:title "{fingerprint_token}"'
+    url = f"{api_root.rstrip('/')}/search/issues"
+    try:
+        response = requests.get(
+            url,
+            params={"q": query, "per_page": 1},
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=15,
+        )
+    except Exception:  # noqa: BLE001
+        return None, None
+    if response.status_code >= 400:
+        return None, None
+    try:
+        items = response.json().get("items") or []
+    except (ValueError, AttributeError, TypeError):
+        return None, None
+    if not isinstance(items, list) or not items:
+        return None, None
+    first = items[0]
+    if not isinstance(first, dict):
+        return None, None
+    number = first.get("number")
+    html_url = first.get("html_url")
+    return (int(number) if number is not None else None, str(html_url) if html_url else None)
+
+
 def _send_github(payload: dict[str, Any]) -> dict[str, Any]:
     token = os.environ.get("AUDITEX_GITHUB_TOKEN")
     repo = os.environ.get("AUDITEX_GITHUB_REPO")
@@ -278,22 +316,71 @@ def _send_github(payload: dict[str, Any]) -> dict[str, Any]:
             "reason": f"missing env: {', '.join(missing)}",
             "payload": payload,
         }
-    title = f"[Auditex] {payload.get('tenant_name') or 'tenant'} run – {payload.get('finding_count', 0)} findings"
+    fingerprint = _run_fingerprint(payload)
+    fingerprint_token = f"fp:{fingerprint}"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    title = (
+        f"[Auditex] {payload.get('tenant_name') or 'tenant'} run – "
+        f"{payload.get('finding_count', 0)} findings ({fingerprint_token})"
+    )
     body_lines = [_ticket_summary_text(payload), "", "```json", json.dumps(payload, indent=2), "```"]
+    issue_body_text = "\n".join(body_lines)
+
+    # E2 dedup: search for an existing issue whose title contains the
+    # fingerprint token. If found, append a comment instead of creating
+    # a duplicate. Search failures fall through to create (fail-open).
+    existing_number, existing_url = _github_search_existing_issue(
+        api_root, repo, fingerprint_token, token
+    )
+    if existing_number is not None:
+        comment_url = (
+            f"{api_root.rstrip('/')}/repos/{repo}/issues/{existing_number}/comments"
+        )
+        comment_response = requests.post(
+            comment_url,
+            json={"body": issue_body_text},
+            headers=headers,
+            timeout=15,
+        )
+        if comment_response.status_code < 400:
+            return {
+                "status": "commented",
+                "sink": "github",
+                "payload": payload,
+                "http_status": comment_response.status_code,
+                "response_text": comment_response.text,
+                "issue_number": existing_number,
+                "issue_url": existing_url,
+                "fingerprint": fingerprint,
+            }
+        # Comment failed — return a structured failure rather than fall
+        # through and create a duplicate issue.
+        return {
+            "status": "failed",
+            "sink": "github",
+            "payload": payload,
+            "http_status": comment_response.status_code,
+            "response_text": comment_response.text,
+            "issue_number": existing_number,
+            "issue_url": existing_url,
+            "fingerprint": fingerprint,
+        }
+
     body = {
         "title": title[:250],
-        "body": "\n".join(body_lines),
+        "body": issue_body_text,
         "labels": [label.strip() for label in labels_env.split(",") if label.strip()],
     }
     url = f"{api_root.rstrip('/')}/repos/{repo}/issues"
     response = requests.post(
         url,
         json=body,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
+        headers=headers,
         timeout=15,
     )
     issue_number: int | None = None
@@ -313,6 +400,7 @@ def _send_github(payload: dict[str, Any]) -> dict[str, Any]:
         "response_text": response.text,
         "issue_number": issue_number,
         "issue_url": issue_url,
+        "fingerprint": fingerprint,
     }
 
 
